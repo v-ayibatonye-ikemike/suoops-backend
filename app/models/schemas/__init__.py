@@ -14,10 +14,16 @@ Sub-modules:
 from .analytics import (
     AgingReport,
     AnalyticsDashboard,
+    ActivityMixOut,
+    BusinessSnapshotOut,
     CustomerMetrics,
+    DataProvenanceOut,
     InvoiceMetrics,
     MonthlyTrend,
+    PaymentReliabilityOut,
+    RevenueConsistencyOut,
     RevenueMetrics,
+    TaxComplianceOut,
 )
 
 # Auth schemas
@@ -111,4 +117,10 @@ __all__ = [
     "AgingReport",
     "MonthlyTrend",
     "AnalyticsDashboard",
+    "BusinessSnapshotOut",
+    "PaymentReliabilityOut",
+    "RevenueConsistencyOut",
+    "TaxComplianceOut",
+    "ActivityMixOut",
+    "DataProvenanceOut",
 ]

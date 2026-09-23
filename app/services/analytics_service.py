@@ -1056,3 +1056,240 @@ def calculate_margin_insights(
         "product_margins": product_margins[:10],
         "low_margin_count": sum(1 for p in product_margins if p["margin_percent"] < 20),
     }
+
+
+# ── Business Snapshot ─────────────────────────────────────────────────
+# An alternative-data activity summary assembled entirely from numbers
+# SuoOps already computes elsewhere (aging, professionalism, monthly
+# trends, tax profile). No ML, no external bureau, no new data source —
+# this exists so a business's own SuoOps activity can be handed to a
+# financial institution as one input alongside their own underwriting.
+
+
+def calculate_business_snapshot(db: Session, user_id: int) -> dict:
+    """Composite SME activity snapshot — NOT a credit score.
+
+    Every component below is a plain, auditable calculation reusing
+    existing analytics functions; the weights are explicit so a reader
+    (a business owner or a bank reviewing it) can see exactly what feeds
+    the number instead of a black-box score.
+    """
+    today = date.today()
+    twelve_months_ago = today - timedelta(days=365)
+    twelve_months_ago_dt = datetime.combine(twelve_months_ago, datetime.min.time())
+
+    base_revenue_filter = [
+        models.Invoice.issuer_id == user_id,
+        models.Invoice.invoice_type == "revenue",
+        exclude_abandoned_storefront(),
+    ]
+
+    # ── 1. Payment reliability (35%) ──────────────────────────────────
+    # Share of everything billed in the last 12 months that's actually
+    # paid, penalised for how much of it is sitting overdue 60+ days.
+    counts_row = (
+        db.query(
+            func.count(models.Invoice.id).label("total"),
+            func.sum(case((models.Invoice.status == "paid", 1), else_=0)).label("paid"),
+        )
+        .filter(*base_revenue_filter, models.Invoice.created_at >= twelve_months_ago_dt)
+        .first()
+    )
+    total_count = counts_row.total or 0
+    paid_count = counts_row.paid or 0
+    # No billing history yet — neutral, not penalised (nothing to judge).
+    paid_ratio = (paid_count / total_count * 100) if total_count else 100.0
+
+    aging = calculate_aging_report(db, user_id, today, Decimal("1"))
+    total_billed = (
+        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
+        .filter(*base_revenue_filter, models.Invoice.created_at >= twelve_months_ago_dt)
+        .scalar()
+    ) or 0
+    overdue_ratio = (
+        float(aging.over_90_days + aging.days_61_90) / float(total_billed) * 100
+        if total_billed
+        else 0.0
+    )
+    payment_reliability_score = max(0.0, min(100.0, paid_ratio - overdue_ratio * 0.5))
+
+    # ── 2. Revenue consistency (20%) ──────────────────────────────────
+    # Months, out of the last 6, with any paid revenue — rewards steady
+    # trading over one lucky month. Reuses the existing monthly-trends
+    # calculation rather than a new query.
+    monthly_trends = calculate_monthly_trends(db, user_id, today, Decimal("1"))
+    last_six_months = monthly_trends[-6:]
+    months_with_revenue = sum(1 for m in last_six_months if m.revenue > 0)
+    revenue_consistency_score = min(100.0, months_with_revenue / 6 * 100)
+
+    # ── 3. Professionalism (15%) — reuse the existing 0-100 score ─────
+    professionalism = calculate_professionalism_score(db, user_id)
+
+    # ── 4. Tax / VAT compliance signal (15%) ──────────────────────────
+    from app.models.tax_models import MonthlyTaxReport, TaxProfile
+
+    tax_profile = db.query(TaxProfile).filter(TaxProfile.user_id == user_id).first()
+    has_tax_report = (
+        db.query(MonthlyTaxReport.id).filter(MonthlyTaxReport.user_id == user_id).first()
+        is not None
+    )
+    vat_registered = bool(tax_profile.vat_registered) if tax_profile else False
+    # VAT registration isn't required below Nigeria's ₦25M threshold, so
+    # being unregistered is NOT penalised — only evidence of active
+    # tracking (a generated tax report, or VAT registration) is rewarded;
+    # everyone else gets a neutral baseline rather than a penalty.
+    tax_compliance_score = 100.0 if (vat_registered or has_tax_report) else 50.0
+
+    # ── 5. Activity depth (15%) ───────────────────────────────────────
+    # More recorded transactions -> more confidence in every other number
+    # above. Caps at 100 around ~5 transactions/month over 6 months.
+    six_months_ago_dt = datetime.combine(today - timedelta(days=180), datetime.min.time())
+    activity_count = (
+        db.query(func.count(models.Invoice.id))
+        .filter(*base_revenue_filter, models.Invoice.created_at >= six_months_ago_dt)
+        .scalar()
+    ) or 0
+    activity_depth_score = min(100.0, activity_count / 30 * 100)
+
+    weights = {
+        "payment_reliability": 0.35,
+        "revenue_consistency": 0.20,
+        "professionalism": 0.15,
+        "tax_compliance": 0.15,
+        "activity_depth": 0.15,
+    }
+    components = {
+        "payment_reliability": round(payment_reliability_score, 1),
+        "revenue_consistency": round(revenue_consistency_score, 1),
+        "professionalism": round(float(professionalism["score"]), 1),
+        "tax_compliance": round(tax_compliance_score, 1),
+        "activity_depth": round(activity_depth_score, 1),
+    }
+    composite = round(sum(components[k] * w for k, w in weights.items()), 1)
+
+    if composite >= 80:
+        level = "Excellent"
+    elif composite >= 60:
+        level = "Good"
+    elif composite >= 40:
+        level = "Fair"
+    else:
+        level = "Early stage"
+
+    # ── Activity mix: billed-to-a-customer vs walk-in sales, for context ──
+    quick_sale_row = (
+        db.query(
+            func.count(models.Invoice.id),
+            func.coalesce(func.sum(models.Invoice.amount), 0),
+        )
+        .filter(
+            *base_revenue_filter,
+            models.Invoice.channel == "quick_sale",
+            models.Invoice.created_at >= twelve_months_ago_dt,
+        )
+        .first()
+    )
+    billed_row = (
+        db.query(
+            func.count(models.Invoice.id),
+            func.coalesce(func.sum(models.Invoice.amount), 0),
+        )
+        .filter(
+            *base_revenue_filter,
+            or_(models.Invoice.channel != "quick_sale", models.Invoice.channel.is_(None)),
+            models.Invoice.created_at >= twelve_months_ago_dt,
+        )
+        .first()
+    )
+
+    # ── Data provenance: gateway-confirmed vs self-reported paid amounts ──
+    # A payment is "gateway confirmed" when a webhook (Paystack/Flutterwave)
+    # flipped it to paid with no human clicking "mark paid"
+    # (status_updated_by_user_id is unset), or it came through the
+    # storefront/escrow checkout. Everything else — including quick sales —
+    # is the business itself reporting that it got paid (cash in hand).
+    # Both are useful signals to a bank; they just carry different trust
+    # levels, so they're kept separate rather than blended into one figure.
+    provenance_row = (
+        db.query(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            or_(
+                                models.Invoice.channel == "storefront",
+                                models.Invoice.status_updated_by_user_id.is_(None),
+                            ),
+                            models.Invoice.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("gateway_confirmed"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                or_(
+                                    models.Invoice.channel != "storefront",
+                                    models.Invoice.channel.is_(None),
+                                ),
+                                models.Invoice.status_updated_by_user_id.isnot(None),
+                            ),
+                            models.Invoice.amount,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("self_reported"),
+        )
+        .filter(
+            *base_revenue_filter,
+            models.Invoice.status == "paid",
+            models.Invoice.created_at >= twelve_months_ago_dt,
+        )
+        .first()
+    )
+
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "period_months": 12,
+        "composite_score": composite,
+        "level": level,
+        "components": components,
+        "component_weights": weights,
+        "payment_reliability": {
+            "paid_ratio": round(paid_ratio, 1),
+            "overdue_ratio": round(overdue_ratio, 1),
+            "aging": aging,
+        },
+        "revenue_consistency": {
+            "months_with_revenue": months_with_revenue,
+            "months_checked": 6,
+        },
+        "professionalism_score": professionalism["score"],
+        "tax_compliance": {
+            "vat_registered": vat_registered,
+            "has_generated_tax_report": has_tax_report,
+            "business_size": tax_profile.business_size if tax_profile else None,
+        },
+        "activity_mix": {
+            "billed_invoice_count": billed_row[0] or 0,
+            "billed_invoice_amount": float(billed_row[1] or 0),
+            "walk_in_sale_count": quick_sale_row[0] or 0,
+            "walk_in_sale_amount": float(quick_sale_row[1] or 0),
+        },
+        "data_provenance": {
+            "gateway_confirmed_amount": float(provenance_row.gateway_confirmed or 0),
+            "self_reported_amount": float(provenance_row.self_reported or 0),
+        },
+        "disclaimer": (
+            "This is an alternative-data activity snapshot generated from a "
+            "business's own SuoOps records. It is NOT a credit score and does "
+            "not assess default risk — it is intended as one input alongside "
+            "a financial institution's own underwriting and cross-bank data."
+        ),
+    }

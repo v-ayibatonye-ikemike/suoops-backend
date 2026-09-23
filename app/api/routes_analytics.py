@@ -16,9 +16,10 @@ from app.api.routes_auth import get_current_user_id
 from app.db.session import get_db
 from app.models import models
 from app.utils.feature_gate import require_plan_feature
-from app.models.schemas import AnalyticsDashboard
+from app.models.schemas import AnalyticsDashboard, BusinessSnapshotOut
 from app.services.analytics_service import (
     calculate_aging_report,
+    calculate_business_snapshot,
     calculate_cash_position,
     calculate_customer_insights,
     calculate_customer_metrics,
@@ -354,6 +355,28 @@ def get_professionalism_score(
     """
     require_plan_feature(db, current_user_id, "professionalism_score", "Professionalism Score")
     return calculate_professionalism_score(db, data_owner_id)
+
+
+# ── Business Snapshot ─────────────────────────────────────────────────
+
+
+@router.get("/business-snapshot", response_model=BusinessSnapshotOut)
+def get_business_snapshot(
+    current_user_id: CurrentUserDep,
+    data_owner_id: DataOwnerDep,
+    db: DbDep,
+):
+    """Composite SME activity snapshot for sharing with a financial
+    institution — payment reliability, revenue consistency,
+    professionalism, tax/VAT compliance signal, and activity depth,
+    assembled from data SuoOps already has.
+
+    NOT a credit score (see the `disclaimer` field) — an alternative-data
+    input intended to sit alongside a bank's own underwriting and
+    cross-bank data, not replace it.
+    """
+    require_plan_feature(db, current_user_id, "cash_dashboard", "Business Snapshot")
+    return calculate_business_snapshot(db, data_owner_id)
 
 
 # ── Margin & Discount Insights ───────────────────────────────────────

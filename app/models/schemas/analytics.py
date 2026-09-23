@@ -64,3 +64,61 @@ class AnalyticsDashboard(BaseModel):
     customers: CustomerMetrics
     aging: AgingReport
     monthly_trends: list[MonthlyTrend]
+
+
+class PaymentReliabilityOut(BaseModel):
+    """How much of what's been billed (last 12 months) actually got paid."""
+    paid_ratio: float  # % of revenue invoices that are paid
+    overdue_ratio: float  # % of billed amount stuck 60+ days overdue
+    aging: AgingReport
+
+
+class RevenueConsistencyOut(BaseModel):
+    """Trading steadiness over the last 6 months."""
+    months_with_revenue: int
+    months_checked: int
+
+
+class TaxComplianceOut(BaseModel):
+    """Tax/VAT tracking signal — not registration status alone."""
+    vat_registered: bool
+    has_generated_tax_report: bool
+    business_size: str | None = None
+
+
+class ActivityMixOut(BaseModel):
+    """Billed-to-a-customer sales vs walk-in (Quick Sale) sales."""
+    billed_invoice_count: int
+    billed_invoice_amount: float
+    walk_in_sale_count: int
+    walk_in_sale_amount: float
+
+
+class DataProvenanceOut(BaseModel):
+    """Gateway-confirmed (Paystack/Flutterwave/storefront) vs self-reported
+    (business marked it paid itself, e.g. cash) paid amounts — different
+    trust levels, kept separate rather than blended into one figure."""
+    gateway_confirmed_amount: float
+    self_reported_amount: float
+
+
+class BusinessSnapshotOut(BaseModel):
+    """Composite SME activity snapshot assembled from existing SuoOps data.
+
+    NOT a credit score — see `disclaimer`. Intended as one alternative-data
+    input a business can share with a financial institution alongside the
+    institution's own underwriting and cross-bank data.
+    """
+    generated_at: dt.datetime
+    period_months: int
+    composite_score: float
+    level: str
+    components: dict[str, float]
+    component_weights: dict[str, float]
+    payment_reliability: PaymentReliabilityOut
+    revenue_consistency: RevenueConsistencyOut
+    professionalism_score: float
+    tax_compliance: TaxComplianceOut
+    activity_mix: ActivityMixOut
+    data_provenance: DataProvenanceOut
+    disclaimer: str
