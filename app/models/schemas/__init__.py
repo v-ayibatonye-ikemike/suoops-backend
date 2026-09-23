@@ -18,6 +18,7 @@ from .analytics import (
     BusinessSnapshotOut,
     CustomerMetrics,
     DataProvenanceOut,
+    FulfillmentReliabilityOut,
     InvoiceMetrics,
     MonthlyTrend,
     PaymentReliabilityOut,
@@ -122,5 +123,6 @@ __all__ = [
     "RevenueConsistencyOut",
     "TaxComplianceOut",
     "ActivityMixOut",
+    "FulfillmentReliabilityOut",
     "DataProvenanceOut",
 ]

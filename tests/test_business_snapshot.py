@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import Customer, Invoice, User
+from app.models.models import Customer, Invoice, StorefrontOrderEscrow, User
 from app.services.analytics_service import calculate_business_snapshot
 
 engine = create_engine("sqlite:///:memory:")
@@ -84,6 +84,26 @@ def _make_invoice(
     return invoice
 
 
+def _make_escrow(
+    db_session,
+    invoice: Invoice,
+    seller_id: int,
+    *,
+    status: str = "released",
+    disputed: bool = False,
+) -> StorefrontOrderEscrow:
+    escrow = StorefrontOrderEscrow(
+        invoice_id=invoice.id,
+        seller_id=seller_id,
+        status=status,
+        disputed_at=invoice.created_at if disputed else None,
+        created_at=invoice.created_at,
+    )
+    db_session.add(escrow)
+    db_session.commit()
+    return escrow
+
+
 def test_snapshot_with_no_history_is_neutral_not_penalised(db_session, test_user):
     """A brand-new business with zero invoices shouldn't be scored as risky —
     there's nothing to judge yet, so payment reliability defaults neutral."""
@@ -92,6 +112,9 @@ def test_snapshot_with_no_history_is_neutral_not_penalised(db_session, test_user
     assert snapshot["payment_reliability"]["paid_ratio"] == 100.0
     assert 0.0 <= snapshot["composite_score"] <= 100.0
     assert "not a credit score" in snapshot["disclaimer"].lower()
+    # Zero storefront orders is neutral too — nothing to judge yet.
+    assert snapshot["fulfillment_reliability"]["total_storefront_orders"] == 0
+    assert snapshot["components"]["fulfillment_reliability"] == 100.0
 
 
 def test_snapshot_splits_activity_mix_and_data_provenance(db_session, test_user, test_customer):
@@ -159,3 +182,41 @@ def test_snapshot_component_weights_sum_to_one(db_session, test_user):
         snapshot["components"][k] * w for k, w in snapshot["component_weights"].items()
     )
     assert snapshot["composite_score"] == pytest.approx(round(expected, 1))
+
+
+def test_snapshot_fulfillment_reliability_perfect_when_all_delivered(db_session, test_user, test_customer):
+    for _ in range(3):
+        inv = _make_invoice(
+            db_session, test_user.id, test_customer.id, Decimal("4000"),
+            status="paid", channel="storefront", status_updated_by_user_id=test_user.id,
+        )
+        _make_escrow(db_session, inv, test_user.id, status="released")
+
+    snapshot = calculate_business_snapshot(db_session, test_user.id)
+
+    assert snapshot["fulfillment_reliability"]["total_storefront_orders"] == 3
+    assert snapshot["fulfillment_reliability"]["delivered_and_released_count"] == 3
+    assert snapshot["components"]["fulfillment_reliability"] == 100.0
+
+
+def test_snapshot_fulfillment_reliability_penalised_by_disputes_and_refunds(db_session, test_user, test_customer):
+    def _order(status: str, disputed: bool = False):
+        inv = _make_invoice(
+            db_session, test_user.id, test_customer.id, Decimal("2000"),
+            status="paid", channel="storefront", status_updated_by_user_id=test_user.id,
+        )
+        return _make_escrow(db_session, inv, test_user.id, status=status, disputed=disputed)
+
+    _order("released")
+    _order("released")
+    _order("refunded")  # confirmed non-delivery against the seller
+    _order("released", disputed=True)  # a dispute was raised, later resolved in the seller's favour
+
+    snapshot = calculate_business_snapshot(db_session, test_user.id)
+
+    fr = snapshot["fulfillment_reliability"]
+    assert fr["total_storefront_orders"] == 4
+    assert fr["refunded_count"] == 1
+    assert fr["disputed_count"] == 1
+    # 100 - (1/4 * 100 refund_rate) - (1/4 * 100 dispute_rate) = 50.0
+    assert snapshot["components"]["fulfillment_reliability"] == pytest.approx(50.0)

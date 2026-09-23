@@ -101,6 +101,17 @@ class ActivityMixOut(BaseModel):
     walk_in_sale_amount: float
 
 
+class FulfillmentReliabilityOut(BaseModel):
+    """Storefront escrow/delivery outcomes — proof goods actually moved and
+    were received (dispatch photo, courier tracking, buyer-only confirmation
+    code), not just that an invoice was billed. Zero storefront orders is
+    neutral (nothing to judge), not a penalty."""
+    total_storefront_orders: int
+    delivered_and_released_count: int
+    disputed_count: int
+    refunded_count: int
+
+
 class DataProvenanceOut(BaseModel):
     """Gateway-confirmed (Paystack/Flutterwave/storefront) vs self-reported
     (business marked it paid itself, e.g. cash) paid amounts — different
@@ -127,5 +138,6 @@ class BusinessSnapshotOut(BaseModel):
     professionalism_score: float
     tax_compliance: TaxComplianceOut
     activity_mix: ActivityMixOut
+    fulfillment_reliability: FulfillmentReliabilityOut
     data_provenance: DataProvenanceOut
     disclaimer: str

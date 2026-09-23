@@ -1148,7 +1148,7 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
     # *any* real evidence, self-declared or verified).
     tax_compliance_score = 100.0 if (vat_registered or has_tax_report or mono_verified) else 50.0
 
-    # ── 5. Activity depth (15%) ───────────────────────────────────────
+    # ── 5. Activity depth (10%) ───────────────────────────────────────
     # More recorded transactions -> more confidence in every other number
     # above. Caps at 100 around ~5 transactions/month over 6 months.
     six_months_ago_dt = datetime.combine(today - timedelta(days=180), datetime.min.time())
@@ -1159,12 +1159,50 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
     ) or 0
     activity_depth_score = min(100.0, activity_count / 30 * 100)
 
+    # ── 6. Fulfillment reliability (20%) ──────────────────────────────
+    # Storefront orders carry escrow + delivery proof (dispatch photo,
+    # courier tracking, buyer-only confirmation code) — proof goods
+    # actually moved and were received, not just that an invoice was
+    # billed. This is the strongest "supply chain visibility" signal
+    # SuoOps has: released = buyer confirmed receipt and the seller was
+    # paid; refunded = a confirmed non-delivery against the seller;
+    # disputed_at is set the moment a buyer raises ANY non-delivery
+    # claim, regardless of how it's later resolved. No storefront orders
+    # yet -> neutral, not penalised (same principle as payment reliability
+    # above: nothing to judge isn't evidence of a problem).
+    from app.models.models import StorefrontOrderEscrow
+
+    escrow_rows = (
+        db.query(
+            func.count(StorefrontOrderEscrow.id).label("total"),
+            func.sum(case((StorefrontOrderEscrow.status == "released", 1), else_=0)).label("released"),
+            func.sum(case((StorefrontOrderEscrow.status == "refunded", 1), else_=0)).label("refunded"),
+            func.sum(case((StorefrontOrderEscrow.disputed_at.isnot(None), 1), else_=0)).label("disputed"),
+        )
+        .filter(
+            StorefrontOrderEscrow.seller_id == user_id,
+            StorefrontOrderEscrow.created_at >= twelve_months_ago_dt,
+        )
+        .first()
+    )
+    total_escrow_orders = escrow_rows.total or 0
+    released_count = escrow_rows.released or 0
+    refunded_count = escrow_rows.refunded or 0
+    disputed_count = escrow_rows.disputed or 0
+    if total_escrow_orders == 0:
+        fulfillment_reliability_score = 100.0
+    else:
+        dispute_rate = disputed_count / total_escrow_orders * 100
+        refund_rate = refunded_count / total_escrow_orders * 100
+        fulfillment_reliability_score = max(0.0, 100.0 - dispute_rate - refund_rate)
+
     weights = {
-        "payment_reliability": 0.35,
-        "revenue_consistency": 0.20,
-        "professionalism": 0.15,
+        "payment_reliability": 0.30,
+        "revenue_consistency": 0.15,
+        "professionalism": 0.10,
         "tax_compliance": 0.15,
-        "activity_depth": 0.15,
+        "activity_depth": 0.10,
+        "fulfillment_reliability": 0.20,
     }
     components = {
         "payment_reliability": round(payment_reliability_score, 1),
@@ -1172,6 +1210,7 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
         "professionalism": round(float(professionalism["score"]), 1),
         "tax_compliance": round(tax_compliance_score, 1),
         "activity_depth": round(activity_depth_score, 1),
+        "fulfillment_reliability": round(fulfillment_reliability_score, 1),
     }
     composite = round(sum(components[k] * w for k, w in weights.items()), 1)
 
@@ -1292,6 +1331,12 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
             "billed_invoice_amount": float(billed_row[1] or 0),
             "walk_in_sale_count": quick_sale_row[0] or 0,
             "walk_in_sale_amount": float(quick_sale_row[1] or 0),
+        },
+        "fulfillment_reliability": {
+            "total_storefront_orders": total_escrow_orders,
+            "delivered_and_released_count": released_count,
+            "disputed_count": disputed_count,
+            "refunded_count": refunded_count,
         },
         "data_provenance": {
             "gateway_confirmed_amount": float(provenance_row.gateway_confirmed or 0),
