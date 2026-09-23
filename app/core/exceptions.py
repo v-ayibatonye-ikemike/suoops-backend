@@ -332,6 +332,37 @@ class FiscalizationError(TaxError):
         )
 
 
+class LookupBalanceExhaustedError(TaxError):
+    """User's prepaid wallet can't cover a Mono identity/registry lookup fee."""
+
+    def __init__(self, balance_kobo: int, required_kobo: int):
+        message = (
+            f"Your wallet balance (₦{balance_kobo / 100:,.2f}) is too low to cover "
+            f"this verification (₦{required_kobo / 100:,.2f}). Top up your wallet "
+            "and try again."
+        )
+        super().__init__(
+            message=message,
+            code="TAX302",
+            status_code=403,
+            details={"wallet_balance_kobo": balance_kobo, "required_kobo": required_kobo},
+        )
+
+
+class InvalidCACError(TaxError):
+    """CAC/RC registration number is invalid or not found."""
+
+    def __init__(self, rc_number: str, reason: str | None = None):
+        base_message = f"Invalid CAC/RC number: {rc_number}"
+        message = f"{base_message}. {reason}" if reason else base_message
+        super().__init__(
+            message=message,
+            code="TAX303",
+            status_code=400,
+            details={"rc_number": rc_number, "reason": reason},
+        )
+
+
 # ============================================================================
 # SYSTEM ERRORS (SYS400-499)
 # ============================================================================

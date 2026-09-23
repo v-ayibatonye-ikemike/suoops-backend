@@ -247,6 +247,11 @@ class BaseAppSettings(BaseSettings):
     # Flutterwave echoes it in the `verif-hash` header; we reject any webhook whose
     # header doesn't match. Required for the Flutterwave collection webhook.
     FLUTTERWAVE_WEBHOOK_HASH: str | None = None
+    # Mono (mono.co) Lookup API — TIN/CAC/BVN identity & registry verification.
+    # Charged per-call to the business's own wallet (see mono_lookup_service),
+    # never billed to SuoOps in bulk. Unset = feature disabled (404/501).
+    MONO_SECRET_KEY: str | None = None
+    MONO_BASE_URL: str = "https://api.mono.co"
     JWT_SECRET: str = "change_me"
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_SSL_CERT_REQS: str | None = "required"

@@ -84,6 +84,13 @@ class TaxComplianceOut(BaseModel):
     vat_registered: bool
     has_generated_tax_report: bool
     business_size: str | None = None
+    # Independently confirmed via Mono Lookup — a stronger signal than the
+    # self-declared fields above, since it's verified against an external
+    # registry (FIRS for TIN, CAC for company registration) rather than
+    # taken at the business's word.
+    tin_verified: bool = False
+    cac_verified: bool = False
+    cac_registered_name: str | None = None
 
 
 class ActivityMixOut(BaseModel):

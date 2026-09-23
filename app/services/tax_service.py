@@ -210,6 +210,7 @@ class TaxProfileService:
             "tax_rates": profile.tax_rates,
             "registration": {
                 "tin": profile.tin,
+                "tin_verified": profile.tin_verified or False,
                 "vat_registered": profile.vat_registered,
                 "vat_number": profile.vat_registration_number,
                 "firs_registered": profile.firs_registered,
@@ -217,6 +218,9 @@ class TaxProfileService:
                 "business_type": profile.business_type or "mixed",
                 "vat_apply_to": profile.vat_apply_to or "all",
                 "withholding_vat_applies": profile.withholding_vat_applies or False,
+                "rc_number": profile.rc_number,
+                "cac_verified": profile.cac_verified or False,
+                "cac_registered_name": profile.cac_registered_name,
             },
             "tax_benefits": self._get_tax_benefits(profile)
         }

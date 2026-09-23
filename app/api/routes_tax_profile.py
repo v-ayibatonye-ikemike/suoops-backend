@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.api.routes_auth import get_current_user_id
 from app.db.session import get_db
+from app.services.mono_lookup_service import (
+    LOOKUP_COST_KOBO,
+    verify_business_cac,
+    verify_business_tin,
+)
 from app.services.tax_service import TaxProfileService
 from app.utils.feature_gate import require_plan_feature
 
@@ -25,6 +30,18 @@ class TaxProfileUpdate(BaseModel):
     business_type: Optional[str] = Field(None, pattern="^(goods|services|mixed)$")
     vat_apply_to: Optional[str] = Field(None, pattern="^(all|selected)$")
     withholding_vat_applies: Optional[bool] = None
+
+
+class CACVerifyIn(BaseModel):
+    rc_number: str = Field(..., min_length=2, max_length=20, description="CAC/RC registration number")
+
+
+class VerificationResultOut(BaseModel):
+    verified: bool
+    verification_status: str
+    charged_kobo: int
+    registered_name: Optional[str] = None
+    message: str
 
 
 @router.get("/profile")
@@ -97,3 +114,52 @@ def tax_compliance(
         return summary
     except Exception as e:  # pragma: no cover
         raise HTTPException(status_code=500, detail="Failed compliance summary") from e
+
+
+@router.post("/profile/verify-tin", response_model=VerificationResultOut)
+def verify_tin(
+    current_user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Verify the business's TIN via Mono Lookup, charged from their own
+    wallet — not gated by plan, since it's a metered, opt-in, self-funded
+    action rather than a subscription feature. Idempotent: an
+    already-verified TIN returns immediately at no charge.
+    SuoOpsException subclasses (invalid TIN, insufficient wallet balance,
+    Mono not configured/unavailable) are handled by the global exception
+    handler registered in app.api.main.
+    """
+    try:
+        profile = verify_business_tin(db, current_user_id)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    return VerificationResultOut(
+        verified=profile.tin_verified,
+        verification_status=profile.verification_status,
+        charged_kobo=LOOKUP_COST_KOBO["tin"] if profile.tin_verified else 0,
+        message="TIN verified via Mono." if profile.tin_verified else "TIN verification pending.",
+    )
+
+
+@router.post("/profile/verify-cac", response_model=VerificationResultOut)
+def verify_cac(
+    data: CACVerifyIn,
+    current_user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Verify the business's CAC/RC registration via Mono Lookup, charged
+    from their own wallet. Confirms the business is a formally registered
+    legal entity — independent of, and a meaningful signal alongside, VAT
+    registration status.
+    """
+    try:
+        profile = verify_business_cac(db, current_user_id, data.rc_number)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    return VerificationResultOut(
+        verified=profile.cac_verified,
+        verification_status=profile.verification_status,
+        charged_kobo=LOOKUP_COST_KOBO["cac"] if profile.cac_verified else 0,
+        registered_name=profile.cac_registered_name,
+        message="CAC registration verified via Mono." if profile.cac_verified else "CAC verification pending.",
+    )

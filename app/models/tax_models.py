@@ -76,6 +76,15 @@ class TaxProfile(Base):
     vat_registered = Column(Boolean, default=False)
     vat_registration_number = Column(String(20), nullable=True)
 
+    # CAC (Corporate Affairs Commission) registration — verified via Mono
+    # Lookup. Distinct from tin_verified: this confirms the business is a
+    # formally registered legal entity, which is itself a meaningful signal
+    # even for businesses too small to be VAT-registered.
+    rc_number = Column(String(20), nullable=True, index=True)
+    cac_verified = Column(Boolean, default=False)
+    cac_registered_name = Column(String(200), nullable=True)  # name Mono returned
+    cac_verified_at = Column(DateTime, nullable=True)
+
     # Business type (for reporting clarity only, not enforcement)
     business_type = Column(String(20), default="mixed")  # goods, services, mixed
     # VAT application rules
@@ -130,13 +139,16 @@ class TaxProfile(Base):
                 "VAT": vat_rate     # Standard VAT rate
             }
 
-    def mark_verified(self, tin: bool = False, vat: bool = False) -> None:
+    def mark_verified(self, tin: bool = False, vat: bool = False, cac: bool = False) -> None:
         """Helper to update verified flags consistently."""
         if tin:
             self.tin_verified = True
         if vat:
             self.vat_verified = True
-        if self.tin_verified or self.vat_verified:
+        if cac:
+            self.cac_verified = True
+            self.cac_verified_at = datetime.now(timezone.utc)
+        if self.tin_verified or self.vat_verified or self.cac_verified:
             self.verification_status = "verified"
 
 

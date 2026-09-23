@@ -1134,11 +1134,19 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
         is not None
     )
     vat_registered = bool(tax_profile.vat_registered) if tax_profile else False
+    tin_verified = bool(tax_profile.tin_verified) if tax_profile else False
+    cac_verified = bool(tax_profile.cac_verified) if tax_profile else False
+    mono_verified = tin_verified or cac_verified
     # VAT registration isn't required below Nigeria's ₦25M threshold, so
     # being unregistered is NOT penalised — only evidence of active
     # tracking (a generated tax report, or VAT registration) is rewarded;
     # everyone else gets a neutral baseline rather than a penalty.
-    tax_compliance_score = 100.0 if (vat_registered or has_tax_report) else 50.0
+    # A Mono-verified TIN/CAC is a stronger signal than any of the above —
+    # it's independently confirmed by an external registry, not self-declared
+    # — so it earns full marks on its own, same ceiling as the others (this
+    # score doesn't stack extra credit for having both; it rewards having
+    # *any* real evidence, self-declared or verified).
+    tax_compliance_score = 100.0 if (vat_registered or has_tax_report or mono_verified) else 50.0
 
     # ── 5. Activity depth (15%) ───────────────────────────────────────
     # More recorded transactions -> more confidence in every other number
@@ -1275,6 +1283,9 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
             "vat_registered": vat_registered,
             "has_generated_tax_report": has_tax_report,
             "business_size": tax_profile.business_size if tax_profile else None,
+            "tin_verified": tin_verified,
+            "cac_verified": cac_verified,
+            "cac_registered_name": tax_profile.cac_registered_name if tax_profile else None,
         },
         "activity_mix": {
             "billed_invoice_count": billed_row[0] or 0,
