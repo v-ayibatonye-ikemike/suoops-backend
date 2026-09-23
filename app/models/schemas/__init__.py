@@ -61,6 +61,7 @@ from .invoice import (
     InvoiceVerificationItem,
     InvoiceVerificationOut,
     PaginatedResponse,
+    QuickSaleCreate,
     ReceiptUploadOut,
 )
 
@@ -68,6 +69,7 @@ __all__ = [
     # Invoice
     "InvoiceLineIn",
     "InvoiceCreate",
+    "QuickSaleCreate",
     "CustomerOut",
     "InvoiceOut",
     "InvoiceLineOut",

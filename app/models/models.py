@@ -216,7 +216,12 @@ class Invoice(Base):
     receipt_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Receipt image/PDF URL
     receipt_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # OCR extracted text
     input_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # voice, text, photo, manual
-    channel: Mapped[str | None] = mapped_column(String(20), nullable=True)  # whatsapp, email, dashboard
+    channel: Mapped[str | None] = mapped_column(String(20), nullable=True)  # whatsapp, email, dashboard, quick_sale
+    # How the sale was actually collected: cash, transfer, card, other. Populated
+    # for quick-sale (walk-in/in-person) invoices so the business's collection
+    # method is captured alongside the amount — the in-person equivalent of a
+    # POS transaction record.
+    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Fee ledger: the SuoOps commission (kobo) actually locked in for THIS invoice
     # at creation — manual invoices at the manual rate (charged from the wallet),
     # storefront/online at the storefront rate (collected by Paystack on payment).

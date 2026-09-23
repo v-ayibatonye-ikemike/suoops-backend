@@ -51,6 +51,25 @@ class InvoiceCreate(BaseModel):
         return self
 
 
+class QuickSaleCreate(BaseModel):
+    """A walk-in / in-person sale: no customer required, paid immediately.
+
+    Captures the in-person-equivalent of a POS transaction — amount, what was
+    sold, and how it was collected (cash/transfer/card) — without the
+    customer-billing fields a normal invoice needs. The sale is recorded and
+    marked paid in a single call.
+    """
+
+    amount: Decimal = Field(..., gt=0, description="Amount must be greater than 0")
+    currency: Literal["NGN", "USD"] = "NGN"
+    description: str | None = Field(default=None, max_length=200)
+    payment_method: Literal["cash", "transfer", "card", "other"] = "cash"
+    # Optional — most walk-in sales have no named customer. When provided, the
+    # sale is still recorded and marked paid immediately; this only helps the
+    # business recognise the entry later (e.g. a regular customer paying cash).
+    customer_name: str | None = None
+
+
 class CustomerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +101,9 @@ class InvoiceOut(BaseModel):
     # Origin channel (storefront, whatsapp, dashboard…) so the UI can adapt —
     # e.g. a storefront order hides the due date and payment-link fields.
     channel: str | None = None
+    # How the sale was collected (cash/transfer/card/other) — set for
+    # quick-sale (walk-in) invoices.
+    payment_method: str | None = None
     
     # Creator tracking for team scenarios
     created_by_user_id: int | None = None

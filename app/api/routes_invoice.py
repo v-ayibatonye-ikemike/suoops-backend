@@ -157,6 +157,65 @@ async def create_invoice(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/quick-sale", response_model=schemas.InvoiceOut)
+@limiter.limit("30/minute")
+async def create_quick_sale(
+    data: schemas.QuickSaleCreate,
+    request: Request,
+    current_user_id: CurrentUserDep,
+    data_owner_id: DataOwnerDep,
+    db: DbDep,
+):
+    """Record a walk-in / in-person sale and mark it paid in one step.
+
+    Unlike a normal invoice, no customer contact is required and no bank
+    details are needed (the deliverable is a receipt, not a "please pay"
+    document) — this is for cash/POS-style sales that are already settled at
+    the point of sale. The sale still goes through the same paid-invoice
+    pipeline as any other invoice (inventory deduction, receipt generation,
+    fraud-review gate on large self-confirmed amounts), so it behaves
+    identically to a business manually marking an invoice paid.
+    """
+    check_invoice_limit(db, data_owner_id)
+
+    svc = get_invoice_service_for_user(data_owner_id, db)
+    sale_data = {
+        "amount": data.amount,
+        "currency": data.currency,
+        "invoice_type": "revenue",
+        "channel": "quick_sale",
+        "payment_method": data.payment_method,
+        "customer_name": data.customer_name or "Walk-in Customer",
+        "lines": [
+            {
+                "description": data.description or "Walk-in sale",
+                "quantity": 1,
+                "unit_price": data.amount,
+            }
+        ],
+    }
+    try:
+        invoice = svc.create_invoice(
+            issuer_id=data_owner_id,
+            data=sale_data,
+            async_pdf=True,
+            created_by_user_id=current_user_id,
+        )
+        # A walk-in sale with no customer contact is created as
+        # "awaiting_confirmation" (see InvoiceCreationMixin.create_invoice) —
+        # flip it straight to "paid" since the money was already collected.
+        invoice = svc.update_status(
+            data_owner_id,
+            invoice.invoice_id,
+            "paid",
+            updated_by_user_id=current_user_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return invoice
+
+
 @router.post("/upload-receipt", response_model=schemas.ReceiptUploadOut)
 @limiter.limit("10/minute")
 async def upload_expense_receipt(

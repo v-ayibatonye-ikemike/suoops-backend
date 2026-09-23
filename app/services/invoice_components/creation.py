@@ -35,6 +35,15 @@ class InvoiceCreationMixin:
             amount = Decimal(str(data.get("amount")))
         except Exception:  # noqa: BLE001
             return None
+        # Quick-sale (walk-in) entries intentionally repeat: a shop can sell the
+        # same-priced item with the same generic "Walk-in Customer" name and
+        # description to several different customers within the same minute.
+        # Deduping those would silently merge distinct sales and undercount
+        # real business activity, so this guard only applies to named-customer
+        # invoices where a repeat really does look like an accidental
+        # double-submit.
+        if data.get("channel") == "quick_sale":
+            return None
         name = str(data.get("customer_name") or "").strip().lower()
         if not name:
             return None
@@ -205,6 +214,7 @@ class InvoiceCreationMixin:
             receipt_text=data.get("receipt_text"),
             input_method=data.get("input_method"),
             channel=data.get("channel"),
+            payment_method=data.get("payment_method"),
             verified=data.get("verified", False),
             expense_flag_reason=data.get("expense_flag_reason"),
             notes=notes,
@@ -256,10 +266,14 @@ class InvoiceCreationMixin:
         total_amount = sum(float(line.unit_price) * line.quantity for line in invoice.lines)
         metrics.record_invoice_amount(total_amount)
 
-        if invoice_type == "revenue" and invoice.channel == "storefront":
-            # Storefront orders have no pre-payment PDF — the deliverable (receipt)
-            # is produced on payment. Business invoices (even online-only) keep a
-            # PDF; it just hides the bank and shows the pay link instead.
+        if invoice_type == "revenue" and invoice.channel in ("storefront", "quick_sale"):
+            # Storefront orders and quick sales have no pre-payment PDF — the
+            # deliverable (receipt) is produced on payment. A quick sale is
+            # marked paid in the same request it's created in, so there's never
+            # a "please pay" document to send; it also means we don't need the
+            # business's bank details just to record a cash sale. Other
+            # business invoices (even online-only) keep a PDF; it just hides
+            # the bank and shows the pay link instead.
             invoice.pdf_url = None
         elif async_pdf:
             self._queue_pdf_generation(invoice, invoice_type, user)
