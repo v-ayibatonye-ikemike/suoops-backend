@@ -6,17 +6,28 @@ tax/registration fields on `TaxProfile` from self-declared to independently
 verified, which the Business Snapshot (`analytics_service`) surfaces as a
 stronger trust signal.
 
-IMPORTANT — endpoint paths not independently verified: Mono's API reference
-(docs.mono.co) is a client-rendered doc site that could not be scraped while
-building this integration, and there is no public server-side SDK listing
-exact Lookup routes (only Connect-widget frontend SDKs exist in Mono's public
-GitHub org). The auth header (`mono-sec-key`) is a well-established Mono
-convention used across their whole API, so that part is solid. The specific
-path constants below (`_TIN_LOOKUP_PATH`, `_CAC_LOOKUP_PATH`) are this
-integration's best-effort guess at Mono's REST conventions and MUST be
-confirmed against the API reference in the Mono dashboard (Documentation
-link after logging into app.mono.co) before this is enabled with a real
-MONO_SECRET_KEY in production.
+STATUS: NOT LIVE — blocked on licensing, not just an API key (2026-09-23).
+Mono's "Go live" flow requires an NDPR certificate AND a regulatory
+"Operating License" per product enabled on the account; SuoOps holds neither
+today. See MONO_SECRET_KEY in app.core.config for details. Everything in
+this file is built and unit-tested against a mocked client (see
+tests/test_mono_lookup_service.py) so the wallet-charging/idempotency logic
+is verified; only the real network call is blocked pending either SuoOps
+obtaining that licensing, or swapping MonoLookupClient for a licensed KYC
+aggregator's client (the class boundary here is deliberately narrow so that
+swap wouldn't touch the wallet/DB/UI code around it).
+
+IMPORTANT — endpoint paths ALSO not independently verified: Mono's API
+reference (docs.mono.co) is a client-rendered doc site that could not be
+scraped while building this integration, and there is no public server-side
+SDK listing exact Lookup routes (only Connect-widget frontend SDKs exist in
+Mono's public GitHub org). The auth header (`mono-sec-key`) is a
+well-established Mono convention used across their whole API, so that part
+is solid. The specific path constants below (`_TIN_LOOKUP_PATH`,
+`_CAC_LOOKUP_PATH`) are this integration's best-effort guess at Mono's REST
+conventions and MUST be confirmed against the API reference in the Mono
+dashboard before this is enabled with a real MONO_SECRET_KEY — on top of the
+licensing gate above.
 """
 from __future__ import annotations
 

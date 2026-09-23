@@ -249,7 +249,17 @@ class BaseAppSettings(BaseSettings):
     FLUTTERWAVE_WEBHOOK_HASH: str | None = None
     # Mono (mono.co) Lookup API — TIN/CAC/BVN identity & registry verification.
     # Charged per-call to the business's own wallet (see mono_lookup_service),
-    # never billed to SuoOps in bulk. Unset = feature disabled (404/501).
+    # never billed to SuoOps in bulk. Unset = feature disabled (ConfigurationError).
+    #
+    # BLOCKED (2026-09-23): going live on Mono's dashboard requires an NDPR
+    # certificate AND a regulatory "Operating License" per product enabled —
+    # SuoOps holds neither today. This is a compliance/licensing gate, not a
+    # missing API key, so do NOT set this in production until that's resolved
+    # (either SuoOps obtains the licensing, or this is swapped for a licensed
+    # KYC/verification aggregator that doesn't require SuoOps to hold its own
+    # license). The mono_lookup_service.MonoLookupClient class isolates the
+    # actual HTTP calls, so swapping providers later shouldn't require
+    # touching the wallet-charging, DB, or UI code built around it.
     MONO_SECRET_KEY: str | None = None
     MONO_BASE_URL: str = "https://api.mono.co"
     JWT_SECRET: str = "change_me"
