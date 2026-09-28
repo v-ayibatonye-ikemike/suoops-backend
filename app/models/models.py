@@ -372,6 +372,13 @@ class User(Base):
     storefront_announcement: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Discovery analytics — incremented on each public store view.
     storefront_views: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Opt-in: let SuoOps feature this store's products on SuoOps's own social
+    # media (Facebook/Instagram) via the automated curated posting job. Off by
+    # default — this is public re-publishing of the business's photos/name on
+    # a third-party (SuoOps) brand channel, so it's opt-in, not automatic.
+    social_promotion_opt_in: Mapped[bool] = mapped_column(
+        default=False, server_default="false", nullable=False
+    )
 
     # Precise business location (GPS-captured at storefront setup). Powers the
     # escrow same/different-state window and future delivery pickup point.
@@ -993,3 +1000,40 @@ class AuditLog(Base):
     details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+
+class SocialPost(Base):
+    """A single auto-generated social media post promoting one storefront
+    product on one platform (facebook/instagram) — created by the daily
+    social-marketing Celery job. One row per (product, platform) attempt, so
+    one platform failing doesn't block or hide the other's result, and each
+    platform's click-through is tracked independently via its own UTM link.
+    """
+
+    __tablename__ = "social_posts"
+    __table_args__ = (
+        # Rotation/fairness queries: "when did this seller last get featured".
+        Index("ix_social_posts_user_created", "user_id", "created_at"),
+        # "Don't re-feature this exact product too soon" queries.
+        Index("ix_social_posts_product_created", "product_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)  # the seller
+    platform: Mapped[str] = mapped_column(String(20), index=True)  # "facebook" | "instagram"
+    status: Mapped[str] = mapped_column(String(20), default="posted", server_default="posted")  # posted | failed
+    caption: Mapped[str] = mapped_column(Text)
+    image_url: Mapped[str] = mapped_column(String(500))
+    # The UTM-tagged storefront link included in the caption, for attribution.
+    utm_link: Mapped[str] = mapped_column(String(600))
+    # Platform's own id for the published post/media — needed to later pull
+    # engagement metrics (likes/reach) via the Graph API, if that's added.
+    external_post_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now(), index=True
+    )
+
+    product: Mapped["Product"] = relationship("Product")  # type: ignore
+    user: Mapped["User"] = relationship("User")  # type: ignore

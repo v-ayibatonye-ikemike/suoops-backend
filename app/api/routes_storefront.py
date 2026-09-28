@@ -146,6 +146,10 @@ class StorefrontUpdateIn(BaseModel):
     # {"0": {"open": "09:00", "close": "18:00"}, ...} — 0=Mon; null day = closed.
     hours: dict | None = None
     announcement: str | None = Field(default=None, max_length=200)
+    # Opt-in: let SuoOps feature this store's products on its own Facebook
+    # Page + Instagram (a curated daily batch, not every product). Off by
+    # default — see User.social_promotion_opt_in.
+    social_promotion_opt_in: bool | None = None
 
 
 class StorefrontOut(BaseModel):
@@ -167,6 +171,7 @@ class StorefrontOut(BaseModel):
     online_payments: bool = False
     listable_product_count: int = 0
     suggestions: list[str] = Field(default_factory=list)
+    social_promotion_opt_in: bool = False
 
 
 def _storefront_out(db: Session, user) -> StorefrontOut:
@@ -189,6 +194,7 @@ def _storefront_out(db: Session, user) -> StorefrontOut:
         online_payments=bool(getattr(user, "paystack_subaccount_active", False)),
         listable_product_count=_listable_product_count(db, user.id),
         suggestions=_storefront_suggestions(db, user),
+        social_promotion_opt_in=bool(user.social_promotion_opt_in),
     )
 
 
@@ -360,6 +366,8 @@ def _apply_storefront_profile(db: Session, user, payload: StorefrontUpdateIn) ->
         user.storefront_hours = _clean_hours(payload.hours)
     if payload.announcement is not None:
         user.storefront_announcement = payload.announcement.strip() or None
+    if payload.social_promotion_opt_in is not None:
+        user.social_promotion_opt_in = payload.social_promotion_opt_in
 
 
 @router.patch("/storefront", response_model=StorefrontOut)

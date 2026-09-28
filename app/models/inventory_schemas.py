@@ -102,6 +102,8 @@ class ProductUpdate(BaseModel):
     is_active: bool | None = None
     fulfilment_type: Literal["physical", "service", "digital"] | None = None
     image_url: str | None = None
+    # Opt out of the storefront-wide social promotion opt-in for this one item.
+    exclude_from_social: bool | None = None
 
 
 class ProductOut(BaseModel):
@@ -128,6 +130,7 @@ class ProductOut(BaseModel):
     is_active: bool = True
     track_stock: bool = True
     fulfilment_type: str = "physical"
+    exclude_from_social: bool = False
     
     image_url: str | None = None
     

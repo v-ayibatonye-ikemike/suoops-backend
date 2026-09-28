@@ -98,6 +98,10 @@ def _create_celery() -> Celery:
                 "task": "maintenance.cleanup_stale_webhooks",
                 "schedule": crontab(minute=0, hour=3, day_of_week=0),  # Sun 03:00 UTC
             },
+            "daily-social-promotion": {
+                "task": "social_marketing.run_daily_promotion",
+                "schedule": crontab(minute=0, hour=10),  # 10:00 UTC = 11:00 WAT
+            },
             "weekly-log-cleanup": {
                 "task": "maintenance.cleanup_old_logs",
                 "schedule": crontab(minute=30, hour=3, day_of_week=0),  # Sun 03:30 UTC

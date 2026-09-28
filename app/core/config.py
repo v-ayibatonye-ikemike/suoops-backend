@@ -262,6 +262,21 @@ class BaseAppSettings(BaseSettings):
     # touching the wallet-charging, DB, or UI code built around it.
     MONO_SECRET_KEY: str | None = None
     MONO_BASE_URL: str = "https://api.mono.co"
+    # Meta Graph API — posts to SuoOps's own Facebook Page + connected
+    # Instagram Business account (auto-promoting opted-in storefront products,
+    # see app.services.social_marketing). Distinct from WhatsApp Business
+    # Platform access — having WHATSAPP_API_KEY does NOT imply these are
+    # already granted; the same Meta Business App needs `pages_manage_posts`
+    # + `instagram_content_publish` permissions (self-serve via the Meta App
+    # Dashboard, no external licensing body involved, unlike Mono).
+    FACEBOOK_PAGE_ID: str | None = None
+    FACEBOOK_PAGE_ACCESS_TOKEN: str | None = None
+    INSTAGRAM_BUSINESS_ACCOUNT_ID: str | None = None
+    META_GRAPH_API_VERSION: str = "v21.0"
+    # How many products get auto-featured per day (across both platforms) and
+    # how long before the SAME product can be re-featured.
+    SOCIAL_PROMOTION_DAILY_LIMIT: int = 4
+    SOCIAL_PROMOTION_REPOST_COOLDOWN_DAYS: int = 30
     JWT_SECRET: str = "change_me"
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_SSL_CERT_REQS: str | None = "required"

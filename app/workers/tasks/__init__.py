@@ -26,6 +26,9 @@ from .customer_engagement_tasks import (
     send_dormant_customer_nudges,
     send_post_payment_referrals,
 )
+from .social_marketing_tasks import (
+    run_daily_promotion,
+)
 from .feedback_tasks import (
     collect_user_feedback,
 )
@@ -97,6 +100,8 @@ __all__ = [
     # Customer engagement
     "send_dormant_customer_nudges",
     "send_post_payment_referrals",
+    # Social marketing
+    "run_daily_promotion",
     # Instant welcome
     "broadcast_welcome",
     "send_instant_welcome",

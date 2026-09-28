@@ -140,7 +140,14 @@ class Product(Base):
     
     # Media
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    
+
+    # Opt-out of the storefront-wide social promotion opt-in (User.
+    # social_promotion_opt_in) for this specific product — e.g. a business
+    # opts in generally but wants one item kept out of public posts.
+    exclude_from_social: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # Metadata
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True),
