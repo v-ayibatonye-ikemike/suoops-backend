@@ -18,12 +18,14 @@ def get_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
     """All configured SMTP provider blocks, in priority order:
 
         1. ZeptoMail  (SMTP_*_ZEP)
-        2. Generic    (SMTP_*)
-        3. Brevo      (BREVO_SMTP_LOGIN / BREVO_SMTP_KEY)
+        2. Brevo      (BREVO_SMTP_LOGIN / BREVO_SMTP_KEY)
+        3. Generic    (SMTP_*)
 
     Only blocks with BOTH a user and password are returned. Senders try each in
     order, so a runtime auth/connection failure on the primary (e.g. a rotated
     ZeptoMail token → SMTP 535) automatically falls back to the next provider.
+    Dedicated provider credentials take precedence over legacy generic SMTP
+    values so a stale SMTP_PASSWORD cannot shadow a rotated BREVO_SMTP_KEY.
     Each tuple is ``(host, port, user, password, from_email)`` — host+creds always
     travel together so one provider's host is never paired with another's creds.
     """
@@ -45,27 +47,29 @@ def get_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
         getattr(settings, "FROM_EMAIL_ZEP", None) or default_from,
     )
 
-    # 2) Generic SMTP_*.
-    _add(
-        getattr(settings, "SMTP_HOST", None) or "smtp-relay.brevo.com",
-        getattr(settings, "SMTP_PORT", 587),
-        getattr(settings, "SMTP_USER", None),
-        getattr(settings, "SMTP_PASSWORD", None),
-        default_from,
-    )
-
     brevo_smtp_key = getattr(settings, "BREVO_SMTP_KEY", None)
     legacy_brevo_key = getattr(settings, "BREVO_API_KEY", None)
     if not brevo_smtp_key and legacy_brevo_key and legacy_brevo_key.startswith("xsmtpsib-"):
         brevo_smtp_key = legacy_brevo_key
 
-    # 3) Brevo — always its own relay host so it can't inherit ZeptoMail's host
+    # 2) Brevo — always its own relay host so it can't inherit ZeptoMail's host
     #    from a shared SMTP_HOST; this is the genuine independent fallback.
     _add(
         "smtp-relay.brevo.com",
         getattr(settings, "SMTP_PORT", 587),
         getattr(settings, "BREVO_SMTP_LOGIN", None),
         brevo_smtp_key,
+        default_from,
+    )
+
+    # 3) Generic SMTP_* remains available for other providers and legacy
+    #    deployments. It comes after dedicated Brevo configuration so stale
+    #    generic Brevo credentials cannot shadow a rotated BREVO_SMTP_KEY.
+    _add(
+        getattr(settings, "SMTP_HOST", None) or "smtp-relay.brevo.com",
+        getattr(settings, "SMTP_PORT", 587),
+        getattr(settings, "SMTP_USER", None),
+        getattr(settings, "SMTP_PASSWORD", None),
         default_from,
     )
 

@@ -70,6 +70,18 @@ def test_legacy_smtp_key_in_api_key_setting_is_supported(two_providers, monkeypa
     assert configs[-1][3] == "xsmtpsib-legacy-key"
 
 
+def test_dedicated_brevo_key_overrides_stale_generic_credentials(two_providers, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp-relay.brevo.com", raising=False)
+    monkeypatch.setattr(settings, "SMTP_USER", "brevo-login", raising=False)
+    monkeypatch.setattr(settings, "SMTP_PASSWORD", "xsmtpsib-stale-key", raising=False)
+
+    configs = smtp_mod.get_smtp_configs()
+    brevo_configs = [config for config in configs if config[0] == "smtp-relay.brevo.com"]
+
+    assert len(brevo_configs) == 1
+    assert brevo_configs[0][3] == "xsmtpsib-brevo-key"
+
+
 def test_falls_back_to_brevo_when_zepto_auth_fails(two_providers, monkeypatch):
     sent: list[str] = []
     _install_fake_smtp(monkeypatch, sent, fail_hosts={"smtp.zeptomail.com"})
