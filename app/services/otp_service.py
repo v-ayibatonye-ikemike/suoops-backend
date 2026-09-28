@@ -298,7 +298,7 @@ class OTPService:
 
         if not get_smtp_configs():
             logger.error(
-                "SMTP not configured. Set SMTP_*_ZEP / SMTP_* / BREVO_SMTP_LOGIN+BREVO_API_KEY."
+                "SMTP not configured. Set SMTP_*_ZEP / SMTP_* / BREVO_SMTP_LOGIN+BREVO_SMTP_KEY."
             )
             raise ValueError("Email OTP is not available")
 

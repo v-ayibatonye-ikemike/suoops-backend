@@ -19,7 +19,7 @@ def get_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
 
         1. ZeptoMail  (SMTP_*_ZEP)
         2. Generic    (SMTP_*)
-        3. Brevo      (BREVO_SMTP_LOGIN / BREVO_API_KEY)
+        3. Brevo      (BREVO_SMTP_LOGIN / BREVO_SMTP_KEY)
 
     Only blocks with BOTH a user and password are returned. Senders try each in
     order, so a runtime auth/connection failure on the primary (e.g. a rotated
@@ -54,13 +54,18 @@ def get_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
         default_from,
     )
 
+    brevo_smtp_key = getattr(settings, "BREVO_SMTP_KEY", None)
+    legacy_brevo_key = getattr(settings, "BREVO_API_KEY", None)
+    if not brevo_smtp_key and legacy_brevo_key and legacy_brevo_key.startswith("xsmtpsib-"):
+        brevo_smtp_key = legacy_brevo_key
+
     # 3) Brevo — always its own relay host so it can't inherit ZeptoMail's host
     #    from a shared SMTP_HOST; this is the genuine independent fallback.
     _add(
         "smtp-relay.brevo.com",
         getattr(settings, "SMTP_PORT", 587),
         getattr(settings, "BREVO_SMTP_LOGIN", None),
-        getattr(settings, "BREVO_API_KEY", None),
+        brevo_smtp_key,
         default_from,
     )
 
@@ -133,6 +138,7 @@ def send_email_with_fallback(
                 server.starttls()
                 server.login(user, password)
                 server.send_message(msg)
+            logger.info("SMTP provider %s accepted email for %s", host, to_email)
             return True
         except Exception as e:  # noqa: BLE001 — fall through to the next provider
             last_error = f"{host}: {e}"
@@ -196,6 +202,12 @@ def send_smtp_batch(
                     except Exception as e:  # noqa: BLE001
                         logger.warning("Batch SMTP send failed to %s: %s", to_email, e)
                         results.append(False)
+            logger.info(
+                "SMTP provider %s accepted %d/%d batch emails",
+                host,
+                sum(results),
+                len(results),
+            )
             return results
         except Exception as e:  # noqa: BLE001 — connection/login failed → next provider
             last_error = f"{host}: {e}"
@@ -204,4 +216,3 @@ def send_smtp_batch(
 
     logger.error("All SMTP providers failed for batch (last error: %s)", last_error)
     return [False] * len(emails)
-

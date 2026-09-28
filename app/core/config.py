@@ -31,13 +31,14 @@ class BaseAppSettings(BaseSettings):
     SMTP_PASSWORD: str | None = None
     
     # Brevo (Sendinblue) - For Email
-    BREVO_API_KEY: str | None = None  # SMTP password for sending emails
+    BREVO_API_KEY: str | None = None  # REST API key (xkeysib-...)
     BREVO_CONTACTS_API_KEY: str | None = None  # Full API key (xkeysib-...) for Contacts API
     # Marketing contacts moved to Zoho Campaigns — keep the Brevo contact/marketing
     # sync OFF. Brevo stays only as a transactional-email fallback. Flip to true
     # only to temporarily re-enable Brevo list syncing.
     BREVO_CONTACT_SYNC_ENABLED: bool = False
     BREVO_SMTP_LOGIN: str | None = None  # Brevo SMTP login (e.g., "9a485d001@smtp-brevo.com")
+    BREVO_SMTP_KEY: str | None = None  # Brevo SMTP key (xsmtpsib-...)
     BREVO_SENDER_NAME: str = "SuoOps"  # Sender name for emails
 
     # ZeptoMail (Zoho) — PRIMARY transactional SMTP. When the user + password are

@@ -18,7 +18,8 @@ def two_providers(monkeypatch):
     monkeypatch.setattr(settings, "SMTP_USER", None, raising=False)
     monkeypatch.setattr(settings, "SMTP_PASSWORD", None, raising=False)
     monkeypatch.setattr(settings, "BREVO_SMTP_LOGIN", "brevo-login", raising=False)
-    monkeypatch.setattr(settings, "BREVO_API_KEY", "brevo-key", raising=False)
+    monkeypatch.setattr(settings, "BREVO_SMTP_KEY", "xsmtpsib-brevo-key", raising=False)
+    monkeypatch.setattr(settings, "BREVO_API_KEY", "xkeysib-api-key", raising=False)
     monkeypatch.setattr(settings, "FROM_EMAIL", "noreply@suoops.com", raising=False)
 
 
@@ -49,6 +50,24 @@ def _install_fake_smtp(monkeypatch, sent_hosts, fail_hosts):
 def test_configs_are_ordered_zepto_then_brevo(two_providers):
     hosts = [c[0] for c in smtp_mod.get_smtp_configs()]
     assert hosts == ["smtp.zeptomail.com", "smtp-relay.brevo.com"]
+
+
+def test_rest_api_key_is_not_used_as_smtp_password(two_providers, monkeypatch):
+    monkeypatch.setattr(settings, "BREVO_SMTP_KEY", None, raising=False)
+
+    configs = smtp_mod.get_smtp_configs()
+
+    assert [config[0] for config in configs] == ["smtp.zeptomail.com"]
+
+
+def test_legacy_smtp_key_in_api_key_setting_is_supported(two_providers, monkeypatch):
+    monkeypatch.setattr(settings, "BREVO_SMTP_KEY", None, raising=False)
+    monkeypatch.setattr(settings, "BREVO_API_KEY", "xsmtpsib-legacy-key", raising=False)
+
+    configs = smtp_mod.get_smtp_configs()
+
+    assert configs[-1][0] == "smtp-relay.brevo.com"
+    assert configs[-1][3] == "xsmtpsib-legacy-key"
 
 
 def test_falls_back_to_brevo_when_zepto_auth_fails(two_providers, monkeypatch):
