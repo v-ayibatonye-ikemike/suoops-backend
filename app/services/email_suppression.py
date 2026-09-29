@@ -4,6 +4,7 @@ Receives SNS notifications published by SES (bounce + complaint events),
 verifies the SNS signature, and records suppressed addresses so the send
 path can skip them — protecting domain sending reputation.
 """
+
 from __future__ import annotations
 
 import base64
@@ -32,6 +33,7 @@ _cert_cache: dict[str, bytes] = {}
 
 # ── Suppression store ────────────────────────────────────────────────────
 
+
 def is_suppressed(email: str) -> bool:
     """Return True if the address is on the suppression list."""
     if not email:
@@ -39,12 +41,7 @@ def is_suppressed(email: str) -> bool:
     key = email.strip().lower()
     try:
         with SessionLocal() as db:
-            return (
-                db.query(EmailSuppression.id)
-                .filter(EmailSuppression.email == key)
-                .first()
-                is not None
-            )
+            return db.query(EmailSuppression.id).filter(EmailSuppression.email == key).first() is not None
     except Exception as e:  # never let a lookup failure block legitimate sends
         logger.warning("Suppression lookup failed for %s: %s", email, e)
         return False
@@ -56,11 +53,7 @@ def _record_suppression(email: str, reason: str, detail: str | None) -> bool:
         return False
     try:
         with SessionLocal() as db:
-            existing = (
-                db.query(EmailSuppression)
-                .filter(EmailSuppression.email == key)
-                .first()
-            )
+            existing = db.query(EmailSuppression).filter(EmailSuppression.email == key).first()
             if existing:
                 return False
             db.add(
@@ -80,6 +73,7 @@ def _record_suppression(email: str, reason: str, detail: str | None) -> bool:
 
 
 # ── SNS signature verification ───────────────────────────────────────────
+
 
 def _string_to_sign(message: dict[str, Any]) -> str | None:
     msg_type = message.get("Type")
@@ -163,6 +157,7 @@ def verify_sns_signature(message: dict[str, Any]) -> bool:
 
 
 # ── Notification handling ────────────────────────────────────────────────
+
 
 def _handle_ses_event(inner: dict[str, Any]) -> int:
     """Process an SES bounce/complaint event. Returns number suppressed."""

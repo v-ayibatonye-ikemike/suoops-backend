@@ -20,27 +20,27 @@ def test_s3_upload():
         pytest.skip("Skipping S3 upload test (set INTEGRATION=1 to run)")
     print("🧪 Testing S3 Upload to suoops-s3-bucket...")
     print("=" * 60)
-    
+
     settings = get_settings()
-    
+
     # Display configuration
     print("\n📋 S3 Configuration:")
     print(f"  Bucket: {settings.S3_BUCKET}")
     print(f"  Region: {settings.S3_REGION}")
     print(f"  Access Key: {settings.S3_ACCESS_KEY[:10]}...")
     print(f"  Endpoint: {settings.S3_ENDPOINT or 'AWS S3 (default)'}")
-    
+
     # Initialize S3 client
     s3_client = S3Client()
-    
+
     print("\n✅ S3 Client initialized successfully")
-    
+
     # Create a test file
     test_content = b"Hello from SuoOps! This is a test upload."
     test_key = "test/test-upload.txt"
-    
+
     print(f"\n📤 Uploading test file: {test_key}")
-    
+
     try:
         url = s3_client.upload_bytes(data=test_content, key=test_key, content_type="text/plain")
     except Exception as e:  # noqa: BLE001

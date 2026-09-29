@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class PaymentService:
     """Facade over payment providers via PaymentRouter.
-    
+
     Important: Uses business's own Paystack credentials, not platform credentials.
     Money flows directly from customer to business's bank account.
     """
@@ -19,7 +19,7 @@ class PaymentService:
     def __init__(self, paystack_secret_key: str | None = None):
         """
         Initialize payment service.
-        
+
         Args:
             paystack_secret_key: Business's own Paystack secret key.
                                 If None, uses platform default (for testing/fallback only).
@@ -38,4 +38,3 @@ class PaymentService:
         signature: str | None,
     ) -> bool:
         return self.router.verify_webhook(raw_body, signature)
-

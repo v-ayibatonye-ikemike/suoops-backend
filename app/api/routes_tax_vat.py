@@ -1,4 +1,5 @@
 """VAT endpoints split from routes_tax.py."""
+
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query

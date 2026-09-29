@@ -7,6 +7,7 @@ generate $13K+/month in WhatsApp costs alone.
 
 Budget is tracked in Redis with a daily key that auto-expires.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,6 +48,7 @@ def can_send_whatsapp(priority: bool = False) -> bool:
     """
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
 
         if priority:
@@ -70,6 +72,7 @@ def record_whatsapp_send(priority: bool = False) -> int:
     """
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
 
         if priority:
@@ -90,6 +93,7 @@ def get_budget_status() -> dict:
     """Get current budget usage (for admin dashboard)."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
 
         marketing_key = _get_today_key(_BUDGET_KEY)

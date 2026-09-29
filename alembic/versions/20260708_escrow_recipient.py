@@ -8,10 +8,12 @@ Adds ``user.paystack_recipient_code`` — the reusable Paystack Transfer Recipie
 (RCP_...) created from the seller's payout/bank details, used to release escrow
 funds to the seller.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260708_escrow_recipient"

@@ -9,10 +9,12 @@ products (which do not). Service/digital storefront orders skip the delivery
 address + courier and use a faster buyer-protection window. Existing rows
 default to ``physical`` so today's behaviour is unchanged.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260723_product_fulfilment_type"
@@ -34,9 +36,7 @@ def upgrade() -> None:
     # Historically a product with track_stock=false was created via the form's
     # "Service" toggle (freelance/digital — no stock), so treat those as services
     # up front. Stocked products stay physical.
-    op.execute(
-        "UPDATE product SET fulfilment_type = 'service' WHERE track_stock = false"
-    )
+    op.execute("UPDATE product SET fulfilment_type = 'service' WHERE track_stock = false")
 
 
 def downgrade() -> None:

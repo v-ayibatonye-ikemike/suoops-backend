@@ -1,4 +1,5 @@
 """Aggregate tax router combining split modules for main app inclusion."""
+
 from fastapi import APIRouter
 
 from app.api import routes_tax_misc, routes_tax_profile, routes_tax_vat

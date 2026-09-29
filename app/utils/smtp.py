@@ -1,4 +1,5 @@
 """Shared SMTP email helper used by Celery tasks."""
+
 from __future__ import annotations
 
 import logging
@@ -124,6 +125,7 @@ def send_email_with_fallback(
 
     if check_suppression:
         from app.services.email_suppression import is_suppressed
+
         if is_suppressed(to_email):
             logger.info("Skipping suppressed address %s", to_email)
             return False
@@ -156,7 +158,6 @@ def send_email_with_fallback(
 def send_smtp_email(to_email: str, subject: str, html_body: str | None, plain_body: str) -> bool:
     """Send an email via SMTP with automatic provider fallback. Returns True on success."""
     return send_email_with_fallback(to_email, subject, html_body, plain_body)
-
 
 
 def send_smtp_batch(

@@ -10,6 +10,7 @@ from starlette.requests import Request
 
 try:  # pragma: no cover
     from prometheus_client import Counter
+
     _PROM_RATE_LIMIT = Counter("suoops_rate_limit_exceeded_events", "Rate limit exceeded events (handler invocations)")
 except Exception:  # noqa: BLE001
     _PROM_RATE_LIMIT = None
@@ -21,29 +22,29 @@ logger = logging.getLogger(__name__)
 
 def get_user_identifier(request: Request) -> str:
     """Get unique identifier for rate limiting that includes user plan.
-    
+
     Uses JWT token to extract plan for dynamic rate limiting (Strategy pattern).
     Falls back to IP address for unauthenticated requests.
-    
+
     Returns:
         Identifier in format: 'ip:plan' or just 'ip' for unauthenticated
-        
+
     Example:
         >>> get_user_identifier(request)
         '192.168.1.1:pro'  # Authenticated PRO user
         '10.0.0.1:free'    # Unauthenticated (treated as free)
     """
     ip_address = get_remote_address(request)
-    
+
     # Extract Bearer token from Authorization header
     auth_header = request.headers.get("Authorization", "")
     token = None
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]  # Remove 'Bearer ' prefix
-    
+
     # Get user's plan from token (defaults to 'free' if invalid/missing)
     plan = get_plan_from_token(token)
-    
+
     # Include plan in identifier for per-plan rate limiting
     return f"{ip_address}:{plan}"
 
@@ -105,6 +106,7 @@ class ResilientStorage(MemoryStorage):
             self._last_redis_attempt = now
             try:
                 from app.db.redis_client import get_redis_client
+
                 client = get_redis_client()
                 # Storage URI is informational only here; pool drives the connection.
                 self._redis_storage = RedisStorage(
@@ -115,8 +117,7 @@ class ResilientStorage(MemoryStorage):
                 return self._redis_storage
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Rate limiter Redis init failed (%s); using in-memory fallback. "
-                    "Will retry in %.0fs.",
+                    "Rate limiter Redis init failed (%s); using in-memory fallback. " "Will retry in %.0fs.",
                     exc,
                     self._retry_interval,
                 )
@@ -138,14 +139,13 @@ class ResilientStorage(MemoryStorage):
         logger.error(
             "Rate limiter Redis %s failed (%s); falling back to in-memory — "
             "rate limits are now PER-WORKER until Redis recovers.",
-            op, exc,
+            op,
+            exc,
         )
         try:  # best-effort external alert
             import sentry_sdk
 
-            sentry_sdk.capture_message(
-                f"Rate limiter Redis fallback active ({op}): {exc}", level="error"
-            )
+            sentry_sdk.capture_message(f"Rate limiter Redis fallback active ({op}): {exc}", level="error")
         except Exception:  # noqa: BLE001 — never let alerting break the request
             pass
         # Drop reference so next call retries init on the schedule.
@@ -215,13 +215,12 @@ def _build_limiter() -> Limiter:
         # means the first few requests use memory until retry succeeds).
         storage._try_init_redis()
         if storage._redis_storage is None:
-            logger.warning(
-                "Rate limiter starting with in-memory fallback; Redis will be retried."
-            )
+            logger.warning("Rate limiter starting with in-memory fallback; Redis will be retried.")
         # slowapi's Limiter only accepts a URI string in __init__; build with
         # memory:// then swap in our resilient storage and rebuild the strategy.
         lim = Limiter(key_func=get_user_identifier, storage_uri="memory://")
         from limits.strategies import STRATEGIES
+
         lim._storage = storage
         strategy_name = lim._strategy or "fixed-window"
         lim._limiter = STRATEGIES[strategy_name](storage)
@@ -244,6 +243,7 @@ limiter = _build_limiter()
 # rather than killing the service.
 _original_check = limiter._check_request_limit
 
+
 def _resilient_check(request, func, in_middleware):
     try:
         return _original_check(request, func, in_middleware)
@@ -254,6 +254,7 @@ def _resilient_check(request, func, in_middleware):
             logger.warning("Rate limiter Redis max clients, allowing request: %s", e)
         else:
             raise
+
 
 limiter._check_request_limit = _resilient_check
 
@@ -282,43 +283,46 @@ RATE_LIMITS = {
 
 def get_dynamic_limit(request: Request) -> str:
     """Get dynamic rate limit based on user's subscription plan.
-    
+
     Follows Strategy pattern - delegates to plan-specific strategies.
     Used for authenticated endpoints where plan affects limits.
-    
+
     Args:
         request: Starlette request object
-        
+
     Returns:
         Rate limit string (e.g., '60/minute' for PRO users)
-        
+
     Example usage in route:
         @limiter.limit(get_dynamic_limit)
         async def create_invoice(...):
             ...
     """
     from app.api.rate_limit_strategies import get_plan_from_token, get_rate_limit_strategy
-    
+
     # Extract Bearer token
     auth_header = request.headers.get("Authorization", "")
     token = None
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
-    
+
     # Get plan and corresponding strategy
     plan = get_plan_from_token(token)
     strategy = get_rate_limit_strategy(plan)
-    
+
     return strategy.get_limit()
+
 
 _rate_limit_lock = threading.Lock()
 _rate_limit_counters: dict[str, int] = {"exceeded": 0}
+
 
 def increment_rate_limit_exceeded():
     with _rate_limit_lock:
         _rate_limit_counters["exceeded"] += 1
     if _PROM_RATE_LIMIT:
         _PROM_RATE_LIMIT.inc()
+
 
 def rate_limit_stats() -> dict[str, int]:
     with _rate_limit_lock:

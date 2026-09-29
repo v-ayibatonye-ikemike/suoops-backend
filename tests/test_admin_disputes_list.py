@@ -1,4 +1,5 @@
 """Admin /disputes list: pagination, search, capped count."""
+
 from __future__ import annotations
 
 from decimal import Decimal

@@ -1,4 +1,5 @@
 """Card-fraud risk helpers: fingerprint, blocklist, per-card velocity."""
+
 from __future__ import annotations
 
 from app.core.config import settings
@@ -9,13 +10,9 @@ from app.services import card_risk
 
 def test_extract_fingerprint():
     assert (
-        card_risk.extract_fingerprint("paystack", {"data": {"authorization": {"signature": "ABC123"}}})
-        == "ps:ABC123"
+        card_risk.extract_fingerprint("paystack", {"data": {"authorization": {"signature": "ABC123"}}}) == "ps:ABC123"
     )
-    assert (
-        card_risk.extract_fingerprint("flutterwave", {"data": {"card": {"token": "TOK9"}}})
-        == "fw:TOK9"
-    )
+    assert card_risk.extract_fingerprint("flutterwave", {"data": {"card": {"token": "TOK9"}}}) == "fw:TOK9"
     assert (
         card_risk.extract_fingerprint(
             "flutterwave", {"data": {"card": {"first_6digits": "506099", "last_4digits": "1234"}}}
@@ -58,8 +55,6 @@ def test_card_velocity_hold():
         assert card_risk.recent_order_count_for_card(s, fp) >= settings.CARD_MAX_ORDERS_PER_DAY
         assert "many orders" in (card_risk.card_hold_reason(s, fp) or "")
     finally:
-        s.query(models.StorefrontOrderEscrow).filter(
-            models.StorefrontOrderEscrow.card_fingerprint == fp
-        ).delete()
+        s.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.card_fingerprint == fp).delete()
         s.commit()
         s.close()

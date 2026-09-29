@@ -1,4 +1,5 @@
 """Authentication-related schemas."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -13,21 +14,41 @@ class OTPPhoneRequest(BaseModel):
 
 class OTPEmailRequest(BaseModel):
     """Request OTP via email (temporary for pre-launch)."""
+
     email: str
 
 
 class SignupStart(BaseModel):
     """Start signup with WhatsApp phone number."""
+
     phone: str
     # Email is REQUIRED: login verification codes are delivered by email (WhatsApp
     # is reserved for the one-time number verification), so every account needs one.
-    email: str = Field(..., min_length=5, max_length=255, description="Email address (required — used for login verification codes)")
+    email: str = Field(
+        ..., min_length=5, max_length=255, description="Email address (required — used for login verification codes)"
+    )
     name: str
     business_name: str = Field(..., min_length=2, max_length=255, description="Business or brand name (required)")
-    accept_terms: bool = Field(False, description="Whether the business accepted the Terms & Conditions (incl. buyer-protection/escrow policy). Must be true to sign up.")
-    referral_code: str | None = Field(None, min_length=3, max_length=50, description="Referral code or influencer vanity slug from another user")
-    signup_source: str | None = Field(None, max_length=50, description="Attribution source: google_ads, instagram, whatsapp_ad, social_media, referral, google_oauth, organic")
-    device_fingerprint: str | None = Field(None, max_length=64, description="Client-generated device fingerprint (anti-fraud; hashed on the client)")
+    accept_terms: bool = Field(
+        False,
+        description=(
+            "Whether the business accepted the Terms & Conditions "
+            "(incl. buyer-protection/escrow policy). Must be true to sign up."
+        ),
+    )
+    referral_code: str | None = Field(
+        None, min_length=3, max_length=50, description="Referral code or influencer vanity slug from another user"
+    )
+    signup_source: str | None = Field(
+        None,
+        max_length=50,
+        description=(
+            "Attribution source: google_ads, instagram, whatsapp_ad, social_media, " "referral, google_oauth, organic"
+        ),
+    )
+    device_fingerprint: str | None = Field(
+        None, max_length=64, description="Client-generated device fingerprint (anti-fraud; hashed on the client)"
+    )
 
     @field_validator("email")
     @classmethod
@@ -40,6 +61,7 @@ class SignupStart(BaseModel):
 
 class SignupVerify(BaseModel):
     """Verify signup OTP and provide bank details to complete registration."""
+
     phone: str
     otp: str = Field(..., min_length=6, max_length=6)
     bank_name: str = Field(..., min_length=2, max_length=100)
@@ -49,6 +71,7 @@ class SignupVerify(BaseModel):
 
 class LoginVerify(BaseModel):
     """Verify login OTP with phone OR email."""
+
     phone: str | None = None
     email: str | None = None
     otp: str = Field(..., min_length=6, max_length=6)
@@ -56,6 +79,7 @@ class LoginVerify(BaseModel):
 
 class OTPResend(BaseModel):
     """Resend OTP for phone OR email."""
+
     phone: str | None = None
     email: str | None = None
     purpose: Literal["signup", "login"]
@@ -103,6 +127,7 @@ class MessageOut(BaseModel):
 
 class PhoneVerificationRequest(BaseModel):
     """Request to add/verify phone number."""
+
     phone: str = Field(..., min_length=10, description="Phone number in E.164 format")
     # Step-up code, REQUIRED only when changing an EXISTING phone (the login
     # identity). First-time linking doesn't need it.
@@ -111,11 +136,13 @@ class PhoneVerificationRequest(BaseModel):
 
 class PhoneVerificationVerify(BaseModel):
     """Verify phone number with OTP."""
+
     phone: str = Field(..., min_length=10)
     otp: str = Field(..., min_length=6, max_length=6)
 
 
 class PhoneVerificationResponse(BaseModel):
     """Response after successful phone verification."""
+
     detail: str
     phone: str

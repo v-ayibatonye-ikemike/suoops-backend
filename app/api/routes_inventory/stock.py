@@ -1,4 +1,5 @@
 """Stock movement endpoints."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
@@ -19,8 +20,8 @@ def adjust_stock(
 ):
     """
     Adjust stock for a product.
-    
-    Use positive quantity to add stock (purchase, return), 
+
+    Use positive quantity to add stock (purchase, return),
     negative to remove (damage, adjustment).
     """
     try:

@@ -7,13 +7,15 @@ channel calls and return an aggregate dict with the expected shape.
 Network / provider calls are monkeypatched out so tests run quickly and
 without external dependencies.
 """
+
 from __future__ import annotations
 
-import pytest
 from decimal import Decimal
 
-from app.services.notification.service import NotificationService
+import pytest
+
 from app.models import models
+from app.services.notification.service import NotificationService
 
 
 @pytest.fixture()

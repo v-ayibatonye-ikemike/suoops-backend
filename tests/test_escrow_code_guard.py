@@ -1,4 +1,5 @@
 """Delivery-code brute-force guard: per-store failed-attempt lockout."""
+
 from __future__ import annotations
 
 import app.services.escrow_code_guard as guard

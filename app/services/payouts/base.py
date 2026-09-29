@@ -5,6 +5,7 @@ collections and refunds always go through the original collector (Paystack),
 since a refund must reverse the exact charge. Select the active provider with
 ``settings.ESCROW_PAYOUT_PROVIDER``.
 """
+
 from __future__ import annotations
 
 import abc
@@ -50,7 +51,7 @@ class PayoutProvider(abc.ABC):
         self,
         db: Session,
         *,
-        seller: "models.User",
+        seller: models.User,
         amount_kobo: int,
         reference: str,
         reason: str,

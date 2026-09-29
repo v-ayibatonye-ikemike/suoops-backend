@@ -1,4 +1,5 @@
 """Product endpoints."""
+
 import logging
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
@@ -49,9 +50,9 @@ def list_products(
         low_stock_only=low_stock_only,
         out_of_stock_only=out_of_stock_only,
     )
-    
+
     total_pages = (total + page_size - 1) // page_size if total > 0 else 1
-    
+
     return schemas.ProductListOut(
         products=[product_to_out(p) for p in products],
         total=total,

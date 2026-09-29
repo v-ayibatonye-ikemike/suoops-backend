@@ -13,7 +13,16 @@ from app.services.otp_service import _SHARED_STORE, OTPRecord
 def _auth_headers(client: TestClient) -> dict[str, str]:
     """Obtain auth headers via OTP signup flow (replaces legacy password endpoints)."""
     phone = "+234" + secrets.token_hex(4)
-    start = client.post("/auth/signup/request", json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "PUser", "business_name": "PUser Biz", "accept_terms": True})
+    start = client.post(
+        "/auth/signup/request",
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "PUser",
+            "business_name": "PUser Biz",
+            "accept_terms": True,
+        },
+    )
     assert start.status_code == 200, start.text
     key = f"otp:signup:{phone}"
     raw = _SHARED_STORE.get(key)  # type: ignore[attr-defined]

@@ -5,10 +5,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.storage.s3_client import s3_client
@@ -38,6 +37,7 @@ def _check_db(db: Session) -> bool:
 def _check_redis() -> bool:
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         return r.ping()
     except Exception:  # noqa: BLE001
@@ -96,13 +96,16 @@ def ready(db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
     duration_ms = int((time.time() - start) * 1000)
     overall = db_ok and redis_ok and s3_ok and celery_ok
     if not overall:
-        raise HTTPException(status_code=503, detail={
-            "db": db_ok,
-            "redis": redis_ok,
-            "s3": s3_ok,
-            "celery": celery_ok,
-            "latency_ms": duration_ms,
-        })
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "db": db_ok,
+                "redis": redis_ok,
+                "s3": s3_ok,
+                "celery": celery_ok,
+                "latency_ms": duration_ms,
+            },
+        )
     return {
         "status": "ready",
         "db": db_ok,

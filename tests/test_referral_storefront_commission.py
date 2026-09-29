@@ -4,6 +4,7 @@ Covers ReferralService.process_storefront_commission — the influencer earns a
 percentage of SuoOps' flat 3% fee on a referred business's online/storefront
 sale (never the gross sale value).
 """
+
 from __future__ import annotations
 
 import itertools
@@ -66,15 +67,12 @@ def test_storefront_commission_pays_pct_of_fee(db_session):
     referrer, referred, _ = _setup_referral(db_session, pct=20)
 
     ok = ReferralService(db_session).process_storefront_commission(
-        referred.id, suoops_fee_naira=300  # SuoOps' 3% on a ₦10,000 sale
+        referred.id,
+        suoops_fee_naira=300,  # SuoOps' 3% on a ₦10,000 sale
     )
 
     assert ok is True
-    reward = (
-        db_session.query(ReferralReward)
-        .filter(ReferralReward.user_id == referrer.id)
-        .one()
-    )
+    reward = db_session.query(ReferralReward).filter(ReferralReward.user_id == referrer.id).one()
     assert reward.reward_type == "commission_online"
     # 20% of the ₦300 fee = ₦60
     assert "₦60 commission" in reward.reward_description
@@ -85,35 +83,27 @@ def test_storefront_commission_pays_pct_of_fee(db_session):
 
 def test_storefront_commission_no_referral_returns_false(db_session):
     orphan = _make_user(db_session)
-    ok = ReferralService(db_session).process_storefront_commission(
-        orphan.id, suoops_fee_naira=300
-    )
+    ok = ReferralService(db_session).process_storefront_commission(orphan.id, suoops_fee_naira=300)
     assert ok is False
 
 
 def test_storefront_commission_inactive_code_no_reward(db_session):
     _, referred, _ = _setup_referral(db_session, pct=20, active=False)
-    ok = ReferralService(db_session).process_storefront_commission(
-        referred.id, suoops_fee_naira=300
-    )
+    ok = ReferralService(db_session).process_storefront_commission(referred.id, suoops_fee_naira=300)
     assert ok is False
     assert db_session.query(ReferralReward).count() == 0
 
 
 def test_storefront_commission_zero_fee_returns_false(db_session):
     _, referred, _ = _setup_referral(db_session, pct=20)
-    ok = ReferralService(db_session).process_storefront_commission(
-        referred.id, suoops_fee_naira=0
-    )
+    ok = ReferralService(db_session).process_storefront_commission(referred.id, suoops_fee_naira=0)
     assert ok is False
     assert db_session.query(ReferralReward).count() == 0
 
 
 def test_storefront_commission_zero_pct_converts_but_no_reward(db_session):
     _, referred, _ = _setup_referral(db_session, pct=0)
-    ok = ReferralService(db_session).process_storefront_commission(
-        referred.id, suoops_fee_naira=300
-    )
+    ok = ReferralService(db_session).process_storefront_commission(referred.id, suoops_fee_naira=300)
     assert ok is False
     # No reward, but the referral is still marked paid.
     assert db_session.query(ReferralReward).count() == 0

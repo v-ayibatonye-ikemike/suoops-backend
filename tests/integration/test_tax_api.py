@@ -14,9 +14,8 @@ import requests
 # Base URL
 BASE_URL = "http://localhost:8000"
 
-@pytest.mark.skipif(
-    not os.getenv("INTEGRATION"), reason="Integration test requires running server"
-)
+
+@pytest.mark.skipif(not os.getenv("INTEGRATION"), reason="Integration test requires running server")
 def test_vat_calculator():
     """Exercise VAT calculation endpoint (standard + zero rated)."""
     cases: Iterable[tuple[int, str]] = [
@@ -34,9 +33,7 @@ def test_vat_calculator():
         assert "vat_amount" in data
 
 
-@pytest.mark.skipif(
-    not os.getenv("INTEGRATION"), reason="Integration test requires running server"
-)
+@pytest.mark.skipif(not os.getenv("INTEGRATION"), reason="Integration test requires running server")
 def test_api_docs_includes_tax_paths():
     """Ensure OpenAPI spec exposes tax-related paths."""
     response = requests.get(f"{BASE_URL}/openapi.json", timeout=5)

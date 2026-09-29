@@ -3,6 +3,7 @@
 The integration ships OFF (no key). These lock in the fail-soft behaviour so the
 manual dispatch flow is never affected until a key + wallet are configured.
 """
+
 from app.services.shipping import shipbubble
 
 
@@ -23,21 +24,9 @@ def test_disabled_by_default():
 
 
 def test_calls_return_none_when_disabled():
-    assert shipbubble.validate_address(
-        name="A", email="a@b.com", phone="080", address="Lagos"
-    ) is None
-    assert (
-        shipbubble.fetch_rates(
-            sender_address_code=1, receiver_address_code=2, package_items=[]
-        )
-        is None
-    )
-    assert (
-        shipbubble.create_shipment(
-            request_token="x", courier_id="c", service_code="s"
-        )
-        is None
-    )
+    assert shipbubble.validate_address(name="A", email="a@b.com", phone="080", address="Lagos") is None
+    assert shipbubble.fetch_rates(sender_address_code=1, receiver_address_code=2, package_items=[]) is None
+    assert shipbubble.create_shipment(request_token="x", courier_id="c", service_code="s") is None
 
 
 def test_to_option_normalizes_courier():

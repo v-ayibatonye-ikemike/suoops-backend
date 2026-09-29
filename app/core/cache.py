@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Callable
 
 try:  # pragma: no cover
     from prometheus_client import Counter
+
     _PROM_CACHE_HITS = Counter("suoops_cache_hits_native", "Cache hits (native instrumented)")
     _PROM_CACHE_MISSES = Counter("suoops_cache_misses_native", "Cache misses (native instrumented)")
 except Exception:  # noqa: BLE001
@@ -24,6 +25,7 @@ def _get_client() -> redis.Redis | None:
         return _redis
     try:
         from app.db.redis_client import get_redis_client
+
         _redis = get_redis_client()
         return _redis
     except Exception:  # noqa: BLE001

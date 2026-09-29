@@ -4,6 +4,7 @@ Regression guard: this endpoint previously imported a removed constant
 (PACK_OPTIONS) and 500'd on every call. It now takes an amount tier and records
 wallet_credit_kobo so the Paystack webhook credits the prepaid wallet.
 """
+
 import secrets
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -64,11 +65,7 @@ def test_wallet_topup_initializes_and_records_wallet_credit(db_session):
     assert body["wallet_credit_naira"] == 1250
     assert body["amount"] > 1250  # customer also covers the Paystack fee
 
-    tx = (
-        db_session.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == body["reference"])
-        .one()
-    )
+    tx = db_session.query(PaymentTransaction).filter(PaymentTransaction.reference == body["reference"]).one()
     assert tx.payment_metadata["wallet_credit_kobo"] == 125000
 
 

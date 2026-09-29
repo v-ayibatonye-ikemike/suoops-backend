@@ -7,7 +7,9 @@ Revision ID: user_currency_pref_20260223
 Revises: invoice_reminder_log_20260223
 Create Date: 2026-02-23
 """
+
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "user_currency_pref_20260223"

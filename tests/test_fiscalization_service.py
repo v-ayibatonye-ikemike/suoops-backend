@@ -1,12 +1,14 @@
-import pytest
 from decimal import Decimal
 
-from app.services.fiscalization_service import VATCalculator, FiscalizationService, FiscalCodeGenerator
+import pytest
+
+from app.services.fiscalization_service import FiscalCodeGenerator, FiscalizationService, VATCalculator
 
 
 class DummyInvoice:
     def __init__(self):
         from datetime import datetime, timezone
+
         self.id = 1
         self.invoice_id = "INV-001"
         self.issuer_id = 123
@@ -22,6 +24,7 @@ class DummyInvoice:
 
 class DummySession:
     """Minimal stub of SQLAlchemy Session for constructor injection."""
+
     def query(self, *args, **kwargs):  # pragma: no cover - not used in these tests
         raise RuntimeError("Query not supported in dummy session")
 
@@ -34,12 +37,15 @@ def test_vat_calculator_standard():
     assert result["total"] == Decimal("1075.00")
 
 
-@pytest.mark.parametrize("desc,expected", [
-    ("Bread and milk", "zero_rated"),
-    ("Insurance premium", "exempt"),
-    ("Export shipment", "export"),
-    ("Generic service", "standard"),
-])
+@pytest.mark.parametrize(
+    "desc,expected",
+    [
+        ("Bread and milk", "zero_rated"),
+        ("Insurance premium", "exempt"),
+        ("Export shipment", "export"),
+        ("Generic service", "standard"),
+    ],
+)
 def test_detect_category(desc, expected):
     assert VATCalculator.detect_category(desc) == expected
 

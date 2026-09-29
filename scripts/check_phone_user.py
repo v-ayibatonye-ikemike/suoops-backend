@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check which user has a specific phone number."""
+
 import os
 import sys
 
@@ -11,12 +12,13 @@ from app.models.models import User
 
 PHONE_TO_CHECK = "+2348078557662"
 
+
 def main():
     db = SessionLocal()
     try:
         # Find user with this phone
         user = db.query(User).filter(User.phone == PHONE_TO_CHECK).first()
-        
+
         if user:
             print(f"\n📱 Phone {PHONE_TO_CHECK} is linked to:")
             print(f"   User ID: {user.id}")
@@ -26,7 +28,7 @@ def main():
             print(f"   Phone Verified: {user.phone_verified}")
             print(f"   Created: {user.created_at}")
             print()
-            
+
             # Option to clear the phone
             if not user.phone_verified:
                 print("⚠️  Phone is NOT verified on this account.")
@@ -36,9 +38,10 @@ def main():
                 print(f"   python scripts/clear_phone.py {user.id}")
         else:
             print(f"\n❌ Phone {PHONE_TO_CHECK} not found in database")
-            
+
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     main()

@@ -12,6 +12,7 @@ Two customer-facing automated messages:
 Both run as daily Celery tasks and track sends via InvoiceReminderLog to
 prevent spam/duplicates.
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,8 +43,6 @@ REFERRAL_WINDOW_HOURS = 48  # Check invoices paid in the last 48h
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
-from app.utils.smtp import send_smtp_email as _send_smtp_email
-
 
 def _is_valid_phone(phone: str | None) -> bool:
     if not phone:
@@ -72,18 +71,21 @@ def _record_send(db, invoice_id: int, reminder_type: str, channel: str, recipien
     """Record that a reminder was sent."""
     from app.models.models import InvoiceReminderLog
 
-    db.add(InvoiceReminderLog(
-        invoice_id=invoice_id,
-        reminder_type=reminder_type,
-        channel=channel,
-        recipient=recipient,
-    ))
+    db.add(
+        InvoiceReminderLog(
+            invoice_id=invoice_id,
+            reminder_type=reminder_type,
+            channel=channel,
+            recipient=recipient,
+        )
+    )
     db.flush()
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 1: DORMANT CUSTOMER NUDGE (21 days)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="customer_engagement.send_dormant_customer_nudges",
@@ -104,9 +106,8 @@ def send_dormant_customer_nudges() -> dict[str, Any]:
     Tracked via InvoiceReminderLog with type 'customer_dormant_21d' to ensure
     one nudge per dormant period. Resets if a new invoice is created.
     """
-    from sqlalchemy.orm import joinedload
 
-    from app.models.models import Customer, Invoice, InvoiceReminderLog, User
+    from app.models.models import Customer, Invoice, User
 
     stats = {"email_sent": 0, "whatsapp_sent": 0, "skipped": 0, "failed": 0}
 
@@ -159,8 +160,9 @@ def send_dormant_customer_nudges() -> dict[str, Any]:
                         continue
 
                     # Check if we already sent a dormant nudge for this invoice (any channel)
-                    if _already_sent(db, last_invoice_pk, "customer_dormant_21d", "email") or \
-                       _already_sent(db, last_invoice_pk, "customer_dormant_21d", "whatsapp"):
+                    if _already_sent(db, last_invoice_pk, "customer_dormant_21d", "email") or _already_sent(
+                        db, last_invoice_pk, "customer_dormant_21d", "whatsapp"
+                    ):
                         stats["skipped"] += 1
                         continue
 
@@ -212,7 +214,10 @@ def send_dormant_customer_nudges() -> dict[str, Any]:
 
         logger.info(
             "Dormant nudges complete: email=%d wa=%d skipped=%d failed=%d",
-            stats["email_sent"], stats["whatsapp_sent"], stats["skipped"], stats["failed"],
+            stats["email_sent"],
+            stats["whatsapp_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 
@@ -224,6 +229,7 @@ def send_dormant_customer_nudges() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 2: POST-PAYMENT REFERRAL ASK
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="customer_engagement.send_post_payment_referrals",
@@ -245,7 +251,7 @@ def send_post_payment_referrals() -> dict[str, Any]:
     """
     from sqlalchemy.orm import joinedload
 
-    from app.models.models import Customer, Invoice, User
+    from app.models.models import Invoice
 
     stats = {"email_sent": 0, "whatsapp_sent": 0, "skipped": 0, "failed": 0}
 
@@ -325,9 +331,7 @@ def send_post_payment_referrals() -> dict[str, Any]:
                                 ]
                                 lang = settings.WHATSAPP_TEMPLATE_LANGUAGE or "en"
                                 if client.send_template(customer.phone, template_name, lang, components):
-                                    _record_send(
-                                        db, inv.id, "post_payment_referral", "whatsapp", customer.phone
-                                    )
+                                    _record_send(db, inv.id, "post_payment_referral", "whatsapp", customer.phone)
                                     stats["whatsapp_sent"] += 1
                                     delivered = True
                         except Exception as e:
@@ -344,7 +348,10 @@ def send_post_payment_referrals() -> dict[str, Any]:
 
         logger.info(
             "Referral asks complete: email=%d wa=%d skipped=%d failed=%d",
-            stats["email_sent"], stats["whatsapp_sent"], stats["skipped"], stats["failed"],
+            stats["email_sent"],
+            stats["whatsapp_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 

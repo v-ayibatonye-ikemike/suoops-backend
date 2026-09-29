@@ -21,39 +21,39 @@ def test_ses_email():
         pytest.skip("Skipping SES email test (set INTEGRATION=1 to run)")
     print("📧 Testing Amazon SES Email Configuration...")
     print("=" * 60)
-    
+
     settings = get_settings()
-    
+
     # Get email configuration (you'll need to add these to config.py)
-    smtp_host = getattr(settings, 'SES_SMTP_HOST', None)
-    smtp_port = getattr(settings, 'SES_SMTP_PORT', 587)
-    smtp_user = getattr(settings, 'SES_SMTP_USER', None)
-    smtp_password = getattr(settings, 'SES_SMTP_PASSWORD', None)
-    from_email = getattr(settings, 'FROM_EMAIL', None)
-    
+    smtp_host = getattr(settings, "SES_SMTP_HOST", None)
+    smtp_port = getattr(settings, "SES_SMTP_PORT", 587)
+    smtp_user = getattr(settings, "SES_SMTP_USER", None)
+    smtp_password = getattr(settings, "SES_SMTP_PASSWORD", None)
+    from_email = getattr(settings, "FROM_EMAIL", None)
+
     # Display configuration
     print("\n📋 Email Configuration:")
     print(f"  SMTP Host: {smtp_host or 'NOT SET'}")
     print(f"  SMTP Port: {smtp_port}")
     print(f"  SMTP User: {smtp_user[:20] + '...' if smtp_user else 'NOT SET'}")
     print(f"  From Email: {from_email or 'NOT SET'}")
-    
+
     if not all([smtp_host, smtp_user, smtp_password, from_email]):
         pytest.skip("SES email configuration incomplete; skipping")
-    
+
     # Get recipient email
     print("\n" + "=" * 60)
     # Loopback send to FROM_EMAIL to avoid interactive input
     to_email = from_email
-    
+
     # Create test email
     print(f"\n📤 Sending test email to {to_email}...")
-    
+
     msg = MIMEMultipart()
-    msg['From'] = from_email
-    msg['To'] = to_email
-    msg['Subject'] = "Test Email from SuoOps - Amazon SES Configuration"
-    
+    msg["From"] = from_email
+    msg["To"] = to_email
+    msg["Subject"] = "Test Email from SuoOps - Amazon SES Configuration"
+
     body = f"""
 Hello!
 
@@ -78,9 +78,9 @@ SuoOps Team
 ---
 This is an automated test email. Please do not reply.
 """
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
+
+    msg.attach(MIMEText(body, "plain"))
+
     try:
         server = smtplib.SMTP(smtp_host, smtp_port, timeout=5)
         server.starttls()

@@ -1,4 +1,5 @@
 """Regression tests for the invoice / storefront online-payment path."""
+
 import datetime as dt
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock, patch
@@ -60,19 +61,13 @@ async def test_start_invoice_payment_populates_plan_columns(db_session):
     }
 
     with patch("httpx.AsyncClient") as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-            return_value=mock_response
-        )
+        mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_response)
         result = await start_invoice_payment(db_session, inv, issuer)
 
     assert result["authorization_url"] == "https://paystack.test/pay/xyz"
     assert result["reference"].startswith("INVPAY-INV-PAYTEST-1-")
 
-    tx = (
-        db_session.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == result["reference"])
-        .one()
-    )
+    tx = db_session.query(PaymentTransaction).filter(PaymentTransaction.reference == result["reference"]).one()
     assert tx.plan_before is not None
     assert tx.plan_after is not None
     assert tx.status == PaymentStatus.PENDING

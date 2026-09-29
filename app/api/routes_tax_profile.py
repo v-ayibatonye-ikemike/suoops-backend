@@ -1,6 +1,7 @@
 """Tax profile & small business endpoints split from routes_tax.py for modularity.
 Tax features require PRO plan.
 """
+
 from decimal import Decimal
 from typing import Optional
 

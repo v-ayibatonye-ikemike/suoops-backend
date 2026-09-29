@@ -6,6 +6,7 @@ account and confirms manually).
 Single source of truth so the pay page, PDF, WhatsApp templates and billing all
 agree — no duplicated logic.
 """
+
 from __future__ import annotations
 
 
@@ -41,12 +42,8 @@ def template_bank_params(issuer, *, online_only: bool) -> tuple[str, str, str]:
     Returns non-empty placeholders (Meta rejects empty template params).
     """
     if online_only:
-        biz = (
-            getattr(issuer, "business_name", None)
-            or getattr(issuer, "name", None)
-            or "your order"
-        )
-        return ("Pay securely online", "Use the link below \U0001F447", biz)
+        biz = getattr(issuer, "business_name", None) or getattr(issuer, "name", None) or "your order"
+        return ("Pay securely online", "Use the link below \U0001f447", biz)
     return (
         getattr(issuer, "bank_name", None) or "N/A",
         getattr(issuer, "account_number", None) or "N/A",

@@ -1,4 +1,5 @@
 """Admin dispute payout-status endpoint + derived payout_state tests."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -167,9 +168,7 @@ def test_retry_payout_resends_on_correct_rail_and_finalizes(monkeypatch):
             return "unknown"
 
         def transfer(self, db, *, seller, amount_kobo, reference, reason):
-            return PayoutResult(
-                ok=True, reference=reference, provider="flutterwave", status="successful"
-            )
+            return PayoutResult(ok=True, reference=reference, provider="flutterwave", status="successful")
 
         def transfer_exists(self, reference):
             return True
@@ -191,4 +190,3 @@ def test_retry_payout_resends_on_correct_rail_and_finalizes(monkeypatch):
     finally:
         app.dependency_overrides.pop(get_current_admin, None)
         db.close()
-

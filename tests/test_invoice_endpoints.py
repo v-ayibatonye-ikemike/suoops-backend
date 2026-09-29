@@ -12,15 +12,23 @@ def _signup_and_get_token():
     phone = "+2349990001112"
     r = client.post(
         "/auth/signup/request",
-        json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "InvUser", "business_name": "Test Biz", "accept_terms": True},
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "InvUser",
+            "business_name": "Test Biz",
+            "accept_terms": True,
+        },
     )
     assert r.status_code == 200, r.text
     # Extract OTP from in-memory store
     from app.services.otp_service import OTPService
+
     svc = OTPService()
     raw = svc._store.get(f"otp:signup:{phone}")  # type: ignore[attr-defined]
     assert raw is not None
     import json
+
     code = json.loads(raw)["code"]
     v = client.post(
         "/auth/signup/verify",
@@ -39,6 +47,7 @@ def _signup_and_get_token():
     # ₦60 starter balance.
     from app.db.session import SessionLocal
     from app.models import models as _m
+
     _s = SessionLocal()
     try:
         _u = _s.query(_m.User).filter(_m.User.phone == phone).first()

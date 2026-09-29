@@ -45,6 +45,7 @@ def _to_usd(ngn_amount: float, rate: Decimal) -> float:
 
 # ── Public API ───────────────────────────────────────────────────────
 
+
 def fmt_money(
     amount: float | int | Decimal,
     currency: str = "NGN",

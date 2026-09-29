@@ -8,8 +8,15 @@ Environment:
 Exit codes:
   0 success or skipped, 1 failure in HTTP send.
 """
+
 from __future__ import annotations
-import json, os, sys, urllib.request, urllib.error
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
 
 def main():
     webhook = os.getenv("SLACK_WEBHOOK_URL")
@@ -37,6 +44,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"[slack_notify] Error: {e}", file=sys.stderr)
         return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

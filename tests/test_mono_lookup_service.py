@@ -4,9 +4,8 @@ No real network calls — MonoLookupClient's HTTP methods are monkeypatched
 per-test so the wallet-charging and idempotency logic is exercised against
 predictable, controlled responses.
 """
-from __future__ import annotations
 
-import datetime as dt
+from __future__ import annotations
 
 import pytest
 from sqlalchemy import create_engine

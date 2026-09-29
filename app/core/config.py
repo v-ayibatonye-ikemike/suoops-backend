@@ -19,17 +19,17 @@ class BaseAppSettings(BaseSettings):
     S3_BUCKET: str = "whatsinvoice"
     S3_REGION: str = "us-east-1"  # AWS region for S3 bucket
     S3_PRESIGN_TTL: int = 3600
-    
+
     # Email Configuration - Using Brevo
     EMAIL_PROVIDER: str = "brevo"  # We use Brevo for email
     FROM_EMAIL: str | None = None
-    
+
     # SMTP Configuration (Generic - works with Brevo, SES, etc.)
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
-    
+
     # Brevo (Sendinblue) - For Email
     BREVO_API_KEY: str | None = None  # REST API key (xkeysib-...)
     BREVO_CONTACTS_API_KEY: str | None = None  # Full API key (xkeysib-...) for Contacts API
@@ -44,11 +44,11 @@ class BaseAppSettings(BaseSettings):
     # ZeptoMail (Zoho) — PRIMARY transactional SMTP. When the user + password are
     # set, these take precedence over the generic SMTP_* and legacy Brevo vars,
     # so Brevo remains an automatic fallback (used only if these are absent).
-    SMTP_HOST_ZEP: str | None = None      # e.g. smtp.zeptomail.com
-    SMTP_PORT_ZEP: int | None = None      # 587 (STARTTLS)
-    SMTP_USER_ZEP: str | None = None      # usually "emailapikey"
+    SMTP_HOST_ZEP: str | None = None  # e.g. smtp.zeptomail.com
+    SMTP_PORT_ZEP: int | None = None  # 587 (STARTTLS)
+    SMTP_USER_ZEP: str | None = None  # usually "emailapikey"
     SMTP_PASSWORD_ZEP: str | None = None  # ZeptoMail SMTP token
-    FROM_EMAIL_ZEP: str | None = None     # a verified @suoops.com sender
+    FROM_EMAIL_ZEP: str | None = None  # a verified @suoops.com sender
 
     # WhatsApp Configuration (Meta/Facebook)
     WHATSAPP_API_KEY: str | None = None
@@ -83,7 +83,7 @@ class BaseAppSettings(BaseSettings):
     WHATSAPP_TEMPLATE_PAYMENT_UPSELL: str | None = None  # Payment-triggered growth nudge (3% model)
     WHATSAPP_TEMPLATE_FEATURE_ANNOUNCEMENT: str | None = None  # One-off product announcement (params: name, body)
     WHATSAPP_TEMPLATE_LANGUAGE: str = "en"
-    
+
     @field_validator("WHATSAPP_PHONE_NUMBER_ID", mode="before")
     @classmethod
     def coerce_phone_number_id_to_str(cls, v):
@@ -91,6 +91,7 @@ class BaseAppSettings(BaseSettings):
         if v is None:
             return v
         return str(v)
+
     PAYSTACK_SECRET: str | None = None
     # Static-IP egress proxy for ALL Paystack API calls. When Paystack's secret
     # key has an "Allowed IP addresses" restriction, every request must originate
@@ -288,13 +289,24 @@ class BaseAppSettings(BaseSettings):
     PRIMARY_PAYMENT_PROVIDER: str = "paystack"
     FRONTEND_URL: str = "https://suoops.com"
     BACKEND_URL: str = "https://api.suoops.com"  # Used for QR code verification URLs
-    CORS_ALLOW_ORIGINS: list[str] = ["https://suoops.com", "https://www.suoops.com", "https://support.suoops.com", "http://localhost:3000"]
+    CORS_ALLOW_ORIGINS: list[str] = [
+        "https://suoops.com",
+        "https://www.suoops.com",
+        "https://support.suoops.com",
+        "http://localhost:3000",
+    ]
     CORS_ALLOW_METHODS: list[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     CORS_ALLOW_HEADERS: list[str] = [
-        "Authorization", "Content-Type", "Accept", "Origin",
-        "X-Requested-With", "X-CSRF-Token", "X-Telemetry-Key",
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+        "X-Telemetry-Key",
         "X-Client-Trace",
-        "Sentry-Trace", "Baggage",
+        "Sentry-Trace",
+        "Baggage",
     ]
     CORS_ALLOW_CREDENTIALS: bool = True
     CORS_ALLOW_ORIGIN_REGEX: str | None = None  # Starlette allow_origin_regex for preview deploys
@@ -313,7 +325,7 @@ class BaseAppSettings(BaseSettings):
     LOG_FORMAT: str = "plain"
     SENTRY_DSN: str | None = None
     TELEMETRY_INGEST_KEY: str | None = None  # API key required for telemetry ingestion in prod
-    
+
     # VAT / Tax
     VAT_RATE: float = 7.5  # Nigeria standard VAT rate (percent)
 
@@ -323,7 +335,7 @@ class BaseAppSettings(BaseSettings):
     FIRS_MERCHANT_ID: str | None = None
     # Accreditation / readiness flag: when False we never attempt external transmission
     FISCALIZATION_ACCREDITED: bool = False
-    
+
     # OAuth 2.0 / SSO Configuration
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
@@ -393,7 +405,7 @@ class BaseAppSettings(BaseSettings):
         # Postgres providers still emit the old scheme)
         if self.DATABASE_URL and self.DATABASE_URL.startswith("postgres://"):
             self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
-        
+
         required_in_prod = (
             "DATABASE_URL",
             "WHATSAPP_API_KEY",
@@ -412,9 +424,7 @@ class BaseAppSettings(BaseSettings):
                 default_violations.append("JWT_SECRET uses default placeholder")
             elif len(self.JWT_SECRET) < 32:
                 # HS256 signing keys should be at least 32 bytes (RFC 7518 §3.2).
-                default_violations.append(
-                    "JWT_SECRET is too short — use at least 32 characters of random entropy"
-                )
+                default_violations.append("JWT_SECRET is too short — use at least 32 characters of random entropy")
             if self.OAUTH_STATE_SECRET == "change_me_oauth_state":
                 default_violations.append("OAUTH_STATE_SECRET uses default placeholder")
             # WhatsApp verify token — block startup if empty or using old defaults.

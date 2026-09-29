@@ -6,6 +6,7 @@ for better SRP compliance and code organization.
 All imports should continue to work via this redirect module.
 New code should import from app.services.tax_reporting directly.
 """
+
 from app.services.tax_reporting import (
     # Constants
     PIT_BANDS,

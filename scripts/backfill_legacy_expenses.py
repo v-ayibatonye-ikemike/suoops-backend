@@ -12,6 +12,7 @@ separate, later step once the backfill is verified in production.
 Run: python -m scripts.backfill_legacy_expenses            (dry-run summary)
      python -m scripts.backfill_legacy_expenses --apply    (perform the backfill)
 """
+
 import os
 import sys
 

@@ -8,6 +8,7 @@ Handles:
 
 Single Responsibility: Tax profile management
 """
+
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,32 +24,32 @@ logger = logging.getLogger(__name__)
 class BusinessClassifier:
     """
     Business size classification (SRP: Classification logic only).
-    
+
     Based on Nigeria Tax Act 2025 (NTA 2025) effective January 1, 2026:
     - Small: Turnover ≤ ₦100M (EXEMPT from CIT - 0%)
     - Medium: ₦100M < Turnover ≤ ₦250M (20% CIT)
     - Large: Turnover > ₦250M (30% CIT)
-    
+
     Note: VAT exemption threshold remains at ₦25M separately.
     Small businesses owned by individuals may pay Personal Income Tax (PIT)
     using progressive rates instead of Company Income Tax (CIT).
     """
-    
-    SMALL_TURNOVER_THRESHOLD = Decimal("100000000")   # ₦100M (NTA 2025)
-    SMALL_ASSETS_THRESHOLD = Decimal("250000000")     # ₦250M
+
+    SMALL_TURNOVER_THRESHOLD = Decimal("100000000")  # ₦100M (NTA 2025)
+    SMALL_ASSETS_THRESHOLD = Decimal("250000000")  # ₦250M
     MEDIUM_TURNOVER_THRESHOLD = Decimal("250000000")  # ₦250M (medium/large boundary)
-    
+
     @classmethod
     def classify(cls, turnover: Decimal, assets: Decimal) -> str:
         """
-    Classify business size based on assumed criteria.
-        
-        Args:
-            turnover: Annual turnover in Naira
-            assets: Total fixed assets in Naira
-            
-        Returns:
-            BusinessSize enum value (small/medium/large)
+        Classify business size based on assumed criteria.
+
+            Args:
+                turnover: Annual turnover in Naira
+                assets: Total fixed assets in Naira
+
+            Returns:
+                BusinessSize enum value (small/medium/large)
         """
         if turnover <= cls.SMALL_TURNOVER_THRESHOLD and assets <= cls.SMALL_ASSETS_THRESHOLD:
             return BusinessSize.SMALL
@@ -61,40 +62,38 @@ class BusinessClassifier:
 class TaxProfileService:
     """
     Main tax profile service (orchestrates profile operations).
-    
+
     Manages:
     - Profile creation and retrieval
     - Profile updates
     - Business classification
     """
-    
+
     def __init__(self, db: Session):
         self.db = db
         self.classifier = BusinessClassifier()
-    
+
     def get_or_create_profile(self, user_id: int) -> TaxProfile:
         """
         Get existing tax profile or create default one.
-        
+
         Args:
             user_id: User ID
-            
+
         Returns:
             TaxProfile instance
         """
-        profile = self.db.query(TaxProfile).filter(
-            TaxProfile.user_id == user_id
-        ).first()
-        
+        profile = self.db.query(TaxProfile).filter(TaxProfile.user_id == user_id).first()
+
         if not profile:
             profile = TaxProfile(user_id=user_id)
             self.db.add(profile)
             self.db.commit()
             self.db.refresh(profile)
             logger.info("Created default tax profile for user %s", user_id)
-        
+
         return profile
-    
+
     def update_profile(
         self,
         user_id: int,
@@ -109,7 +108,7 @@ class TaxProfileService:
     ) -> TaxProfile:
         """
         Update tax profile with new data.
-        
+
         Args:
             user_id: User ID
             annual_turnover: Annual business turnover
@@ -117,19 +116,19 @@ class TaxProfileService:
             tin: Tax Identification Number
             vat_registration_number: VAT registration number
             vat_registered: VAT registration status
-            
+
         Returns:
             Updated TaxProfile
         """
         profile = self.get_or_create_profile(user_id)
-        
+
         # Update fields if provided
         if annual_turnover is not None:
             profile.annual_turnover = annual_turnover
-        
+
         if fixed_assets is not None:
             profile.fixed_assets = fixed_assets
-        
+
         if tin is not None:
             # Basic TIN format validation (Nigeria): numeric, length 10, not trivial
             if tin:
@@ -143,17 +142,18 @@ class TaxProfileService:
             # Reset verification flags if value changed
             profile.tin_verified = False
             profile.verification_status = "pending"
-        
+
         if vat_registration_number is not None:
             if vat_registration_number:
                 # Provisional VAT reg format check: allow alnum, length 8-15 (placeholder rule)
                 import re
+
                 if not re.fullmatch(r"[A-Za-z0-9]{8,15}", vat_registration_number):
                     raise ValueError("VAT registration number must be 8-15 alphanumeric characters")
             profile.vat_registration_number = vat_registration_number
             profile.vat_verified = False
             profile.verification_status = "pending"
-        
+
         if vat_registered is not None:
             profile.vat_registered = vat_registered
 
@@ -165,35 +165,32 @@ class TaxProfileService:
 
         if withholding_vat_applies is not None:
             profile.withholding_vat_applies = withholding_vat_applies
-        
+
         # Auto-classify business size
         if annual_turnover is not None or fixed_assets is not None:
-            profile.business_size = self.classifier.classify(
-                profile.annual_turnover,
-                profile.fixed_assets
-            )
+            profile.business_size = self.classifier.classify(profile.annual_turnover, profile.fixed_assets)
             logger.info(
                 f"User {user_id} classified as {profile.business_size} business "
                 f"(turnover: ₦{profile.annual_turnover}, assets: ₦{profile.fixed_assets})"
             )
-        
+
         self.db.commit()
         self.db.refresh(profile)
-        
+
         return profile
-    
+
     def get_tax_summary(self, user_id: int) -> Dict:
         """
         Get comprehensive tax profile summary.
-        
+
         Args:
             user_id: User ID
-            
+
         Returns:
             Dict with classification, rates, registration status
         """
         profile = self.get_or_create_profile(user_id)
-        
+
         return {
             "user_id": user_id,
             "business_size": profile.business_size,
@@ -201,11 +198,8 @@ class TaxProfileService:
             "classification": {
                 "annual_turnover": float(profile.annual_turnover),
                 "fixed_assets": float(profile.fixed_assets),
-                "small_business_threshold": {
-                    "turnover": 100_000_000,
-                    "assets": 250_000_000
-                },
-                "meets_small_criteria": profile.is_small_business
+                "small_business_threshold": {"turnover": 100_000_000, "assets": 250_000_000},
+                "meets_small_criteria": profile.is_small_business,
             },
             "tax_rates": profile.tax_rates,
             "registration": {
@@ -222,11 +216,11 @@ class TaxProfileService:
                 "cac_verified": profile.cac_verified or False,
                 "cac_registered_name": profile.cac_registered_name,
             },
-            "tax_benefits": self._get_tax_benefits(profile)
+            "tax_benefits": self._get_tax_benefits(profile),
         }
 
     # Monthly report & assessment moved to tax_reporting_service.TaxReportingService
-    
+
     def _get_tax_benefits(self, profile: TaxProfile) -> Dict:
         """Get list of applicable tax benefits based on classification"""
         if profile.is_small_business:
@@ -235,7 +229,7 @@ class TaxProfileService:
                 "capital_gains_tax": "EXEMPT (₦0)",
                 "development_levy": "EXEMPT (₦0)",
                 "vat": "APPLICABLE (7.5%)",
-                "annual_savings": "Estimated ₦2M-10M (depending on profits)"
+                "annual_savings": "Estimated ₦2M-10M (depending on profits)",
             }
         else:
             return {
@@ -243,13 +237,13 @@ class TaxProfileService:
                 "capital_gains_tax": "30% on capital gains",
                 "development_levy": "4% on assessable profits",
                 "vat": "7.5% standard rate",
-                "note": "Consider optimizing business structure for tax efficiency"
+                "note": "Consider optimizing business structure for tax efficiency",
             }
 
     # ---------------- Compliance & Eligibility (merged from legacy service) -----------------
 
     SMALL_BUSINESS_TURNOVER_LIMIT = Decimal("100000000")  # ₦100M (NTA 2025 - effective Jan 1, 2026)
-    SMALL_BUSINESS_ASSETS_LIMIT = Decimal("250000000")    # ₦250M
+    SMALL_BUSINESS_ASSETS_LIMIT = Decimal("250000000")  # ₦250M
 
     def check_small_business_eligibility(self, user_id: int) -> Dict[str, object]:
         """Return detailed small business eligibility info (unified schema)."""
@@ -278,9 +272,10 @@ class TaxProfileService:
             "tax_rates": profile.tax_rates,
             "benefits": benefits,
             "approaching_limit": (
-                (turnover_remaining < Decimal("10000000"))
-                or (assets_remaining < Decimal("25000000"))
-            ) if is_eligible else False,
+                (turnover_remaining < Decimal("10000000")) or (assets_remaining < Decimal("25000000"))
+            )
+            if is_eligible
+            else False,
         }
 
     def get_compliance_summary(self, user_id: int) -> Dict[str, object]:
@@ -354,6 +349,7 @@ class TaxProfileService:
         from app.services.tax_reporting_service import (
             TaxReportingService,  # local import to avoid circular
         )
+
         return TaxReportingService(self.db).compute_development_levy(user_id, assessable_profit)
 
     # ---------------- Assessable profit computation -----------------
@@ -367,6 +363,7 @@ class TaxProfileService:
     ) -> Decimal:  # type: ignore[override]
         """Wrapper delegating to TaxReportingService.compute_assessable_profit."""
         from app.services.tax_reporting_service import TaxReportingService
+
         return TaxReportingService(self.db).compute_assessable_profit(user_id, year=year, month=month, basis=basis)
 
     def generate_monthly_report(
@@ -379,6 +376,7 @@ class TaxProfileService:
     ) -> MonthlyTaxReport:  # type: ignore[override]
         """Wrapper delegating to TaxReportingService.generate_monthly_report."""
         from app.services.tax_reporting_service import TaxReportingService
+
         return TaxReportingService(self.db).generate_monthly_report(
             user_id, year, month, basis=basis, force_regenerate=force_regenerate
         )
@@ -386,12 +384,14 @@ class TaxProfileService:
     def attach_report_pdf(self, report: MonthlyTaxReport, pdf_url: str) -> MonthlyTaxReport:  # type: ignore[override]
         """Wrapper delegating to TaxReportingService.attach_report_pdf."""
         from app.services.tax_reporting_service import TaxReportingService
+
         return TaxReportingService(self.db).attach_report_pdf(report, pdf_url)
 
     # ---------------- Tax constants (exposed to frontend) -----------------
     def get_tax_constants(self) -> Dict[str, object]:
         """Return static tax thresholds & rates for UI consumption."""
         from app.core.config import settings
+
         return {
             "small_business_turnover_limit": float(self.SMALL_BUSINESS_TURNOVER_LIMIT),
             "small_business_assets_limit": float(self.SMALL_BUSINESS_ASSETS_LIMIT),

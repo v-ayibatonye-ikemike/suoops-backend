@@ -9,10 +9,12 @@ buyer-paid delivery can be captured at checkout and the courier booked at
 dispatch. The delivery fee is retained by SuoOps to fund the courier (never part
 of the seller payout). Feature-flagged via SHIPBUBBLE_CHECKOUT_ENABLED.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260711_shipbubble_booking"

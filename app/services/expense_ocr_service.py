@@ -4,6 +4,7 @@ Expense OCR service for processing receipt photos.
 Uses existing OCR infrastructure to extract expense details from receipt images.
 Auto-categorizes based on merchant/description and stores receipt evidence.
 """
+
 import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class ReceiptData(TypedDict):
     """Parsed receipt information"""
+
     amount: Decimal
     date: date | None
     category: str
@@ -33,13 +35,13 @@ class ReceiptData(TypedDict):
 
 class ExpenseOCRService:
     """Process receipt photos to create expense records"""
-    
+
     def __init__(self, db: Session):
         self.db = db
         self.ocr_service = OCRService()
         self.nlp_service = ExpenseNLPService()
         self.s3_client = S3Client()
-    
+
     async def process_receipt(
         self,
         user_id: int,
@@ -65,22 +67,19 @@ class ExpenseOCRService:
         """
         # 1. Upload receipt to S3
         receipt_url = await self._upload_receipt(user_id, image_bytes)
-        
+
         # 2. OCR extraction
-        ocr_result = await self.ocr_service.parse_receipt(
-            image_bytes,
-            context="business expense receipt"
-        )
-        
+        ocr_result = await self.ocr_service.parse_receipt(image_bytes, context="business expense receipt")
+
         if not ocr_result.get("success"):
             # Clean up S3 file since we won't create a record
             try:
                 await self.s3_client.delete_file(receipt_url)
             except Exception:
                 logger.warning("Failed to clean up S3 file %s after OCR failure", receipt_url)
-            logger.error("OCR failed for user %s: %s", user_id, ocr_result.get('error'))
+            logger.error("OCR failed for user %s: %s", user_id, ocr_result.get("error"))
             raise ValueError(f"Could not read receipt: {ocr_result.get('error', 'Unknown error')}")
-        
+
         # 3. Parse receipt data
         receipt_data = self._parse_ocr_result(ocr_result)
 
@@ -117,34 +116,34 @@ class ExpenseOCRService:
         )
 
         return invoice
-    
+
     async def _upload_receipt(self, user_id: int, image_bytes: bytes) -> str:
         """
         Upload receipt image to S3.
-        
+
         Returns:
             S3 URL of uploaded receipt
         """
         # Generate filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"receipts/user_{user_id}/{timestamp}_receipt.jpg"
-        
+
         # Upload to S3
         receipt_url = await self.s3_client.upload_file(
             data=image_bytes,
             key=filename,
             content_type="image/jpeg",
         )
-        
+
         return receipt_url
-    
+
     def _parse_ocr_result(self, ocr_result: dict) -> ReceiptData:
         """
         Parse OCR result into structured receipt data.
-        
+
         Args:
             ocr_result: Result from OCR service
-            
+
         Returns:
             Structured receipt data
         """
@@ -154,11 +153,11 @@ class ExpenseOCRService:
             amount = Decimal(amount_str)
         except (InvalidOperation, ValueError):
             amount = Decimal("0")
-        
+
         merchant = ocr_result.get("business_name") or None
         raw_text = ocr_result.get("raw_text", "")
         confidence = ocr_result.get("confidence", "medium")
-        
+
         # Try to parse date from OCR result
         date_str = ocr_result.get("date")
         expense_date = None
@@ -167,25 +166,21 @@ class ExpenseOCRService:
                 expense_date = datetime.fromisoformat(date_str).date()
             except (ValueError, AttributeError):
                 pass
-        
+
         # Build description from items or raw text
         items = ocr_result.get("items", [])
         if items:
             # Use item descriptions
-            descriptions = [
-                item.get("description", "")
-                for item in items
-                if item.get("description")
-            ]
+            descriptions = [item.get("description", "") for item in items if item.get("description")]
             description = ", ".join(descriptions[:3])  # Top 3 items
         else:
             # Use NLP to extract description from raw text
             description = self.nlp_service._clean_description(raw_text)
-        
+
         # Categorize based on merchant or description
         category_text = f"{merchant or ''} {description} {raw_text}".lower()
         category = self.nlp_service._categorize(category_text)
-        
+
         return ReceiptData(
             amount=amount,
             date=expense_date,
@@ -195,7 +190,7 @@ class ExpenseOCRService:
             raw_text=raw_text,
             confidence=confidence,
         )
-    
+
     async def reprocess_receipt(
         self,
         expense_id: int,
@@ -211,11 +206,15 @@ class ExpenseOCRService:
         Returns:
             The expense Invoice record
         """
-        expense = self.db.query(models.Invoice).filter(
-            models.Invoice.id == expense_id,
-            models.Invoice.issuer_id == user_id,
-            models.Invoice.invoice_type == "expense",
-        ).first()
+        expense = (
+            self.db.query(models.Invoice)
+            .filter(
+                models.Invoice.id == expense_id,
+                models.Invoice.issuer_id == user_id,
+                models.Invoice.invoice_type == "expense",
+            )
+            .first()
+        )
 
         if not expense:
             raise ValueError("Expense not found")

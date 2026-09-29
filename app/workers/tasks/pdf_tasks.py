@@ -3,6 +3,7 @@ PDF Generation Tasks.
 
 Celery tasks for asynchronous PDF generation for invoices and receipts.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,6 +52,7 @@ def generate_invoice_pdf_async(
     try:
         with session_scope() as db:
             from sqlalchemy.orm import joinedload, selectinload
+
             invoice = (
                 db.query(Invoice)
                 .options(
@@ -128,6 +130,7 @@ def generate_receipt_pdf_async(
     try:
         with session_scope() as db:
             from sqlalchemy.orm import joinedload, selectinload
+
             invoice = (
                 db.query(Invoice)
                 .options(

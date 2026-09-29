@@ -3,6 +3,7 @@ Speech-to-text service for transcribing WhatsApp voice notes.
 
 Single Responsibility: Handle audio transcription via OpenAI Whisper API.
 """
+
 from __future__ import annotations
 
 import logging

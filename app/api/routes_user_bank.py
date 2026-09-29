@@ -1,4 +1,5 @@
 """Bank detail endpoints split from routes_user.py."""
+
 import logging
 from typing import Annotated
 
@@ -104,9 +105,7 @@ def request_bank_change_otp(
         OTPService().send_code(identifier, purpose="bank_change")
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to send bank-change OTP for user %s", current_user_id)
-        raise HTTPException(
-            status_code=502, detail="Could not send your confirmation code. Please try again."
-        ) from exc
+        raise HTTPException(status_code=502, detail="Could not send your confirmation code. Please try again.") from exc
     channel = "email" if (user.email and not user.phone) else "WhatsApp"
     return schemas.MessageOut(detail=f"Confirmation code sent to your {channel}.")
 
@@ -134,18 +133,14 @@ async def update_bank_details(
         data.bank_name if data.bank_name is not None else user.bank_name,
         data.account_number if data.account_number is not None else user.account_number,
     )
-    bank_is_written = (
-        bool(intended_bank[0] and intended_bank[1]) and intended_bank != old_bank
-    )
+    bank_is_written = bool(intended_bank[0] and intended_bank[1]) and intended_bank != old_bank
 
     # Step-up auth: setting or changing the payout account requires a fresh OTP.
     if bank_is_written:
         identifier = user.phone or user.email
         from app.services.otp_service import OTPService
 
-        if not data.otp or not identifier or not OTPService().verify_otp(
-            identifier, data.otp, purpose="bank_change"
-        ):
+        if not data.otp or not identifier or not OTPService().verify_otp(identifier, data.otp, purpose="bank_change"):
             raise HTTPException(
                 status_code=401,
                 detail="A valid confirmation code is required to set or change your bank details.",
@@ -158,9 +153,7 @@ async def update_bank_details(
     verified_name: str | None = None
     bank_or_acct_changed = data.bank_name is not None or data.account_number is not None
     intended_bank_name = data.bank_name if data.bank_name is not None else user.bank_name
-    intended_account_number = (
-        data.account_number if data.account_number is not None else user.account_number
-    )
+    intended_account_number = data.account_number if data.account_number is not None else user.account_number
     if bank_or_acct_changed and intended_bank_name and intended_account_number:
         from app.services.paystack_subaccount_service import PaystackSubaccountService
 
@@ -169,9 +162,7 @@ async def update_bank_details(
             bank_code = await svc.resolve_bank_code(intended_bank_name)
             verified_name = await svc.resolve_account(intended_account_number, bank_code)
         except Exception:  # noqa: BLE001 — resolver down → fall back to submitted name
-            logger.warning(
-                "Bank account name could not be verified for user %s", current_user_id
-            )
+            logger.warning("Bank account name could not be verified for user %s", current_user_id)
 
     if data.business_name is not None:
         user.business_name = data.business_name
@@ -192,9 +183,7 @@ async def update_bank_details(
     if user.bank_name and user.account_number:
         user.payout_bank_name = user.bank_name
         user.payout_account_number = user.account_number
-        user.payout_account_name = (
-            user.account_name or user.business_name or user.name
-        )
+        user.payout_account_name = user.account_name or user.business_name or user.name
     db.commit()
     db.refresh(user)
 

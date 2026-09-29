@@ -4,23 +4,25 @@ Verifies that `InvoiceService.confirm_transfer` triggers NotificationService
 email dispatch via the facade after customer reports payment.
 Network calls are monkeypatched to avoid external dependencies.
 """
+
 from __future__ import annotations
 
-import pytest
 from decimal import Decimal
 
+from app.models import models
 from app.services.invoice_service import InvoiceService
+from app.services.notification.service import NotificationService
 from app.services.pdf_service import PDFService
 from app.storage.s3_client import S3Client
-from app.services.notification.service import NotificationService
-from app.models import models
 
 
 class _DummyPDF(PDFService):  # type: ignore[misc]
     def __init__(self):
         self.client = S3Client()
+
     def generate_invoice_pdf(self, invoice, bank_details=None, logo_url=None, user_plan=None):  # noqa: D401
         return f"http://pdf.local/invoice/{invoice.invoice_id}.pdf"
+
     def generate_receipt_pdf(self, invoice):  # noqa: D401
         return f"http://pdf.local/receipt/{invoice.invoice_id}.pdf"
 
@@ -51,13 +53,16 @@ def test_business_confirmation_notifications(monkeypatch, db_session):
 
     service = InvoiceService(db_session, _DummyPDF())
 
-    invoice = service.create_invoice(user.id, {
-        "customer_name": customer.name,
-        "customer_phone": customer.phone,
-        "customer_email": customer.email,
-        "amount": Decimal("2500.00"),
-        "description": "Design Work",
-    })
+    invoice = service.create_invoice(
+        user.id,
+        {
+            "customer_name": customer.name,
+            "customer_phone": customer.phone,
+            "customer_email": customer.email,
+            "amount": Decimal("2500.00"),
+            "description": "Design Work",
+        },
+    )
 
     # Sanity pre-condition
     assert invoice.status == "pending"

@@ -4,8 +4,10 @@ Revision ID: 20260612_admin_login_audit
 Revises: 20260427_signup_source
 Create Date: 2026-06-12
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers
 revision = "20260612_admin_login_audit"

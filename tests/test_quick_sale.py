@@ -10,6 +10,7 @@ Covers:
 3. Endpoint-level: POST /invoices/quick-sale returns a paid invoice in one
    call.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -75,9 +76,7 @@ def test_quick_sale_created_then_marked_paid_has_no_precreated_pdf():
     user = _make_user(session)
     service = InvoiceService(session, _DummyPDF())
 
-    invoice = service.create_invoice(
-        user.id, _quick_sale_data(), created_by_user_id=user.id
-    )
+    invoice = service.create_invoice(user.id, _quick_sale_data(), created_by_user_id=user.id)
     # No customer contact -> not auto-paid at creation; caller flips it.
     assert invoice.status == "awaiting_confirmation"
     assert invoice.paid_at is None
@@ -123,8 +122,9 @@ def test_quick_sale_endpoint_records_paid_sale_in_one_call():
     )
     assert r.status_code == 200, r.text
 
-    from app.services.otp_service import OTPService
     import json
+
+    from app.services.otp_service import OTPService
 
     svc = OTPService()
     raw = svc._store.get(f"otp:signup:{phone}")  # type: ignore[attr-defined]

@@ -28,21 +28,21 @@ _OAUTH_SALT = b"suoops_oauth_token_encryption_v1"
 def _get_fernet_key() -> bytes:
     """
     Derive Fernet encryption key from JWT_SECRET.
-    
+
     Uses PBKDF2-HMAC-SHA256 with 100,000 iterations to derive a proper
     32-byte key suitable for Fernet encryption.
-    
+
     Returns:
         Base64-encoded 32-byte key for Fernet
-        
+
     Raises:
         ValueError: If JWT_SECRET is not configured
     """
     if not settings.JWT_SECRET or settings.JWT_SECRET == "change_me":
         raise ValueError("JWT_SECRET must be configured for token encryption")
-    
+
     key_material = settings.JWT_SECRET.encode("utf-8")
-    
+
     # Derive 32-byte key using PBKDF2
     derived_key = hashlib.pbkdf2_hmac(
         "sha256",
@@ -51,7 +51,7 @@ def _get_fernet_key() -> bytes:
         100000,  # 100k iterations
         dklen=32,  # 32 bytes for AES-256
     )
-    
+
     # Fernet requires base64-encoded key
     return base64.urlsafe_b64encode(derived_key)
 
@@ -59,25 +59,25 @@ def _get_fernet_key() -> bytes:
 def encrypt_token(token: str) -> str:
     """
     Encrypt OAuth token for secure storage.
-    
+
     Uses Fernet symmetric encryption (AES-128 CBC + HMAC).
-    
+
     Args:
         token: Plain OAuth token to encrypt
-        
+
     Returns:
         Base64-encoded encrypted token
-        
+
     Raises:
         ValueError: If token is empty or JWT_SECRET not configured
-        
+
     Example:
         >>> encrypted = encrypt_token("ya29.a0AfH6SMB...")
         >>> assert encrypted != "ya29.a0AfH6SMB..."
     """
     if not token:
         raise ValueError("Cannot encrypt empty token")
-    
+
     try:
         fernet = Fernet(_get_fernet_key())
         encrypted_bytes = fernet.encrypt(token.encode("utf-8"))
@@ -91,24 +91,24 @@ def encrypt_token(token: str) -> str:
 def decrypt_token(encrypted_token: str) -> str:
     """
     Decrypt OAuth token from storage.
-    
+
     Args:
         encrypted_token: Base64-encoded encrypted token
-        
+
     Returns:
         Decrypted plain token
-        
+
     Raises:
         ValueError: If encrypted_token is invalid or JWT_SECRET not configured
         InvalidToken: If decryption fails (corrupted data or wrong key)
-        
+
     Example:
         >>> plain = decrypt_token(encrypted)
         >>> assert plain == "ya29.a0AfH6SMB..."
     """
     if not encrypted_token:
         raise ValueError("Cannot decrypt empty token")
-    
+
     try:
         fernet = Fernet(_get_fernet_key())
         decrypted_bytes = fernet.decrypt(encrypted_token.encode("utf-8"))
@@ -126,11 +126,8 @@ def decrypt_token(encrypted_token: str) -> str:
 def is_encryption_configured() -> bool:
     """
     Check if token encryption is properly configured.
-    
+
     Returns:
         True if JWT_SECRET is set and not using default value
     """
-    return bool(
-        settings.JWT_SECRET
-        and settings.JWT_SECRET != "change_me"
-    )
+    return bool(settings.JWT_SECRET and settings.JWT_SECRET != "change_me")

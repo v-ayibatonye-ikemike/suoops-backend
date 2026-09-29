@@ -6,6 +6,7 @@ model the dashboard reads. This module is the single place every channel
 captured anywhere shows up everywhere. The legacy ``Expense`` table is no longer
 written to.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -101,9 +102,7 @@ def record_expense_invoice(
         "input_method": input_method,
         "channel": channel,
         "verified": False,
-        "expense_flag_reason": (
-            f"possible_duplicate:{duplicate.id}" if duplicate is not None else None
-        ),
+        "expense_flag_reason": (f"possible_duplicate:{duplicate.id}" if duplicate is not None else None),
         "notes": notes,
         "lines": [{"description": desc, "quantity": 1, "unit_price": amt}],
     }
@@ -159,6 +158,7 @@ def expense_invoice_to_out(inv: models.Invoice) -> dict:
     receipt_url = inv.receipt_url
     if receipt_url:
         from app.storage.s3_client import s3_client
+
         receipt_url = s3_client.refresh_presigned_url(receipt_url) or receipt_url
 
     return {

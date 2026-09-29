@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -56,6 +56,7 @@ def _set_admin_cookie(response: Response, token: str) -> None:
 def _clear_admin_cookie(response: Response) -> None:
     response.delete_cookie(ADMIN_COOKIE_NAME, path="/")
 
+
 # Default admin email — password MUST come from env var, never hardcoded
 DEFAULT_ADMIN_EMAIL = "support@suoops.com"
 
@@ -64,13 +65,16 @@ DEFAULT_ADMIN_EMAIL = "support@suoops.com"
 # Schemas
 # ============================================================================
 
+
 class AdminOTPRequest(BaseModel):
     """Step 1 of passwordless login: request a one-time code by email."""
+
     email: EmailStr
 
 
 class AdminOTPVerify(BaseModel):
     """Step 2 of passwordless login: verify the emailed one-time code."""
+
     email: EmailStr
     otp: str
 
@@ -163,7 +167,7 @@ async def get_current_admin(
     db: Session = Depends(get_db),
 ) -> AdminUser:
     """Dependency to get current admin from Bearer header or httpOnly cookie.
-    
+
     Admin tokens have 'admin:' prefix in the subject.
     """
     # Try Bearer header first, then fall back to httpOnly cookie
@@ -182,23 +186,23 @@ async def get_current_admin(
     try:
         payload = decode_token(raw_token, TokenType.ACCESS)
         subject = payload.get("sub", "")
-        
+
         # Admin tokens have 'admin:' prefix
         if not subject.startswith("admin:"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not an admin token",
             )
-        
+
         admin_id = int(subject.replace("admin:", ""))
         admin = db.query(AdminUser).filter(AdminUser.id == admin_id).first()
-        
+
         if not admin or not admin.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin not found or inactive",
             )
-        
+
         return admin
     except HTTPException:
         raise
@@ -249,12 +253,12 @@ def send_admin_invite_email(to_email: str, name: str, invite_link: str) -> bool:
         if not settings.SMTP_HOST:
             logger.warning("SMTP not configured, skipping invite email")
             return False
-        
+
         msg = MIMEMultipart("alternative")
         msg["Subject"] = "You've been invited to SuoOps Admin"
         msg["From"] = settings.FROM_EMAIL or "noreply@suoops.com"
         msg["To"] = to_email
-        
+
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -297,15 +301,15 @@ def send_admin_invite_email(to_email: str, name: str, invite_link: str) -> bool:
         </body>
         </html>
         """
-        
+
         msg.attach(MIMEText(html, "html"))
-        
+
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
             server.starttls()  # Always use TLS for security
             if settings.SMTP_USER and settings.SMTP_PASSWORD:
                 server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
-        
+
         return True
     except Exception as e:
         logger.error("Failed to send admin invite email: %s", e)
@@ -361,8 +365,12 @@ def admin_request_otp(request: Request, payload: AdminOTPRequest, db: Session = 
     # Only @suoops.com addresses can ever be admins.
     if not email_lower.endswith("@suoops.com"):
         record_admin_login_event(
-            db, request=request, status="failure", event="otp_requested",
-            email=email_lower, reason="bad_domain",
+            db,
+            request=request,
+            status="failure",
+            event="otp_requested",
+            email=email_lower,
+            reason="bad_domain",
         )
         return generic
 
@@ -375,8 +383,12 @@ def admin_request_otp(request: Request, payload: AdminOTPRequest, db: Session = 
 
     if not admin or not admin.is_active:
         record_admin_login_event(
-            db, request=request, status="failure", event="otp_requested",
-            email=email_lower, reason="unknown_admin",
+            db,
+            request=request,
+            status="failure",
+            event="otp_requested",
+            email=email_lower,
+            reason="unknown_admin",
         )
         return generic
 
@@ -385,8 +397,13 @@ def admin_request_otp(request: Request, payload: AdminOTPRequest, db: Session = 
     except Exception as exc:  # noqa: BLE001
         logger.error("Failed to send admin login OTP to %s: %s", email_lower, exc)
         record_admin_login_event(
-            db, request=request, status="failure", event="otp_requested",
-            admin_id=admin.id, email=email_lower, reason="delivery_failed",
+            db,
+            request=request,
+            status="failure",
+            event="otp_requested",
+            admin_id=admin.id,
+            email=email_lower,
+            reason="delivery_failed",
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -394,8 +411,12 @@ def admin_request_otp(request: Request, payload: AdminOTPRequest, db: Session = 
         )
 
     record_admin_login_event(
-        db, request=request, status="success", event="otp_requested",
-        admin_id=admin.id, email=email_lower,
+        db,
+        request=request,
+        status="success",
+        event="otp_requested",
+        admin_id=admin.id,
+        email=email_lower,
     )
     return generic
 
@@ -416,8 +437,12 @@ def admin_verify_otp(request: Request, payload: AdminOTPVerify, db: Session = De
     admin = db.query(AdminUser).filter(AdminUser.email == email_lower).first()
     if not admin or not admin.is_active:
         record_admin_login_event(
-            db, request=request, status="failure", event="login",
-            email=email_lower, reason="unknown_admin",
+            db,
+            request=request,
+            status="failure",
+            event="login",
+            email=email_lower,
+            reason="unknown_admin",
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -426,8 +451,13 @@ def admin_verify_otp(request: Request, payload: AdminOTPVerify, db: Session = De
 
     if not OTPService().verify_otp(email_lower, code, ADMIN_OTP_PURPOSE):
         record_admin_login_event(
-            db, request=request, status="failure", event="login",
-            admin_id=admin.id, email=email_lower, reason="bad_otp",
+            db,
+            request=request,
+            status="failure",
+            event="login",
+            admin_id=admin.id,
+            email=email_lower,
+            reason="bad_otp",
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -438,8 +468,12 @@ def admin_verify_otp(request: Request, payload: AdminOTPVerify, db: Session = De
     db.commit()
 
     record_admin_login_event(
-        db, request=request, status="success", event="login",
-        admin_id=admin.id, email=email_lower,
+        db,
+        request=request,
+        status="success",
+        event="login",
+        admin_id=admin.id,
+        email=email_lower,
     )
     return _build_login_response(admin)
 
@@ -458,7 +492,7 @@ def invite_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to invite admins",
         )
-    
+
     # Validate email domain - only @suoops.com emails can be invited
     email_lower = payload.email.lower()
     if not email_lower.endswith("@suoops.com"):
@@ -466,7 +500,7 @@ def invite_admin(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only @suoops.com email addresses can be invited as admins",
         )
-    
+
     # Check if email already exists
     existing = db.query(AdminUser).filter(AdminUser.email == email_lower).first()
     if existing:
@@ -487,20 +521,20 @@ def invite_admin(
         existing.can_view_analytics = payload.can_view_analytics
         existing.can_invite_admins = payload.can_invite_admins
         db.commit()
-        
+
         invite_link = f"https://support.suoops.com/admin/accept-invite?token={invite_token}"
         email_sent = send_admin_invite_email(payload.email, payload.name, invite_link)
-        
+
         return AdminInviteResponse(
             success=True,
             message="Invitation re-sent successfully" if email_sent else "Invitation updated (email not sent)",
             invite_link=invite_link,
         )
-    
+
     # Generate invite token
     invite_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    
+
     # Create pending admin
     admin = AdminUser(
         email=payload.email.lower(),
@@ -516,13 +550,13 @@ def invite_admin(
     )
     db.add(admin)
     db.commit()
-    
+
     # Generate invite link
     invite_link = f"https://support.suoops.com/admin/accept-invite?token={invite_token}"
-    
+
     # Send email
     email_sent = send_admin_invite_email(payload.email, payload.name, invite_link)
-    
+
     return AdminInviteResponse(
         success=True,
         message="Invitation sent successfully" if email_sent else "Invitation created (email not sent)",
@@ -535,25 +569,25 @@ def invite_admin(
 def accept_invite(request: Request, payload: AcceptInviteRequest, db: Session = Depends(get_db)):
     """Accept an admin invitation and activate the account (passwordless)."""
     admin = db.query(AdminUser).filter(AdminUser.invite_token == payload.token).first()
-    
+
     if not admin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired invitation",
         )
-    
+
     if admin.invite_expires_at and admin.invite_expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invitation has expired",
         )
-    
+
     if admin.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invitation already accepted",
         )
-    
+
     # Activate admin. Login is passwordless (email OTP); store an unusable
     # random hash purely to satisfy the non-null column.
     admin.hashed_password = hash_password(secrets.token_urlsafe(32))
@@ -564,8 +598,12 @@ def accept_invite(request: Request, payload: AcceptInviteRequest, db: Session = 
     db.commit()
 
     record_admin_login_event(
-        db, request=request, status="success", event="invite_accepted",
-        admin_id=admin.id, email=admin.email,
+        db,
+        request=request,
+        status="success",
+        event="invite_accepted",
+        admin_id=admin.id,
+        email=admin.email,
     )
     return _build_login_response(admin)
 
@@ -629,7 +667,7 @@ def remove_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only super admins can remove admin users",
         )
-    
+
     # Find the admin to remove
     admin_to_remove = db.query(AdminUser).filter(AdminUser.id == admin_id).first()
     if not admin_to_remove:
@@ -637,27 +675,27 @@ def remove_admin(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Admin not found",
         )
-    
+
     # Prevent self-deletion
     if admin_to_remove.id == current_admin.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot remove yourself",
         )
-    
+
     # Prevent removing other super admins
     if admin_to_remove.is_super_admin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot remove another super admin",
         )
-    
+
     # Hard delete the admin
     db.delete(admin_to_remove)
     db.commit()
-    
+
     logger.info("Admin %s removed admin %s", current_admin.email, admin_to_remove.email)
-    
+
     return {"success": True, "message": f"Admin {admin_to_remove.email} has been removed"}
 
 
@@ -677,17 +715,13 @@ def list_login_audit(
             detail="Only super admins can view the login audit log",
         )
     limit = max(1, min(limit, 500))
-    return (
-        db.query(AdminLoginAudit)
-        .order_by(AdminLoginAudit.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    return db.query(AdminLoginAudit).order_by(AdminLoginAudit.created_at.desc()).limit(limit).all()
 
 
 # ============================================================================
 # IP allowlist (network-based access control)
 # ============================================================================
+
 
 @router.get("/ip-allowed")
 def admin_ip_allowed(request: Request, db: Session = Depends(get_db)):
@@ -722,11 +756,7 @@ def list_ip_allowlist(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only super admins can manage the IP allowlist",
         )
-    return (
-        db.query(AdminIpAllowlistEntry)
-        .order_by(AdminIpAllowlistEntry.created_at.desc())
-        .all()
-    )
+    return db.query(AdminIpAllowlistEntry).order_by(AdminIpAllowlistEntry.created_at.desc()).all()
 
 
 @router.post("/ip-allowlist", response_model=AdminIpAllowlistEntryOut)
@@ -785,8 +815,13 @@ def add_ip_allowlist_entry(
     invalidate_admin_allowlist_cache()
 
     record_admin_login_event(
-        db, request=request, status="success", event="ip_allowlist_add",
-        admin_id=current_admin.id, email=current_admin.email, reason=normalized,
+        db,
+        request=request,
+        status="success",
+        event="ip_allowlist_add",
+        admin_id=current_admin.id,
+        email=current_admin.email,
+        reason=normalized,
     )
     logger.info("Admin %s added IP allowlist entry %s", current_admin.email, normalized)
     return entry
@@ -819,10 +854,7 @@ def delete_ip_allowlist_entry(
 
     # Compute what the allowlist would be without this entry.
     remaining_raw = [
-        row[0]
-        for row in db.query(AdminIpAllowlistEntry.cidr)
-        .filter(AdminIpAllowlistEntry.id != entry_id)
-        .all()
+        row[0] for row in db.query(AdminIpAllowlistEntry.cidr).filter(AdminIpAllowlistEntry.id != entry_id).all()
     ]
     remaining = parse_networks(env_allowlist_entries() + remaining_raw)
     caller_ip = get_client_ip(request)
@@ -843,8 +875,13 @@ def delete_ip_allowlist_entry(
     invalidate_admin_allowlist_cache()
 
     record_admin_login_event(
-        db, request=request, status="success", event="ip_allowlist_remove",
-        admin_id=current_admin.id, email=current_admin.email, reason=removed,
+        db,
+        request=request,
+        status="success",
+        event="ip_allowlist_remove",
+        admin_id=current_admin.id,
+        email=current_admin.email,
+        reason=removed,
     )
     logger.info("Admin %s removed IP allowlist entry %s", current_admin.email, removed)
     return {"success": True, "message": f"{removed} removed from the allowlist"}
@@ -854,10 +891,11 @@ def delete_ip_allowlist_entry(
 # Startup: Create default admin
 # ============================================================================
 
+
 def init_default_admin():
     """Initialize default admin on startup. Called from main.py."""
     from app.db.session import SessionLocal
-    
+
     db = SessionLocal()
     try:
         admin = create_default_admin(db)

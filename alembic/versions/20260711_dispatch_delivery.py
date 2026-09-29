@@ -9,10 +9,12 @@ Adds ``dispatch_carrier`` (courier/company name, e.g. "GIG Logistics") and
 Both are shown to the buyer at "mark as sent out" so they know who's bringing the
 order and roughly when to expect it.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260711_dispatch_delivery"

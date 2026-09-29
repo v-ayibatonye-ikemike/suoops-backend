@@ -11,6 +11,7 @@ Frontend shows "Starter" as a UX label for non-Pro users.
 Invoice balance is decremented per use. All plans can purchase more packs.
 Pro users keep features even when invoices are exhausted.
 """
+
 import datetime as dt
 import logging
 
@@ -108,18 +109,14 @@ def platform_fee_kobo(amount, channel: str = "storefront") -> int:
     amt = Decimal(str(amount or 0))
 
     if channel == "manual":
-        fee_kobo = int(
-            (amt * Decimal(str(MANUAL_FEE_PERCENT))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        )
+        fee_kobo = int((amt * Decimal(str(MANUAL_FEE_PERCENT))).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         # Flat ₦400 cap for invoices under ₦500,000; ≥ ₦500,000 pays uncapped 0.5%.
         if amt < MANUAL_UNCAP_THRESHOLD_NAIRA:
             fee_kobo = min(fee_kobo, MANUAL_MAX_FEE_KOBO)
         return max(fee_kobo, MANUAL_MIN_FEE_KOBO)
 
     # Storefront / online (default): 3% with a tiered ₦2,000-per-₦500,000 cap.
-    fee_kobo = (amt * Decimal(str(STOREFRONT_FEE_PERCENT))).quantize(
-        Decimal("1"), rounding=ROUND_HALF_UP
-    )
+    fee_kobo = (amt * Decimal(str(STOREFRONT_FEE_PERCENT))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     return min(
         max(int(fee_kobo), STOREFRONT_MIN_FEE_KOBO),
         fee_cap_kobo(amount, STOREFRONT_CAP_BASE_KOBO, STOREFRONT_CAP_TIER_NAIRA),
@@ -128,12 +125,12 @@ def platform_fee_kobo(amount, channel: str = "storefront") -> int:
 
 class FeatureGate:
     """Check if user has access to features and invoice balance."""
-    
+
     def __init__(self, db: Session, user_id: int):
         self.db = db
         self.user_id = user_id
         self._user = None
-    
+
     @property
     def user(self) -> models.User:
         """Lazy load user from database and check subscription expiry."""
@@ -144,11 +141,11 @@ class FeatureGate:
             # Check if paid subscription (Pro/Business) has expired
             self._check_subscription_expiry()
         return self._user
-    
+
     def _check_subscription_expiry(self) -> None:
         """
         Check if user's Pro/Business subscription has expired.
-        
+
         When expired:
         - Pro/Business → FREE (lose all premium features)
         - Invoice balance is preserved (they paid for those invoices)
@@ -156,18 +153,18 @@ class FeatureGate:
         """
         user = self._user
         now = dt.datetime.now(dt.timezone.utc)
-        
+
         # Only Pro and Business have monthly subscriptions that can expire
         if not user.plan.has_monthly_subscription:
             return
-        
+
         if user.subscription_expires_at is None:
             return  # No expiry set (legacy data)
-        
+
         expiry = user.subscription_expires_at
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=dt.timezone.utc)
-        
+
         if now > expiry:
             # Subscription has expired - downgrade to FREE (basic invoicing only)
             old_plan = user.plan.value
@@ -177,17 +174,19 @@ class FeatureGate:
             self.db.commit()
             logger.info(
                 "Subscription expired for user %s: downgraded from %s to FREE (invoice balance: %d)",
-                user.id, old_plan, getattr(user, 'invoice_balance', 0)
+                user.id,
+                old_plan,
+                getattr(user, "invoice_balance", 0),
             )
-    
+
     def is_free_tier(self) -> bool:
         """Check if user is on free tier (respects pro_override)."""
         return self.user.effective_plan == models.SubscriptionPlan.FREE
-    
+
     def is_paid_tier(self) -> bool:
         """Check if user has any paid subscription (not FREE, respects pro_override)."""
         return self.user.effective_plan != models.SubscriptionPlan.FREE
-    
+
     def can_create_invoice(self) -> tuple[bool, str | None]:
         """
         Check if the wallet can cover at least the minimum manual-invoice fee.
@@ -207,7 +206,7 @@ class FeatureGate:
             )
 
         return True, None
-    
+
     def get_monthly_invoice_count(self) -> int:
         """Return count of revenue invoices created in the current month.
 
@@ -226,7 +225,7 @@ class FeatureGate:
             .scalar()
         )
         return int(count or 0)
-    
+
     def require_paid_plan(self, feature_name: str = "This feature") -> None:
         """No-op: every feature is free under the commission model.
 
@@ -240,7 +239,7 @@ class FeatureGate:
     def check_invoice_creation(self) -> None:
         """
         Check if user can create invoice and raise exception if not.
-        
+
         Raises:
             HTTPException: 403 if no invoice balance
         """
@@ -253,10 +252,10 @@ class FeatureGate:
                     "message": error_msg,
                     "wallet_balance_kobo": int(getattr(self.user, "wallet_balance_kobo", 0) or 0),
                     "topup_from": WALLET_TOPUP_TIERS[0],
-                    "purchase_url": "/invoices/purchase-pack"
-                }
+                    "purchase_url": "/invoices/purchase-pack",
+                },
             )
-    
+
     def get_monthly_voice_count(self) -> int:
         """
         Get number of voice invoices created this month.
@@ -265,46 +264,45 @@ class FeatureGate:
         # TODO: Track voice invoices separately in database
         # For now, return 0 (will implement proper tracking in next iteration)
         return 0
-    
+
     def can_use_voice(self) -> tuple[bool, str | None]:
         """
         Check if user can use voice features (Pro plan with quota check).
-        
+
         Pro plan: 15 voice invoices per month
-        
+
         Returns:
             (can_use: bool, error_message: str | None)
         """
         plan = self.user.effective_plan
         features = plan.features
-        
+
         # Check if plan has voice access at all
         if not features.get("voice_invoice"):
             return False, (
-                "Voice invoices are only available on the Pro plan. "
-                "Upgrade to unlock this premium feature."
+                "Voice invoices are only available on the Pro plan. " "Upgrade to unlock this premium feature."
             )
-        
+
         # Pro plan: check quota (15 per month)
         if plan == models.SubscriptionPlan.PRO:
             quota = features.get("voice_quota", 15)  # 15 premium invoices
             current_count = self.get_monthly_voice_count()
-            
+
             if current_count >= quota:
                 return False, (
                     f"You've reached your Pro plan voice quota of {quota} premium invoices per month. "
                     "You can still create manual text invoices."
                 )
-            
+
             return True, None
-        
+
         # Shouldn't reach here, but safe fallback
         return False, "Voice not available on your plan"
-    
+
     def check_voice_quota(self) -> None:
         """
         Check voice quota and raise exception if exceeded.
-        
+
         Raises:
             HTTPException: 403 if quota exceeded or feature not available
         """
@@ -312,7 +310,7 @@ class FeatureGate:
         if not can_use:
             quota = 15 if self.user.effective_plan == models.SubscriptionPlan.PRO else 0
             current_count = self.get_monthly_voice_count()
-            
+
             raise HTTPException(
                 status_code=403,
                 detail={
@@ -321,20 +319,20 @@ class FeatureGate:
                     "current_count": current_count,
                     "quota": quota,
                     "current_plan": self.user.plan.value,
-                    "upgrade_url": "/subscription/initialize"
-                }
+                    "upgrade_url": "/subscription/initialize",
+                },
             )
 
 
 def require_paid_plan(db: Session, user_id: int, feature_name: str = "This feature") -> None:
     """
     Convenience function to check if user has paid plan.
-    
+
     Args:
         db: Database session
         user_id: User ID to check
         feature_name: Name of feature for error message
-    
+
     Raises:
         HTTPException: 403 if user is on free tier
     """
@@ -345,11 +343,11 @@ def require_paid_plan(db: Session, user_id: int, feature_name: str = "This featu
 def check_invoice_limit(db: Session, user_id: int) -> None:
     """
     Convenience function to check invoice creation limits.
-    
+
     Args:
         db: Database session
         user_id: User ID to check
-    
+
     Raises:
         HTTPException: 403 if invoice limit reached
     """
@@ -384,14 +382,14 @@ def grant_pro_features(user: models.User, days: int) -> None:
 def check_voice_ocr_quota(db: Session, user_id: int) -> None:
     """
     Convenience function to check voice quota for Pro plan.
-    
+
     Note: OCR feature has been removed. This function now only checks voice quota.
     Kept the old name for backward compatibility with existing code.
-    
+
     Args:
         db: Database session
         user_id: User ID to check
-    
+
     Raises:
         HTTPException: 403 if quota exceeded or feature not available
     """
@@ -402,28 +400,31 @@ def check_voice_ocr_quota(db: Session, user_id: int) -> None:
 def require_plan_feature(db: Session, user_id: int, feature_key: str, feature_name: str = None) -> None:
     """
     Check if user's plan has a specific feature.
-    
+
     Args:
         db: Database session
         user_id: User ID to check
         feature_key: Key in plan.features dict (e.g., 'custom_branding', 'tax_automation')
         feature_name: Human-readable feature name for error message
-    
+
     Raises:
         HTTPException: 403 if feature not available on user's plan
     """
     gate = FeatureGate(db, user_id)
     features = gate.user.effective_plan.features
-    
+
     if not features.get(feature_key):
         feature_display = feature_name or feature_key.replace("_", " ").title()
         raise HTTPException(
             status_code=403,
             detail={
                 "error": "feature_not_available",
-                "message": f"{feature_display} is not available on your {gate.user.effective_plan.value} plan. Please upgrade.",
+                "message": (
+                    f"{feature_display} is not available on your "
+                    f"{gate.user.effective_plan.value} plan. Please upgrade."
+                ),
                 "current_plan": gate.user.effective_plan.value,
                 "required_feature": feature_key,
-                "upgrade_url": "/subscription/initialize"
-            }
+                "upgrade_url": "/subscription/initialize",
+            },
         )

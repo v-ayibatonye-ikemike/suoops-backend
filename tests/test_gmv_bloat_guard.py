@@ -1,5 +1,6 @@
 """Anti-GMV-bloat guards: flagged users excluded from money metrics (A) and
 low-trust large manual confirmations held for review (B)."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -77,6 +78,7 @@ def _invoice(db, seller, *, amount, status, channel=None, itype="revenue"):
 
 # ── Part A: flagged users excluded from GMV ──────────────────────────
 
+
 def test_flagged_user_excluded_from_gmv_summary():
     db = next(get_db())
     admin = _admin(db)
@@ -99,6 +101,7 @@ def test_flagged_user_excluded_from_gmv_summary():
 
 
 # ── Part B: low-trust large manual confirmation held for review ──────
+
 
 def test_low_trust_large_manual_confirm_blocked():
     db = SessionLocal()
@@ -145,9 +148,7 @@ def test_force_confirm_bypasses_guard():
         seller = _seller(db, created_days=1, login_days=1)
         inv = _invoice(db, seller, amount=600000, status="awaiting_confirmation")
         svc = build_invoice_service(db, user_id=seller.id)
-        out = svc.update_status(
-            seller.id, inv.invoice_id, "paid", updated_by_user_id=None, force=True
-        )
+        out = svc.update_status(seller.id, inv.invoice_id, "paid", updated_by_user_id=None, force=True)
         assert out.status == "paid"
     finally:
         db.close()

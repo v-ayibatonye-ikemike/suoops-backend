@@ -20,10 +20,12 @@ Anti-fraud / duplicate-account signals captured at signup:
   - ``risk_signals``         : JSON list of triggered signal codes
   - ``flagged_for_review``   : needs manual review (indexed)
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260708_store_moderation_fraud"

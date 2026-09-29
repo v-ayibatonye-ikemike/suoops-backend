@@ -7,6 +7,7 @@ rough south↔north / west↔east grid, then adding working days for the distanc
 
 Pure functions only (no IO) so they're cheap and easy to test.
 """
+
 from __future__ import annotations
 
 from app.core.config import settings
@@ -27,8 +28,7 @@ _NC, _NE, _NW, _SE, _SS, _SW = "NC", "NE", "NW", "SE", "SS", "SW"
 
 _STATE_ZONE: dict[str, str] = {}
 for _zone, _states in {
-    _NC: ["benue", "kogi", "kwara", "nasarawa", "niger", "plateau",
-          "fct", "abuja", "federalcapitalterritory"],
+    _NC: ["benue", "kogi", "kwara", "nasarawa", "niger", "plateau", "fct", "abuja", "federalcapitalterritory"],
     _NE: ["adamawa", "bauchi", "borno", "gombe", "taraba", "yobe"],
     _NW: ["jigawa", "kaduna", "kano", "katsina", "kebbi", "sokoto", "zamfara"],
     _SE: ["abia", "anambra", "ebonyi", "enugu", "imo"],
@@ -40,9 +40,12 @@ for _zone, _states in {
 
 # Rough grid position per zone: row = south(0)…north(2), col = west(0)…east(2).
 _ZONE_POS: dict[str, tuple[int, int]] = {
-    _SW: (0, 0), _SS: (0, 1), _SE: (0, 2),
+    _SW: (0, 0),
+    _SS: (0, 1),
+    _SE: (0, 2),
     _NC: (1, 1),
-    _NW: (2, 0), _NE: (2, 2),
+    _NW: (2, 0),
+    _NE: (2, 2),
 }
 
 

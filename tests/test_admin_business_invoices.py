@@ -1,4 +1,5 @@
 """Admin business-invoices drill-down + storefront owner-trace fields."""
+
 from __future__ import annotations
 
 from decimal import Decimal

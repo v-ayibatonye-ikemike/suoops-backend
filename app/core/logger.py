@@ -38,7 +38,7 @@ def init_logging(level: int | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(effective_level)
     root.addHandler(handler)
-    
+
     # Silence noisy third-party loggers
     for noisy_logger in [
         "fontTools",

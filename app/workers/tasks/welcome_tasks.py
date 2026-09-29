@@ -2,14 +2,13 @@
 Instant Welcome Message Task.
 
 Fires immediately when a new user completes signup.
-Sends a short, warm welcome via:
-  - Email (all users)
-  - WhatsApp (phone-verified users, using welcome_activation template)
+Sends a short, warm welcome by email.
 
 This is distinct from the Day 0/1/3 activation sequence which runs
 on the daily Beat schedule. The instant welcome arrives within seconds
 of signup — no waiting until the next morning.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +19,6 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from app.core.config import settings
 from app.db.session import session_scope
 from app.workers.celery_app import celery_app
 
@@ -75,7 +73,7 @@ def send_instant_welcome(user_id: int, *, broadcast: bool = False) -> dict:
             db.query(UserEmailLog.id)
             .filter(
                 UserEmailLog.user_id == user_id,
-            UserEmailLog.email_type == log_type,
+                UserEmailLog.email_type == log_type,
             )
             .first()
         )
@@ -102,10 +100,14 @@ def send_instant_welcome(user_id: int, *, broadcast: bool = False) -> dict:
                     "fulfil orders, manage operations, and grow — built for how you already "
                     "do business on WhatsApp.\n\n"
                     "What you can do with SuoOps:\n"
-                    "1. Sell online with a shareable storefront where customers browse, order, pay, and choose delivery.\n"
-                    "2. Sell with confidence using buyer protection, courier delivery, order tracking, and secure settlement.\n"
-                    "3. Create branded, QR-verifiable invoices from your dashboard or by WhatsApp.\n"
-                    "4. Manage inventory, customers, payments, expenses, team access, insights, and Nigeria-focused tax reports.\n\n"
+                    "1. Sell online with a shareable storefront where customers browse, "
+                    "order, pay, and choose delivery.\n"
+                    "2. Sell with confidence using buyer protection, courier delivery, "
+                    "order tracking, and secure settlement.\n"
+                    "3. Create branded, QR-verifiable invoices from your dashboard "
+                    "or by WhatsApp.\n"
+                    "4. Manage inventory, customers, payments, expenses, team access, "
+                    "insights, and Nigeria-focused tax reports.\n\n"
                     "The simplest way to start:\n"
                     "1. Complete your business profile and bank details:\n"
                     "https://suoops.com/dashboard/settings#profile\n"
@@ -138,86 +140,10 @@ def send_instant_welcome(user_id: int, *, broadcast: bool = False) -> dict:
             except Exception as e:
                 logger.warning("Instant welcome email failed for user %s: %s", user_id, e)
 
-        # ── 2. WhatsApp ──────────────────────────────────────────────
-        if user.phone and settings.WHATSAPP_TEMPLATE_ACTIVATION_WELCOME:
-            try:
-                from app.core.whatsapp import get_whatsapp_client
-
-                client = get_whatsapp_client()
-                lang = settings.WHATSAPP_TEMPLATE_LANGUAGE or "en"
-                components = [
-                    {
-                        "type": "body",
-                        "parameters": [{"type": "text", "text": name}],
-                    }
-                ]
-                ok = client.send_template(
-                    user.phone,
-                    settings.WHATSAPP_TEMPLATE_ACTIVATION_WELCOME,
-                    lang,
-                    components,
-                )
-                result["whatsapp_sent"] = bool(ok)
-            except Exception as e:
-                logger.warning("Instant welcome WhatsApp failed for user %s: %s", user_id, e)
-
-        # ── 3. Guided onboarding (start first-invoice flow on WhatsApp) ──
-        if not broadcast and user.phone and result.get("whatsapp_sent"):
-            try:
-                import time
-                time.sleep(3)  # Brief pause so welcome template arrives first
-                from app.bot.onboarding_flow import send_onboarding_prompt, start_onboarding
-                from app.core.whatsapp import get_whatsapp_client
-
-                client = get_whatsapp_client()
-
-                # ── Demo invoice preview: show the customer experience
-                #    BEFORE we ask them to create one. Massive aha-moment
-                #    — they see exactly what their first customer will
-                #    receive. Plain text, no DB writes, no quota cost.
-                try:
-                    demo_msg = (
-                        "👀 *Here's what your customer will see:*\n"
-                        "─────────────────\n"
-                        f"Hi! *{user.business_name or user.name or 'Your business'}* sent you "
-                        "an invoice via SuoOps:\n\n"
-                        "📄 INV-DEMO-001\n"
-                        "💰 ₦5,000 — Sample item\n"
-                        "📅 Due in 7 days\n\n"
-                        "💳 *Pay now:* suoops.com/pay/demo\n"
-                        "🏦 Or transfer to: GTBank ****1234\n\n"
-                        "Reply *paid* once you've sent it.\n"
-                        "─────────────────\n"
-                        "_That's the experience your customers get. "
-                        "Now let's make a real one_ 👇"
-                    )
-                    client.send_text(user.phone, demo_msg)
-                    time.sleep(2)
-                except Exception as e:
-                    logger.warning("Demo invoice preview failed for user %s: %s", user_id, e)
-
-                start_onboarding(user.phone, user.id)
-                send_onboarding_prompt(client, user.phone, name)
-                logger.info("Started onboarding flow for user %s", user_id)
-            except Exception as e:
-                logger.warning("Onboarding prompt failed for user %s: %s", user_id, e)
-
         # ── Record so Daily activation skips duplicate welcome ───────
         if result["email_sent"] or result["whatsapp_sent"]:
             db.add(UserEmailLog(user_id=user_id, email_type=log_type))
             db.flush()
-
-        # ── 4. Schedule 1-hour activation check ─────────────────────
-        #    If they haven't created an invoice within 1 hour, re-engage
-        #    with a shorter, action-focused follow-up.
-        if not broadcast and user.phone:
-            try:
-                send_activation_followup.apply_async(
-                    args=[user_id], countdown=3600,
-                )
-                logger.info("Scheduled 1-hour follow-up for user %s", user_id)
-            except Exception as e:
-                logger.warning("Failed to schedule follow-up for user %s: %s", user_id, e)
 
         logger.info(
             "Instant welcome for user %s: email=%s, wa=%s",
@@ -250,10 +176,7 @@ def broadcast_welcome() -> dict:
         user_ids = [
             user_id
             for (user_id,) in (
-                db.query(User.id)
-                .filter((User.email.isnot(None)) | (User.phone.isnot(None)))
-                .order_by(User.id)
-                .all()
+                db.query(User.id).filter((User.email.isnot(None)) | (User.phone.isnot(None))).order_by(User.id).all()
             )
         ]
 
@@ -316,6 +239,9 @@ FOLLOWUP_LOG_TYPE = "activation_1h_followup"
 )
 def send_activation_followup(user_id: int) -> dict:
     """One-hour follow-up for users who didn't create an invoice after signup."""
+    # Activation guidance is surfaced in-app; promotional WhatsApp is disabled.
+    return {"sent": False, "reason": "in_app_only"}
+
     from sqlalchemy import func
 
     from app.models.models import Invoice, User, UserEmailLog
@@ -329,11 +255,7 @@ def send_activation_followup(user_id: int) -> dict:
             return result
 
         # Already created an invoice — no nudge needed
-        has_invoice = (
-            db.query(func.count(Invoice.id))
-            .filter(Invoice.issuer_id == user_id)
-            .scalar()
-        )
+        has_invoice = db.query(func.count(Invoice.id)).filter(Invoice.issuer_id == user_id).scalar()
         if has_invoice:
             result["reason"] = "already_activated"
             return result
@@ -381,6 +303,7 @@ def send_activation_followup(user_id: int) -> dict:
             else:
                 # Outside 24h window — use template fallback
                 from app.core.config import settings as _settings
+
                 tpl = _settings.WHATSAPP_TEMPLATE_WIN_BACK
                 if tpl:
                     lang = _settings.WHATSAPP_TEMPLATE_LANGUAGE or "en"
@@ -418,19 +341,12 @@ def _professionalism_score_message(db, user_id: int, first_name: str, *, paid: b
     level = score.get("level", "")
     tips = [t for t in (score.get("tips") or []) if t][:3]
 
-    header = (
-        f"🎉 *You just got paid, {first_name}!*"
-        if paid
-        else f"🧾 *Nice — invoice created, {first_name}!*"
-    )
+    header = f"🎉 *You just got paid, {first_name}!*" if paid else f"🧾 *Nice — invoice created, {first_name}!*"
     lines = [
         header,
         "",
-        f"📊 Your *professionalism score* is *{pct}%*"
-        + (f" ({level})" if level else "")
-        + ".",
-        "A complete profile builds trust — businesses that look professional "
-        "get paid faster.",
+        f"📊 Your *professionalism score* is *{pct}%*" + (f" ({level})" if level else "") + ".",
+        "A complete profile builds trust — businesses that look professional " "get paid faster.",
     ]
     if pct < 100 and tips:
         lines.append("")
@@ -482,6 +398,9 @@ def send_daily_professionalism_score(user_id: int) -> dict:
     Dispatched whenever a business creates a revenue invoice. Deduped to once a
     day per user and capped by the daily WhatsApp marketing budget.
     """
+    # Profile guidance is surfaced in-app; promotional WhatsApp is disabled.
+    return {"sent": False, "skipped_reason": "in_app_only"}
+
     from app.models.models import User
 
     result: dict = {"sent": False, "skipped_reason": None}
@@ -533,6 +452,9 @@ def send_first_paid_referral_nudge(user_id: int) -> dict:
     Idempotent — guarded by ``UserEmailLog`` so retries / repeated paid
     transitions don't spam the user.
     """
+    # Referral/profile guidance is surfaced in-app; promotional WhatsApp is disabled.
+    return {"sent": False, "skipped_reason": "in_app_only"}
+
     from sqlalchemy import func
 
     from app.models import models

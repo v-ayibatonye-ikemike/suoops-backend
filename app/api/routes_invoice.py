@@ -40,7 +40,7 @@ async def create_invoice(
     async_pdf: bool = True,  # Default to async PDF generation for better performance
 ):
     """Create a new invoice with optional async PDF generation.
-    
+
     Args:
         data: Invoice creation data
         current_user_id: Authenticated user ID
@@ -76,12 +76,15 @@ async def create_invoice(
     if user and (not user.bank_name or not user.account_number):
         raise HTTPException(
             status_code=400,
-            detail="Please add your bank details in Settings before creating invoices. Your customers need to know where to pay.",
+            detail=(
+                "Please add your bank details in Settings before creating invoices. "
+                "Your customers need to know where to pay."
+            ),
         )
 
     # Check invoice creation limit based on data owner's subscription plan
     check_invoice_limit(db, data_owner_id)
-    
+
     svc = get_invoice_service_for_user(data_owner_id, db)
 
     # Ensure PDF exists before sending notifications so it's available when customer replies
@@ -100,7 +103,7 @@ async def create_invoice(
             async_pdf=effective_async,
             created_by_user_id=current_user_id,  # Track actual creator for confirmation permissions
         )
-        
+
         # Send notifications via available channels (Email, WhatsApp) - ONLY for revenue invoices
         # Note: WhatsApp uses centralized opt-in logic - new customers get template, opted-in get full invoice
         logger.info(
@@ -112,8 +115,9 @@ async def create_invoice(
         )
         if invoice.invoice_type == "revenue" and (data.customer_email or data.customer_phone):
             from app.services.notification_service import NotificationService
+
             notification_service = NotificationService()
-            
+
             logger.info(
                 "[INVOICE NOTIFY] Sending notification for %s to email=%s, phone=%s",
                 invoice.invoice_id,
@@ -127,7 +131,7 @@ async def create_invoice(
                 customer_phone=data.customer_phone,
                 pdf_url=invoice.pdf_url,
             )
-            
+
             # Commit any changes made during notification (e.g., whatsapp_delivery_pending flag)
             db.commit()
 
@@ -151,7 +155,7 @@ async def create_invoice(
                 bool(data.customer_email),
                 bool(data.customer_phone),
             )
-        
+
         return invoice
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -225,7 +229,7 @@ async def upload_expense_receipt(
     file: UploadFile = File(...),
 ):
     """Upload expense receipt image and return S3 URL for use in invoice creation.
-    
+
     This endpoint allows users to upload proof of purchase (receipt photo/PDF)
     before creating an expense invoice. The returned receipt_url can then be
     included in the invoice creation request.
@@ -234,31 +238,30 @@ async def upload_expense_receipt(
     allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/bmp", "application/pdf"]
     if file.content_type not in allowed_types:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Allowed: JPEG, PNG, WebP, BMP, PDF. Got: {file.content_type}"
+            status_code=400, detail=f"Invalid file type. Allowed: JPEG, PNG, WebP, BMP, PDF. Got: {file.content_type}"
         )
-    
+
     # Validate file size (max 10MB)
     max_size = 10 * 1024 * 1024  # 10MB
     content = await file.read()
     if len(content) > max_size:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB.")
-    
+
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="File is empty.")
-    
+
     # Validate magic bytes match claimed content type (prevents spoofed Content-Type)
     from app.utils.file_validation import validate_file_magic_bytes
+
     if not validate_file_magic_bytes(content, file.content_type):
         raise HTTPException(
-            status_code=400,
-            detail="File content does not match its declared type. Upload a valid image or PDF."
+            status_code=400, detail="File content does not match its declared type. Upload a valid image or PDF."
         )
-    
+
     try:
         # Upload to S3
         s3_client = S3Client()
-        
+
         # Determine file extension
         ext = "jpg"
         if file.content_type == "application/pdf":
@@ -267,23 +270,21 @@ async def upload_expense_receipt(
             ext = "png"
         elif file.content_type == "image/webp":
             ext = "webp"
-        
+
         # Create unique filename (use data_owner_id for team context)
         filename = f"receipts/user_{data_owner_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.{ext}"
-        
-        receipt_url = await s3_client.upload_file(
-            content,
-            filename,
-            content_type=file.content_type
+
+        receipt_url = await s3_client.upload_file(content, filename, content_type=file.content_type)
+
+        logger.info(
+            "Uploaded expense receipt for data_owner %s by user %s: %s", data_owner_id, current_user_id, receipt_url
         )
-        
-        logger.info("Uploaded expense receipt for data_owner %s by user %s: %s", data_owner_id, current_user_id, receipt_url)
-        
+
         return schemas.ReceiptUploadOut(
             receipt_url=receipt_url,
             filename=file.filename or filename,
         )
-    
+
     except Exception as e:
         logger.error("Failed to upload receipt: %s", e)
         raise HTTPException(status_code=500, detail="Failed to upload receipt. Please try again.")
@@ -297,13 +298,13 @@ def get_invoice_quota(current_user_id: CurrentUserDep, data_owner_id: DataOwnerD
     For team members, this returns the team admin's quota.
     """
     from app.utils.feature_gate import INVOICE_PACK_PRICE, INVOICE_PACK_SIZE
-    
+
     gate = FeatureGate(db, data_owner_id)
     plan = gate.user.effective_plan  # Uses effective_plan to respect pro_override
     invoice_balance = int(getattr(gate.user, "invoice_balance", 0) or 0)  # field on User
     can_create, _ = gate.can_create_invoice()
     purchase_url = "/invoices/purchase-pack" if not can_create else None
-    
+
     return schemas.InvoiceQuotaOut(
         invoice_balance=invoice_balance,
         current_plan=plan.value,
@@ -317,7 +318,7 @@ def get_invoice_quota(current_user_id: CurrentUserDep, data_owner_id: DataOwnerD
 @router.get("/", response_model=schemas.PaginatedResponse[schemas.InvoiceOut])
 def list_invoices(
     current_user_id: CurrentUserDep,
-    data_owner_id: DataOwnerDep, 
+    data_owner_id: DataOwnerDep,
     db: DbDep,
     invoice_type: str | None = None,  # Optional filter: "revenue", "expense", or None for all
     start_date: str | None = None,  # Optional date filter (YYYY-MM-DD)
@@ -329,11 +330,11 @@ def list_invoices(
 ):
     from datetime import date
     from datetime import datetime as dt
-    
+
     # Clamp pagination params to safe bounds
     skip = max(0, skip)
     limit = max(1, min(limit, 200))
-    
+
     # Parse date strings into date objects for SQL-level filtering
     parsed_start: date | None = None
     parsed_end: date | None = None
@@ -347,7 +348,7 @@ def list_invoices(
             parsed_end = dt.strptime(end_date, "%Y-%m-%d").date()
         except ValueError:
             pass
-    
+
     svc = get_invoice_service_for_user(data_owner_id, db)
     invoices, total = svc.list_invoices(
         data_owner_id,
@@ -398,28 +399,29 @@ def update_invoice_status(
 ):
     """Update invoice status. Only the creator or admin (issuer) can update it."""
     from app.models.models import Invoice
-    
+
     # Scope lookup to data_owner to prevent cross-tenant information leaks
-    invoice = db.query(Invoice).filter(
-        Invoice.invoice_id == invoice_id,
-        Invoice.issuer_id == data_owner_id,
-    ).first()
+    invoice = (
+        db.query(Invoice)
+        .filter(
+            Invoice.invoice_id == invoice_id,
+            Invoice.issuer_id == data_owner_id,
+        )
+        .first()
+    )
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    
+
     # Allow update if:
     # 1. User is the creator (created_by_user_id)
     # 2. User is the admin/issuer (issuer_id) - business owner always has access
     # For old invoices without created_by_user_id, issuer_id is the owner
     is_creator = invoice.created_by_user_id == current_user_id
     is_admin = invoice.issuer_id == current_user_id
-    
+
     if not is_creator and not is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Only the invoice creator or business admin can update the status"
-        )
-    
+        raise HTTPException(status_code=403, detail="Only the invoice creator or business admin can update the status")
+
     svc = get_invoice_service_for_user(data_owner_id, db)
     try:
         return svc.update_status(data_owner_id, invoice_id, payload.status, updated_by_user_id=current_user_id)
@@ -437,34 +439,35 @@ def download_invoice_pdf(invoice_id: str, current_user_id: CurrentUserDep, data_
         invoice = svc.get_invoice(data_owner_id, invoice_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    
+
     if not invoice.pdf_url:
         raise HTTPException(status_code=404, detail="PDF not generated for this invoice")
-    
+
     # If it's a file:// URL, serve from local filesystem
     if invoice.pdf_url.startswith("file://"):
         file_path = invoice.pdf_url.replace("file://", "")
         path = Path(file_path).resolve()
-        
+
         # Defense-in-depth: restrict to the storage directory
         storage_root = Path("storage").resolve()
         if not str(path).startswith(str(storage_root)):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         if not path.exists():
             raise HTTPException(status_code=404, detail="PDF file not found on disk")
-        
+
         return FileResponse(
             path=str(path),
             media_type="application/pdf",
             filename=f"{invoice_id}.pdf",
         )
-    
+
     # If it's an HTTP URL (S3), re-sign a FRESH presigned URL before redirecting —
     # the stored one is short-lived and would 'Request has expired' for older invoices.
     from fastapi.responses import RedirectResponse
 
     from app.storage.s3_client import s3_client
+
     fresh_url = s3_client.refresh_presigned_url(invoice.pdf_url) or invoice.pdf_url
     return RedirectResponse(url=fresh_url)
 
@@ -472,28 +475,28 @@ def download_invoice_pdf(invoice_id: str, current_user_id: CurrentUserDep, data_
 @router.get("/{invoice_id}/verify", response_model=schemas.InvoiceVerificationOut)
 def verify_invoice(invoice_id: str, db: DbDep):
     """Public endpoint to verify invoice authenticity via QR code scan.
-    
+
     This endpoint does NOT require authentication - it's meant to be scanned
     by customers to verify the invoice is legitimate.
-    
+
     Returns masked customer information for privacy while proving authenticity.
     """
     from datetime import datetime
 
     from app.models.models import Invoice
-    
+
     invoice = db.query(Invoice).filter(Invoice.invoice_id == invoice_id).first()
-    
+
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    
+
     # Mask customer name for privacy (show first letter + asterisks)
     customer_name = invoice.customer.name
     if len(customer_name) > 2:
         masked_name = customer_name[0] + "*" * (len(customer_name) - 2) + customer_name[-1]
     else:
         masked_name = customer_name[0] + "*"
-    
+
     # Resolve issuer (business) name via relationship (added FK issuer_id -> user.id)
     if getattr(invoice, "issuer", None):
         business_name = invoice.issuer.business_name or invoice.issuer.name
@@ -528,11 +531,7 @@ def verify_invoice(invoice_id: str, db: DbDep):
     # a scan proves more than "paid".
     from app.models.models import StorefrontOrderEscrow
 
-    escrow = (
-        db.query(StorefrontOrderEscrow)
-        .filter(StorefrontOrderEscrow.invoice_id == invoice.id)
-        .first()
-    )
+    escrow = db.query(StorefrontOrderEscrow).filter(StorefrontOrderEscrow.invoice_id == invoice.id).first()
     fulfilment_status, fulfilment_label = _fulfilment(escrow)
 
     return schemas.InvoiceVerificationOut(
@@ -579,18 +578,12 @@ def _fulfilment(escrow) -> tuple[str | None, str | None]:
 
     # 'held' — paid, within the buyer-protection window.
     if getattr(escrow, "confirmed_at", None):
-        return "confirmed", (
-            "Buyer confirmed the service was rendered"
-            if is_service
-            else "Buyer confirmed delivery"
-        )
+        return "confirmed", ("Buyer confirmed the service was rendered" if is_service else "Buyer confirmed delivery")
     if is_service:
         if getattr(escrow, "seller_marked_delivered_at", None):
             return "rendered", "Seller marked the service as rendered"
         return "in_progress", "Paid — service in progress"
-    if getattr(escrow, "seller_marked_delivered_at", None) or getattr(
-        escrow, "courier_delivered_at", None
-    ):
+    if getattr(escrow, "seller_marked_delivered_at", None) or getattr(escrow, "courier_delivered_at", None):
         return "delivered", "Seller marked the order delivered"
     if getattr(escrow, "seller_dispatched_at", None):
         return "sent", "Sent out — on the way to the buyer"
@@ -666,7 +659,7 @@ async def initialize_invoice_pack_purchase(
     )
     db.add(transaction)
     db.commit()
-    
+
     # Initialize Paystack payment
     try:
         async with paystack_async_client() as client:
@@ -677,7 +670,8 @@ async def initialize_invoice_pack_purchase(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "email": user.email or (f"{user.phone}@suoops.com" if user.phone else f"user{current_user_id}@suoops.com"),
+                    "email": user.email
+                    or (f"{user.phone}@suoops.com" if user.phone else f"user{current_user_id}@suoops.com"),
                     "amount": int(total_amount * 100),  # Paystack expects kobo (includes fees)
                     "reference": reference,
                     "callback_url": f"{settings.FRONTEND_URL}/dashboard/billing/success?reference={reference}",
@@ -695,19 +689,22 @@ async def initialize_invoice_pack_purchase(
         transaction.status = PaymentStatus.FAILED
         db.commit()
         raise HTTPException(status_code=502, detail="Payment gateway error. Please try again.")
-    
+
     if not data.get("status"):
         transaction.status = PaymentStatus.FAILED
         db.commit()
         raise HTTPException(status_code=502, detail=data.get("message", "Payment initialization failed"))
-    
+
     auth_url = data["data"]["authorization_url"]
-    
+
     logger.info(
         "Wallet top-up payment initialized | user=%s credit_naira=%d charged_naira=%d ref=%s",
-        current_user_id, amount, total_amount, reference
+        current_user_id,
+        amount,
+        total_amount,
+        reference,
     )
-    
+
     return schemas.InvoicePackPurchaseInitOut(
         authorization_url=auth_url,
         reference=reference,

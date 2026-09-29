@@ -1,4 +1,5 @@
 """PII masking helpers for logs."""
+
 from app.utils.pii import mask_email, mask_phone
 
 

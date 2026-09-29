@@ -12,6 +12,7 @@ users (sellers) AND the customers/buyers stored on their invoices/orders.
 Run against PROD (read-only):
     PYTHONPATH=. DATABASE_URL=<prod-url> ./.venv/bin/python scripts/count_data_subjects.py
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -40,21 +41,12 @@ def main() -> None:
         total_customers = db.query(func.count(models.Customer.id)).scalar() or 0
 
         # Distinct individuals by normalized phone (users ∪ customers).
-        user_phones = {
-            _norm(p) for (p,) in db.query(models.User.phone).all() if _norm(p)
-        }
-        cust_phones = {
-            _norm(p) for (p,) in db.query(models.Customer.phone).all() if _norm(p)
-        }
+        user_phones = {_norm(p) for (p,) in db.query(models.User.phone).all() if _norm(p)}
+        cust_phones = {_norm(p) for (p,) in db.query(models.Customer.phone).all() if _norm(p)}
         distinct_individuals = len(user_phones | cust_phones)
 
         # Activity in the last ~6 months (a stricter "processed in 6 months" read).
-        users_active_6mo = (
-            db.query(func.count(models.User.id))
-            .filter(models.User.last_login >= cutoff)
-            .scalar()
-            or 0
-        )
+        users_active_6mo = db.query(func.count(models.User.id)).filter(models.User.last_login >= cutoff).scalar() or 0
         customers_6mo = (
             db.query(func.count(func.distinct(models.Invoice.customer_id)))
             .filter(models.Invoice.created_at >= cutoff)

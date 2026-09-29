@@ -3,12 +3,13 @@
 Prevents accidental leakage of internal fields like Paystack
 transaction IDs, subscription codes, and raw webhook metadata.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-
 # ── Subscription status ────────────────────────────────────────────────
+
 
 class SubscriptionStatusOut(BaseModel):
     plan: str
@@ -19,6 +20,7 @@ class SubscriptionStatusOut(BaseModel):
 
 
 # ── Payment initialization ────────────────────────────────────────────
+
 
 class PaymentInitOut(BaseModel):
     authorization_url: str
@@ -32,6 +34,7 @@ class PaymentInitOut(BaseModel):
 
 # ── Payment verification ──────────────────────────────────────────────
 
+
 class PaymentVerifyOut(BaseModel):
     status: str
     message: str
@@ -41,6 +44,7 @@ class PaymentVerifyOut(BaseModel):
 
 
 # ── Payment history list item ─────────────────────────────────────────
+
 
 class PaymentHistoryItem(BaseModel):
     id: int
@@ -78,8 +82,10 @@ class PaymentHistoryOut(BaseModel):
 
 # ── Single payment detail (excludes Paystack internals) ───────────────
 
+
 class PaymentDetailOut(BaseModel):
     """Excludes paystack_transaction_id, payment_metadata, ip_address."""
+
     id: int
     reference: str
     amount: float
@@ -102,6 +108,7 @@ class PaymentDetailOut(BaseModel):
 
 
 # ── Cancel plan ───────────────────────────────────────────────────────
+
 
 class CancelSubscriptionOut(BaseModel):
     status: str

@@ -15,6 +15,7 @@ Requirements:
 
 import os
 import sys
+
 import requests
 
 # Add parent directory to path for imports
@@ -50,15 +51,16 @@ TEMPLATE_BODY = """Hi {{1}}, you have a new invoice.
 
 Reply 'Hi' to view payment details and complete your payment."""
 
+
 def create_template():
     """Create the WhatsApp message template via Graph API."""
     url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
-    
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
-    
+
     payload = {
         "name": TEMPLATE_NAME,
         "language": TEMPLATE_LANGUAGE,
@@ -67,23 +69,19 @@ def create_template():
             {
                 "type": "BODY",
                 "text": TEMPLATE_BODY,
-                "example": {
-                    "body_text": [
-                        ["John Doe", "INV-2024-001", "₦50,000.00", "Consulting services"]
-                    ]
-                }
+                "example": {"body_text": [["John Doe", "INV-2024-001", "₦50,000.00", "Consulting services"]]},
             }
-        ]
+        ],
     }
-    
+
     print(f"📤 Creating WhatsApp template '{TEMPLATE_NAME}'...")
     print(f"   WABA ID: {WABA_ID}")
     print(f"   Category: {TEMPLATE_CATEGORY}")
     print(f"   Language: {TEMPLATE_LANGUAGE}")
     print()
-    
+
     response = requests.post(url, headers=headers, json=payload)
-    
+
     if response.status_code == 200:
         data = response.json()
         print("✅ Template created successfully!")
@@ -96,16 +94,16 @@ def create_template():
         print(f"   3. Once approved, add to Render: WHATSAPP_TEMPLATE_INVOICE={TEMPLATE_NAME}")
         return True
     else:
-        print(f"❌ Failed to create template")
+        print("❌ Failed to create template")
         print(f"   Status: {response.status_code}")
         print(f"   Response: {response.text}")
-        
+
         # Handle common errors
         try:
             error_data = response.json()
             error_msg = error_data.get("error", {}).get("message", "")
             error_code = error_data.get("error", {}).get("code", 0)
-            
+
             if error_code == 100 and "already exists" in error_msg.lower():
                 print()
                 print("ℹ️  Template already exists. Checking status...")
@@ -113,45 +111,45 @@ def create_template():
             elif error_code == 190:
                 print()
                 print("⚠️  Access token may be expired. Please refresh your Meta API token.")
-        except:
+        except Exception:
             pass
-        
+
         return False
 
 
 def check_template_status():
     """Check the status of existing templates."""
     url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
-    
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
     }
-    
+
     params = {
         "fields": "name,status,language,category",
         "limit": 50,
     }
-    
+
     response = requests.get(url, headers=headers, params=params)
-    
+
     if response.status_code == 200:
         data = response.json()
         templates = data.get("data", [])
-        
+
         print()
         print("📋 Existing WhatsApp Templates:")
         print("-" * 60)
-        
+
         invoice_template = None
         for t in templates:
             status_emoji = "✅" if t.get("status") == "APPROVED" else "⏳" if t.get("status") == "PENDING" else "❌"
             print(f"   {status_emoji} {t.get('name')} ({t.get('language')}) - {t.get('status')}")
-            
+
             if t.get("name") == TEMPLATE_NAME:
                 invoice_template = t
-        
+
         print()
-        
+
         if invoice_template:
             status = invoice_template.get("status")
             if status == "APPROVED":
@@ -177,13 +175,13 @@ def list_templates():
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Manage WhatsApp Message Templates")
     parser.add_argument("--list", action="store_true", help="List existing templates")
     parser.add_argument("--create", action="store_true", help="Create invoice template")
-    
+
     args = parser.parse_args()
-    
+
     if args.list:
         list_templates()
     elif args.create:

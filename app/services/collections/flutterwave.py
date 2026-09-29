@@ -2,6 +2,7 @@
 there (v3 Standard payments). Off unless ``ESCROW_COLLECTOR_PROVIDER`` is
 ``flutterwave`` and ``FLUTTERWAVE_SECRET`` is set.
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,9 +75,7 @@ class FlutterwaveCollectionProvider(CollectionProvider):
             payload["payment_options"] = "banktransfer"
         try:
             with httpx.Client(timeout=15) as client:
-                resp = client.post(
-                    f"{self._base()}/v3/payments", headers=self._headers(), json=payload
-                )
+                resp = client.post(f"{self._base()}/v3/payments", headers=self._headers(), json=payload)
             data = resp.json()
         except Exception as exc:  # noqa: BLE001 — network/timeout
             raise CollectionError(f"Charge init failed: {exc}") from exc

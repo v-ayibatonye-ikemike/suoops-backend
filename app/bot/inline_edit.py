@@ -7,12 +7,12 @@ conservative — we only allow edits while the invoice is still
 ``pending`` and was created within the last 30 minutes, and we only
 support amount tweaks for now (the most common slip).
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from app.models import models
 from app.utils.currency_fmt import fmt_money
@@ -56,7 +56,12 @@ def _parse_amount_edit(text: str) -> float | None:
 
 
 def try_handle_inline_edit(
-    db, client, sender: str, text: str, *, issuer_id: int | None,
+    db,
+    client,
+    sender: str,
+    text: str,
+    *,
+    issuer_id: int | None,
 ) -> bool:
     """Best-effort inline edit. Returns True if we handled the message
     (caller should stop processing), False otherwise.

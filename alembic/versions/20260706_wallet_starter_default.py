@@ -8,6 +8,7 @@ New signups start with a ₦60 (6000 kobo) starter wallet so they can try manual
 invoicing before topping up. Only changes the column default for future rows —
 existing balances are untouched.
 """
+
 from __future__ import annotations
 
 from alembic import op

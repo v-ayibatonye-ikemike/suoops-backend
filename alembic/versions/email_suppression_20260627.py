@@ -5,12 +5,13 @@ Revises: fix_comm_pct_20260616
 Create Date: 2026-06-27
 """
 
+import sqlalchemy as sa
+
+from alembic import op
+
 # revision identifiers
 revision = "email_suppression_20260627"
 down_revision = "fix_comm_pct_20260616"
-
-from alembic import op
-import sqlalchemy as sa
 
 
 def upgrade() -> None:

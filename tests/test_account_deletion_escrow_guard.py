@@ -1,5 +1,6 @@
 """Account deletion is blocked while the seller still has buyer money in escrow
 (held/disputed), so protected funds can't be orphaned."""
+
 from __future__ import annotations
 
 from decimal import Decimal

@@ -5,6 +5,7 @@ Celery task functions directly (Celery runs eagerly in ENV=test). All external
 I/O — WhatsApp client, SMTP, redis, OCR, NLP adapters, requests — is patched so
 nothing touches the network.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -301,12 +302,13 @@ def test_send_mark_paid_email_success(smtp_ok, db_session):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(
-        db_session, user, cust, amount=8000,
+        db_session,
+        user,
+        cust,
+        amount=8000,
         due_date=datetime.now(timezone.utc) - timedelta(days=6),
     )
-    ok = mt._send_mark_paid_email(
-        "to@example.com", "Ada Obi", 2, 16000.0, 6, [inv], date.today()
-    )
+    ok = mt._send_mark_paid_email("to@example.com", "Ada Obi", 2, 16000.0, 6, [inv], date.today())
     assert ok is True
 
 
@@ -314,32 +316,45 @@ def test_send_mark_paid_email_not_configured(no_smtp, db_session):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(db_session, user, cust, amount=8000)
-    ok = mt._send_mark_paid_email(
-        "to@example.com", None, 2, 16000.0, 0, [inv], date.today()
-    )
+    ok = mt._send_mark_paid_email("to@example.com", None, 2, 16000.0, 0, [inv], date.today())
     assert ok is False
 
 
 def test_send_daily_summary_email_success(smtp_ok):
     ok = mt._send_daily_summary_email(
-        to_email="to@example.com", name="Ada Obi",
-        revenue=10000, expenses=2000, net=8000, outstanding=5000, overdue_count=1,
+        to_email="to@example.com",
+        name="Ada Obi",
+        revenue=10000,
+        expenses=2000,
+        net=8000,
+        outstanding=5000,
+        overdue_count=1,
     )
     assert ok is True
 
 
 def test_send_daily_summary_email_empty_body(smtp_ok):
     ok = mt._send_daily_summary_email(
-        to_email="to@example.com", name=None,
-        revenue=0, expenses=0, net=0, outstanding=0, overdue_count=0,
+        to_email="to@example.com",
+        name=None,
+        revenue=0,
+        expenses=0,
+        net=0,
+        outstanding=0,
+        overdue_count=0,
     )
     assert ok is True
 
 
 def test_send_daily_summary_email_not_configured(no_smtp):
     ok = mt._send_daily_summary_email(
-        to_email="to@example.com", name="Ada",
-        revenue=100, expenses=0, net=100, outstanding=0, overdue_count=0,
+        to_email="to@example.com",
+        name="Ada",
+        revenue=100,
+        expenses=0,
+        net=100,
+        outstanding=0,
+        overdue_count=0,
     )
     assert ok is False
 
@@ -360,7 +375,10 @@ def test_overdue_reminders_whatsapp_template(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=15000,
+        db_session,
+        user,
+        cust,
+        amount=15000,
         due_date=datetime.now(timezone.utc) - timedelta(days=20),
     )
     result = mt.send_overdue_reminders()
@@ -377,7 +395,10 @@ def test_overdue_reminders_email_fallback(db_session, wa, smtp_ok, monkeypatch):
     user = _make_user(db_session, phone=None, email="ada@example.com")
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=9000,
+        db_session,
+        user,
+        cust,
+        amount=9000,
         due_date=datetime.now(timezone.utc) - timedelta(days=10),
     )
     result = mt.send_overdue_reminders()
@@ -389,13 +410,18 @@ def test_overdue_reminders_skip_already_sent(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(
-        db_session, user, cust, amount=5000,
+        db_session,
+        user,
+        cust,
+        amount=5000,
         due_date=datetime.now(timezone.utc) - timedelta(days=5),  # owner_action
     )
     db_session.add(
         models.InvoiceReminderLog(
-            invoice_id=inv.id, reminder_type="owner_action",
-            channel="whatsapp", recipient=user.phone,
+            invoice_id=inv.id,
+            reminder_type="owner_action",
+            channel="whatsapp",
+            recipient=user.phone,
         )
     )
     db_session.commit()
@@ -408,7 +434,10 @@ def test_overdue_reminders_skip_no_channel(db_session, wa):
     user = _make_user(db_session, phone=None, email=None)
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=5000,
+        db_session,
+        user,
+        cust,
+        amount=5000,
         due_date=datetime.now(timezone.utc) - timedelta(days=3),
     )
     result = mt.send_overdue_reminders()
@@ -432,7 +461,10 @@ def test_customer_reminders_whatsapp_template(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=12000,
+        db_session,
+        user,
+        cust,
+        amount=12000,
         due_date=datetime.now(timezone.utc) - timedelta(days=1),
     )
     result = mt.send_customer_payment_reminders()
@@ -443,16 +475,22 @@ def test_customer_reminders_whatsapp_template(db_session, wa, monkeypatch):
 def test_customer_reminders_email_only_customer(db_session, wa, base_url, monkeypatch):
     # Customer with email but no phone -> email reminder.
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_REMINDER", "pay_tpl", raising=False)
+
     async def fake_send_email(self, to, subject, body):
         return True
+
     monkeypatch.setattr(
         "app.services.notification.service.NotificationService.send_email",
-        fake_send_email, raising=True,
+        fake_send_email,
+        raising=True,
     )
     user = _make_user(db_session)
     cust = _make_customer(db_session, phone=None, email="cust@example.com")
     _make_invoice(
-        db_session, user, cust, amount=7000,
+        db_session,
+        user,
+        cust,
+        amount=7000,
         due_date=datetime.now(timezone.utc) - timedelta(days=8),
     )
     result = mt.send_customer_payment_reminders()
@@ -464,13 +502,18 @@ def test_customer_reminders_skip_already_sent(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(
-        db_session, user, cust, amount=7000,
+        db_session,
+        user,
+        cust,
+        amount=7000,
         due_date=datetime.now(timezone.utc) - timedelta(days=1),
     )
     db_session.add(
         models.InvoiceReminderLog(
-            invoice_id=inv.id, reminder_type="customer_overdue_1d",
-            channel="whatsapp", recipient=cust.phone,
+            invoice_id=inv.id,
+            reminder_type="customer_overdue_1d",
+            channel="whatsapp",
+            recipient=cust.phone,
         )
     )
     db_session.commit()
@@ -483,7 +526,10 @@ def test_customer_reminders_14d_notifies_owner(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=30000,
+        db_session,
+        user,
+        cust,
+        amount=30000,
         due_date=datetime.now(timezone.utc) - timedelta(days=20),
     )
     result = mt.send_customer_payment_reminders()
@@ -500,7 +546,10 @@ def test_customer_reminders_skip_abandoned_storefront(db_session, wa, monkeypatc
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     _make_invoice(
-        db_session, user, cust, amount=30000,
+        db_session,
+        user,
+        cust,
+        amount=30000,
         due_date=datetime.now(timezone.utc) - timedelta(days=20),
         channel="storefront",
     )
@@ -731,11 +780,10 @@ def test_daily_summaries_plain_text_and_cash_image(db_session, wa, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.cash_dashboard_image.build_cash_snapshot_png",
-        lambda cash, biz, cur: b"pngbytes", raising=True,
+        lambda cash, biz, cur: b"pngbytes",
+        raising=True,
     )
-    monkeypatch.setattr(
-        "app.utils.currency_fmt.get_user_currency", lambda db, uid: "NGN", raising=True
-    )
+    monkeypatch.setattr("app.utils.currency_fmt.get_user_currency", lambda db, uid: "NGN", raising=True)
     user = _make_user(db_session, plan=SubscriptionPlan.PRO)
     cust = _make_customer(db_session)
     now = datetime.now(timezone.utc)
@@ -762,11 +810,10 @@ def test_send_daily_cash_image(db_session, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.cash_dashboard_image.build_cash_snapshot_png",
-        lambda cash, biz, cur: b"pngbytes", raising=True,
+        lambda cash, biz, cur: b"pngbytes",
+        raising=True,
     )
-    monkeypatch.setattr(
-        "app.utils.currency_fmt.get_user_currency", lambda db, uid: "NGN", raising=True
-    )
+    monkeypatch.setattr("app.utils.currency_fmt.get_user_currency", lambda db, uid: "NGN", raising=True)
     mt._send_daily_cash_image(db_session, client, user, lambda phone: True)
     client.upload_media.assert_called_once()
     client.send_image.assert_called_once()
@@ -833,7 +880,10 @@ def test_send_customer_whatsapp_reminder_template(db_session, wa, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(
-        db_session, user, cust, amount=12000,
+        db_session,
+        user,
+        cust,
+        amount=12000,
         due_date=datetime.now(timezone.utc) - timedelta(days=2),
     )
     ok = mt._send_customer_whatsapp_reminder(inv, cust, user, "customer_overdue_1d", "Ada Stores")
@@ -847,12 +897,16 @@ def test_send_customer_email_reminder(db_session, base_url, monkeypatch):
 
     monkeypatch.setattr(
         "app.services.notification.service.NotificationService.send_email",
-        fake_send_email, raising=True,
+        fake_send_email,
+        raising=True,
     )
     user = _make_user(db_session)
     cust = _make_customer(db_session)
     inv = _make_invoice(
-        db_session, user, cust, amount=12000,
+        db_session,
+        user,
+        cust,
+        amount=12000,
         due_date=datetime.now(timezone.utc) - timedelta(days=2),
     )
     ok = mt._send_customer_email_reminder(inv, cust, user, "customer_overdue_1d", "Ada Stores")

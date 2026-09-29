@@ -1,4 +1,5 @@
 """Helpers for running coroutines from synchronous code paths."""
+
 from __future__ import annotations
 
 import asyncio

@@ -16,10 +16,8 @@ from app.core.config import settings
 
 raw_url = settings.DATABASE_URL
 
-use_sqlite_memory = (
-    settings.ENV.lower() == "test" and (
-        os.getenv("SUOOPS_TEST_SQLITE") == "1" or not raw_url or raw_url.startswith("sqlite+aiosqlite:///:memory:")
-    )
+use_sqlite_memory = settings.ENV.lower() == "test" and (
+    os.getenv("SUOOPS_TEST_SQLITE") == "1" or not raw_url or raw_url.startswith("sqlite+aiosqlite:///:memory:")
 )
 
 if use_sqlite_memory:

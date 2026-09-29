@@ -11,6 +11,7 @@ first invoice step by step:
 Uses the same ephemeral in-memory state pattern as PendingPriceSession
 and CartSession. Sessions expire after 30 minutes of inactivity.
 """
+
 from __future__ import annotations
 
 import json
@@ -147,6 +148,7 @@ def _money_label(amount: float, currency: str) -> str:
     """Render an amount for prompts. Uses fmt_money when available."""
     try:
         from app.utils.currency_fmt import fmt_money
+
         return fmt_money(float(amount), (currency or "NGN").upper(), convert=False)
     except Exception:
         if (currency or "NGN").upper() == "USD":
@@ -222,15 +224,17 @@ def _send_review(client, phone: str, session: OnboardingSession) -> None:
     try:
         send_buttons = getattr(client, "send_interactive_buttons", None)
         if callable(send_buttons):
-            sent = bool(send_buttons(
-                phone,
-                body,
-                [
-                    {"id": "onb_send", "title": "✅ Send"},
-                    {"id": "onb_edit", "title": "✏️ Edit"},
-                    {"id": "onb_cancel", "title": "❌ Cancel"},
-                ],
-            ))
+            sent = bool(
+                send_buttons(
+                    phone,
+                    body,
+                    [
+                        {"id": "onb_send", "title": "✅ Send"},
+                        {"id": "onb_edit", "title": "✏️ Edit"},
+                        {"id": "onb_cancel", "title": "❌ Cancel"},
+                    ],
+                )
+            )
     except Exception:
         logger.exception("failed to send review buttons")
         sent = False
@@ -380,7 +384,7 @@ def handle_onboarding_reply(
             phone,
             "👍 No problem! You can create an invoice anytime by typing:\n\n"
             "`Invoice Joy 08012345678, 5000 wig`\n\n"
-            "Type *help* for the full guide."
+            "Type *help* for the full guide.",
         )
         return None
 
@@ -418,9 +422,7 @@ def _handle_customer_name(
     name = text.strip()
     if len(name) < 2:
         client.send_text(
-            phone,
-            "Please enter a valid customer name (at least 2 characters).\n\n"
-            "👤 *What's your customer's name?*"
+            phone, "Please enter a valid customer name (at least 2 characters).\n\n" "👤 *What's your customer's name?*"
         )
         return None
 
@@ -430,7 +432,7 @@ def _handle_customer_name(
             phone,
             "That looks like a number, not a name 😊\n\n"
             "👤 *What's your customer's name?*\n"
-            "_e.g. Joy, Ade, Mrs Bello_"
+            "_e.g. Joy, Ade, Mrs Bello_",
         )
         return None
 
@@ -445,10 +447,7 @@ def _handle_customer_name(
             session.customer_phone = existing
 
     examples = _money_examples(session.currency)
-    autoph = (
-        f"\n_(I'll send it to {session.customer_phone} — saved from before.)_"
-        if session.customer_phone else ""
-    )
+    autoph = f"\n_(I'll send it to {session.customer_phone} — saved from before.)_" if session.customer_phone else ""
     client.send_text(
         phone,
         f"✅ Customer: *{name}*{autoph}\n\n"
@@ -456,7 +455,7 @@ def _handle_customer_name(
         "_Type the amount and item, e.g:_\n"
         f"• `{examples[0]}`\n"
         f"• `{examples[1]}`\n"
-        f"• `{examples[2]}`"
+        f"• `{examples[2]}`",
     )
     return None
 
@@ -490,7 +489,9 @@ def _handle_amount(
 
         nlp = NLPService()
         candidate = nlp._extract_line_items(
-            text, phone_variants=set(), is_usd=is_usd,
+            text,
+            phone_variants=set(),
+            is_usd=is_usd,
         )
         # Drop quantity-only items (no unit price) — those need
         # inventory lookup that the guided flow doesn't support yet.
@@ -501,17 +502,12 @@ def _handle_amount(
         logger.exception("multi-item parse failed; falling back to single-item")
 
     if multi_lines:
-        total = sum(
-            Decimal(str(li["unit_price"])) * int(li.get("quantity") or 1)
-            for li in multi_lines
-        )
+        total = sum(Decimal(str(li["unit_price"])) * int(li.get("quantity") or 1) for li in multi_lines)
         min_amt, min_label = _money_min(session.currency)
         if float(total) < min_amt:
             examples = _money_examples(session.currency)
             client.send_text(
-                phone,
-                f"⚠️ Total seems too low. Minimum is {min_label}.\n\n"
-                f"💰 *Try again:* _e.g. `{examples[0]}`_"
+                phone, f"⚠️ Total seems too low. Minimum is {min_label}.\n\n" f"💰 *Try again:* _e.g. `{examples[0]}`_"
             )
             return None
         session.amount = float(total)
@@ -523,9 +519,7 @@ def _handle_amount(
             }
             for li in multi_lines
         ]
-        session.description = ", ".join(
-            li["description"] for li in session.lines
-        )
+        session.description = ", ".join(li["description"] for li in session.lines)
 
         if session.customer_phone:
             session.step = "review"
@@ -539,7 +533,7 @@ def _handle_amount(
             f"*{_money_label(session.amount, session.currency)}*\n\n"
             "📱 *What's your customer's phone number?*\n\n"
             "_Type their number so they get the invoice on WhatsApp._\n"
-            "_Or type *skip* to create without a phone number._"
+            "_Or type *skip* to create without a phone number._",
         )
         return None
 
@@ -556,7 +550,7 @@ def _handle_amount(
             phone,
             "I couldn't find an amount in that.\n\n"
             "💰 *Please type the amount and what it's for:*\n"
-            f"_e.g. `{examples[0]}` or `{examples[1]}`_"
+            f"_e.g. `{examples[0]}` or `{examples[1]}`_",
         )
         return None
 
@@ -567,8 +561,7 @@ def _handle_amount(
         examples = _money_examples(session.currency)
         client.send_text(
             phone,
-            "That doesn't look like a valid amount.\n\n"
-            f"💰 *Try again:* _e.g. `{examples[0]}` or `{examples[2]}`_"
+            "That doesn't look like a valid amount.\n\n" f"💰 *Try again:* _e.g. `{examples[0]}` or `{examples[2]}`_",
         )
         return None
 
@@ -576,9 +569,7 @@ def _handle_amount(
     if amount < min_amt:
         examples = _money_examples(session.currency)
         client.send_text(
-            phone,
-            f"⚠️ Amount seems too low. Minimum is {min_label}.\n\n"
-            f"💰 *Try again:* _e.g. `{examples[0]}`_"
+            phone, f"⚠️ Amount seems too low. Minimum is {min_label}.\n\n" f"💰 *Try again:* _e.g. `{examples[0]}`_"
         )
         return None
 
@@ -604,7 +595,7 @@ def _handle_amount(
         f"✅ Amount: *{money}*{desc_text}\n\n"
         "📱 *What's your customer's phone number?*\n\n"
         "_Type their number so they get the invoice on WhatsApp._\n"
-        "_Or type *skip* to create without a phone number._"
+        "_Or type *skip* to create without a phone number._",
     )
     return None
 
@@ -631,7 +622,7 @@ def _handle_phone(
                 phone,
                 "That doesn't look like a valid phone number.\n\n"
                 "📱 *Enter a phone number* (e.g. 08012345678)\n"
-                "_or type *skip* to continue without one_"
+                "_or type *skip* to continue without one_",
             )
             return None
 
@@ -654,8 +645,17 @@ def _handle_review(
     """Step 4: Confirm-before-send. Returns invoice data on confirmation."""
     text_lower = text.strip().lower()
     confirm_words = {
-        "send", "yes", "y", "ok", "okay", "confirm", "go", "go ahead",
-        "✅", "send it", "onb_send",
+        "send",
+        "yes",
+        "y",
+        "ok",
+        "okay",
+        "confirm",
+        "go",
+        "go ahead",
+        "✅",
+        "send it",
+        "onb_send",
     }
     edit_words = {"edit", "change", "fix", "modify", "✏️", "onb_edit"}
     cancel_words = {"cancel", "no", "stop", "abort", "❌", "onb_cancel"}

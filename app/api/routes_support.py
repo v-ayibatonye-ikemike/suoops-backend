@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 # Schemas
 # ============================================================================
 
+
 class ContactRequest(BaseModel):
     """Contact form request schema."""
+
     name: str
     email: EmailStr
     category: str
@@ -39,6 +41,7 @@ class ContactRequest(BaseModel):
 
 class ContactResponse(BaseModel):
     """Contact form response schema."""
+
     success: bool
     message: str
     ticket_id: int | None = None
@@ -46,6 +49,7 @@ class ContactResponse(BaseModel):
 
 class TicketOut(BaseModel):
     """Ticket response schema."""
+
     id: int
     name: str
     email: str
@@ -68,6 +72,7 @@ class TicketOut(BaseModel):
 
 class TicketUpdate(BaseModel):
     """Schema for updating a ticket."""
+
     status: str | None = None
     priority: str | None = None
     internal_notes: str | None = None
@@ -77,6 +82,7 @@ class TicketUpdate(BaseModel):
 
 class TicketStats(BaseModel):
     """Support ticket statistics."""
+
     total_tickets: int
     open_tickets: int
     in_progress_tickets: int
@@ -88,6 +94,7 @@ class TicketStats(BaseModel):
 
 class AdminDashboardStats(BaseModel):
     """Combined stats for admin dashboard."""
+
     users: dict[str, Any]
     tickets: TicketStats
     invoices: dict[str, Any]
@@ -97,6 +104,7 @@ class AdminDashboardStats(BaseModel):
 # ============================================================================
 # Email Helpers
 # ============================================================================
+
 
 def _get_smtp_config() -> dict | None:
     """Get SMTP configuration from settings."""
@@ -265,6 +273,7 @@ SuoOps Support Team
 # Public Endpoints
 # ============================================================================
 
+
 @router.post("/contact", response_model=ContactResponse)
 @limiter.limit("5/minute")
 def submit_contact_form(
@@ -278,21 +287,14 @@ def submit_contact_form(
     """
     # Basic validation
     if not contact.name.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Name is required"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name is required")
+
     if not contact.message.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Message is required"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message is required")
+
     if len(contact.message) > 10000:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Message is too long (max 10,000 characters)"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Message is too long (max 10,000 characters)"
         )
 
     # Map category string to enum
@@ -318,7 +320,7 @@ def submit_contact_form(
     # Send emails (don't fail if email fails)
     try:
         _send_contact_email(contact, ticket.id)
-        
+
         smtp_config = _get_smtp_config()
         if smtp_config:
             from_email = getattr(settings, "FROM_EMAIL", smtp_config["user"])
@@ -328,15 +330,14 @@ def submit_contact_form(
         # Continue anyway - ticket is already created
 
     return ContactResponse(
-        success=True,
-        message="Your message has been sent. We'll respond within 24 hours.",
-        ticket_id=ticket.id
+        success=True, message="Your message has been sent. We'll respond within 24 hours.", ticket_id=ticket.id
     )
 
 
 # ============================================================================
 # Admin Endpoints
 # ============================================================================
+
 
 @router.get("/admin/stats", response_model=TicketStats)
 def get_ticket_stats(
@@ -349,32 +350,19 @@ def get_ticket_stats(
     week_start = today_start - timedelta(days=today_start.weekday())
 
     total = db.query(SupportTicket).count()
-    open_tickets = db.query(SupportTicket).filter(
-        SupportTicket.status == TicketStatus.OPEN
-    ).count()
-    in_progress = db.query(SupportTicket).filter(
-        SupportTicket.status == TicketStatus.IN_PROGRESS
-    ).count()
-    resolved = db.query(SupportTicket).filter(
-        SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED])
-    ).count()
-    tickets_today = db.query(SupportTicket).filter(
-        SupportTicket.created_at >= today_start
-    ).count()
-    tickets_week = db.query(SupportTicket).filter(
-        SupportTicket.created_at >= week_start
-    ).count()
+    open_tickets = db.query(SupportTicket).filter(SupportTicket.status == TicketStatus.OPEN).count()
+    in_progress = db.query(SupportTicket).filter(SupportTicket.status == TicketStatus.IN_PROGRESS).count()
+    resolved = (
+        db.query(SupportTicket).filter(SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED])).count()
+    )
+    tickets_today = db.query(SupportTicket).filter(SupportTicket.created_at >= today_start).count()
+    tickets_week = db.query(SupportTicket).filter(SupportTicket.created_at >= week_start).count()
 
     # Average response time for resolved tickets
     avg_response = None
-    responded_tickets = db.query(SupportTicket).filter(
-        SupportTicket.responded_at.isnot(None)
-    ).all()
+    responded_tickets = db.query(SupportTicket).filter(SupportTicket.responded_at.isnot(None)).all()
     if responded_tickets:
-        total_hours = sum(
-            (t.responded_at - t.created_at).total_seconds() / 3600
-            for t in responded_tickets
-        )
+        total_hours = sum((t.responded_at - t.created_at).total_seconds() / 3600 for t in responded_tickets)
         avg_response = round(total_hours / len(responded_tickets), 1)
 
     return TicketStats(
@@ -418,9 +406,9 @@ def list_tickets(
     if search:
         search_term = f"%{search}%"
         query = query.filter(
-            (SupportTicket.email.ilike(search_term)) |
-            (SupportTicket.subject.ilike(search_term)) |
-            (SupportTicket.name.ilike(search_term))
+            (SupportTicket.email.ilike(search_term))
+            | (SupportTicket.subject.ilike(search_term))
+            | (SupportTicket.name.ilike(search_term))
         )
 
     tickets = query.order_by(desc(SupportTicket.created_at)).offset(skip).limit(limit).all()
@@ -429,24 +417,26 @@ def list_tickets(
     for ticket in tickets:
         # Note: assigned_to_id and responded_by_id are just IDs, not relationships
         # Could look up admin names if needed, but keeping it simple for now
-        result.append(TicketOut(
-            id=ticket.id,
-            name=ticket.name,
-            email=ticket.email,
-            subject=ticket.subject,
-            message=ticket.message,
-            category=ticket.category.value,
-            status=ticket.status.value,
-            priority=ticket.priority.value,
-            internal_notes=ticket.internal_notes,
-            response=ticket.response,
-            responded_at=ticket.responded_at,
-            created_at=ticket.created_at,
-            updated_at=ticket.updated_at,
-            resolved_at=ticket.resolved_at,
-            assigned_to_name=None,
-            responded_by_name=None,
-        ))
+        result.append(
+            TicketOut(
+                id=ticket.id,
+                name=ticket.name,
+                email=ticket.email,
+                subject=ticket.subject,
+                message=ticket.message,
+                category=ticket.category.value,
+                status=ticket.status.value,
+                priority=ticket.priority.value,
+                internal_notes=ticket.internal_notes,
+                response=ticket.response,
+                responded_at=ticket.responded_at,
+                created_at=ticket.created_at,
+                updated_at=ticket.updated_at,
+                resolved_at=ticket.resolved_at,
+                assigned_to_name=None,
+                responded_by_name=None,
+            )
+        )
 
     return result
 
@@ -460,10 +450,7 @@ def get_ticket(
     """Get a specific ticket by ID."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ticket not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
     return TicketOut(
         id=ticket.id,
@@ -495,10 +482,7 @@ def update_ticket(
     """Update a support ticket (status, priority, notes, response)."""
     ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
     if not ticket:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ticket not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
 
     # Update status
     if update.status:
@@ -578,43 +562,36 @@ def get_dashboard_stats(
     active_users = db.query(models.User).filter(models.User.last_login >= thirty_days_ago).count()
 
     # Adoption of the commission-model features (replaces the retired plan tiers).
-    online_payments_enabled = db.query(models.User).filter(
-        models.User.paystack_subaccount_active.is_(True)
-    ).count()
-    storefronts_enabled = db.query(models.User).filter(
-        models.User.storefront_enabled.is_(True)
-    ).count()
+    online_payments_enabled = db.query(models.User).filter(models.User.paystack_subaccount_active.is_(True)).count()
+    storefronts_enabled = db.query(models.User).filter(models.User.storefront_enabled.is_(True)).count()
     # "Live" = actually discoverable in the public marketplace/global search
     # (same trust gate: active status + logo + online payments + active product).
     from app.api.routes_storefront import count_live_storefronts
+
     storefronts_live = count_live_storefronts(db)
 
     # Ticket stats
     total_tickets = db.query(SupportTicket).count()
-    open_tickets = db.query(SupportTicket).filter(
-        SupportTicket.status == TicketStatus.OPEN
-    ).count()
-    in_progress_tickets = db.query(SupportTicket).filter(
-        SupportTicket.status == TicketStatus.IN_PROGRESS
-    ).count()
-    resolved_tickets = db.query(SupportTicket).filter(
-        SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED])
-    ).count()
-    tickets_today = db.query(SupportTicket).filter(
-        SupportTicket.created_at >= today_start
-    ).count()
+    open_tickets = db.query(SupportTicket).filter(SupportTicket.status == TicketStatus.OPEN).count()
+    in_progress_tickets = db.query(SupportTicket).filter(SupportTicket.status == TicketStatus.IN_PROGRESS).count()
+    resolved_tickets = (
+        db.query(SupportTicket).filter(SupportTicket.status.in_([TicketStatus.RESOLVED, TicketStatus.CLOSED])).count()
+    )
+    tickets_today = db.query(SupportTicket).filter(SupportTicket.created_at >= today_start).count()
 
     # Invoice stats. "This month" counts REVENUE invoices only (matches the
     # /admin/metrics/summary definition) so the Dashboard and Metrics pages agree
     # — expenses are business bookkeeping, not platform invoice activity.
     total_invoices = db.query(models.Invoice).count()
-    invoices_this_month = db.query(models.Invoice).filter(
-        models.Invoice.invoice_type == "revenue",
-        models.Invoice.created_at >= month_start,
-    ).count()
-    paid_invoices = db.query(models.Invoice).filter(
-        models.Invoice.status == "paid"
-    ).count()
+    invoices_this_month = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.invoice_type == "revenue",
+            models.Invoice.created_at >= month_start,
+        )
+        .count()
+    )
+    paid_invoices = db.query(models.Invoice).filter(models.Invoice.status == "paid").count()
 
     # Revenue stats. Kept CONSISTENT with the main /admin/metrics dashboard:
     # revenue invoices only (not expenses), excluding internal/test accounts, and
@@ -630,18 +607,10 @@ def get_dashboard_stats(
         _emails = {e.strip().lower() for e in _raw.split(",") if e.strip()}
         if _emails:
             _excluded_ids = [
-                uid
-                for (uid,) in db.query(models.User.id)
-                .filter(func.lower(models.User.email).in_(_emails))
-                .all()
+                uid for (uid,) in db.query(models.User.id).filter(func.lower(models.User.email).in_(_emails)).all()
             ]
     # Also drop flagged (suspected junk/fraud) accounts so they can't inflate GMV.
-    _flagged = {
-        uid
-        for (uid,) in db.query(models.User.id)
-        .filter(models.User.flagged_for_review.is_(True))
-        .all()
-    }
+    _flagged = {uid for (uid,) in db.query(models.User.id).filter(models.User.flagged_for_review.is_(True)).all()}
     if _flagged:
         _excluded_ids = list(set(_excluded_ids) | _flagged)
     _ceiling = _settings.METRICS_MAX_INVOICE_NAIRA or 0
@@ -654,13 +623,16 @@ def get_dashboard_stats(
         return q
 
     # GMV = gross value of REVENUE paid this month (volume flowing through Suoops).
-    monthly_gmv = _guard(
-        db.query(func.sum(models.Invoice.amount)).filter(
-            models.Invoice.invoice_type == "revenue",
-            models.Invoice.status == "paid",
-            models.Invoice.paid_at >= month_start,
-        )
-    ).scalar() or 0
+    monthly_gmv = (
+        _guard(
+            db.query(func.sum(models.Invoice.amount)).filter(
+                models.Invoice.invoice_type == "revenue",
+                models.Invoice.status == "paid",
+                models.Invoice.paid_at >= month_start,
+            )
+        ).scalar()
+        or 0
+    )
 
     # Commission = Suoops' actual earnings (manual invoices 1%, storefront 3%),
     # read from each invoice's stored fee ledger:
@@ -684,16 +656,9 @@ def get_dashboard_stats(
             models.Invoice.paid_at >= month_start,
         )
     ).all()
-    commission_kobo = (
-        sum(
-            f if f is not None else platform_fee_kobo(a, channel="manual")
-            for (f, a) in wallet_rows
-        )
-        + sum(
-            f if f is not None else platform_fee_kobo(a)
-            for (f, a) in online_rows
-        )
-    )
+    commission_kobo = sum(
+        f if f is not None else platform_fee_kobo(a, channel="manual") for (f, a) in wallet_rows
+    ) + sum(f if f is not None else platform_fee_kobo(a) for (f, a) in online_rows)
 
     return AdminDashboardStats(
         users={
@@ -712,9 +677,7 @@ def get_dashboard_stats(
             in_progress_tickets=in_progress_tickets,
             resolved_tickets=resolved_tickets,
             tickets_today=tickets_today,
-            tickets_this_week=db.query(SupportTicket).filter(
-                SupportTicket.created_at >= week_start
-            ).count(),
+            tickets_this_week=db.query(SupportTicket).filter(SupportTicket.created_at >= week_start).count(),
             avg_response_time_hours=None,
         ),
         invoices={

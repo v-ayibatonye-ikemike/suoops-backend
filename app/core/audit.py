@@ -3,6 +3,7 @@
 Writes structured JSON lines to a dedicated audit log file and standard logger.
 Each event should describe a security- or compliance-relevant action.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,25 +60,15 @@ def _persist_audit_db(event: dict[str, Any]) -> None:
     is swallowed so audit logging never breaks a request. Uses its own session so
     the row commits independently of the caller's transaction."""
     try:
-        import hashlib
-
         from app.db.session import SessionLocal
         from app.models.models import AuditLog
 
-        details = {
-            k: v for k, v in event.items()
-            if k not in ("action", "user_id", "status", "ts")
-        } or None
+        details = {k: v for k, v in event.items() if k not in ("action", "user_id", "status", "ts")} or None
         action = str(event.get("action"))[:120]
         user_id = event.get("user_id")
         status = str(event.get("status") or "success")[:20]
         with SessionLocal() as db:
-            prev = (
-                db.query(AuditLog.entry_hash)
-                .order_by(AuditLog.id.desc())
-                .limit(1)
-                .scalar()
-            ) or ""
+            prev = (db.query(AuditLog.entry_hash).order_by(AuditLog.id.desc()).limit(1).scalar()) or ""
             entry_hash = hash_entry(prev, action, user_id, status, details)
             db.add(
                 AuditLog(

@@ -7,9 +7,9 @@ Create Date: 2025-10-29 13:15:00.000000
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0012_add_email_to_user"

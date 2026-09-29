@@ -1,5 +1,6 @@
 """Money movement and destructive account actions require a super admin — a
 lower-privilege support admin (is_super_admin=False) is blocked with 403."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient

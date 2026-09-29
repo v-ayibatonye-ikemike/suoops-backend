@@ -41,11 +41,13 @@ class OTPRecord:
     created_at: float
 
     def serialize(self) -> str:
-        return json.dumps({
-            "code": self.code,
-            "attempts": self.attempts,
-            "created_at": self.created_at,
-        })
+        return json.dumps(
+            {
+                "code": self.code,
+                "attempts": self.attempts,
+                "created_at": self.created_at,
+            }
+        )
 
     @classmethod
     def deserialize(cls, payload: str) -> OTPRecord:
@@ -77,6 +79,7 @@ class RedisStore(BaseKeyValueStore):
         # Use centralized Redis client for connection pooling
         try:
             from app.db.redis_client import get_redis_client
+
             self._client = get_redis_client()
         except Exception as e:
             logger.warning("OTP service falling back to direct Redis connection: %s", e)
@@ -162,12 +165,14 @@ def _build_store() -> BaseKeyValueStore:
             if env in {"prod", "production"}:
                 logger.error(
                     "OTP RedisStore construction failed in %s; aborting: %s",
-                    env, exc,
+                    env,
+                    exc,
                 )
                 raise
             logger.warning(
                 "OTP RedisStore unavailable in %s; falling back to in-memory store: %s",
-                env, exc,
+                env,
+                exc,
             )
         else:
             _SHARED_STORE = store
@@ -239,12 +244,14 @@ class OTPService:
         except (ValueError, KeyError):
             logger.warning("Malformed wamid mapping for %s: %r", wamid, mapping_raw)
             return False
-        payload = json.dumps({
-            "code": str(error_code) if error_code is not None else None,
-            "title": error_title,
-            "detail": error_detail,
-            "at": datetime.now(timezone.utc).isoformat(),
-        })
+        payload = json.dumps(
+            {
+                "code": str(error_code) if error_code is not None else None,
+                "title": error_title,
+                "detail": error_detail,
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         self._store.set(
             self._delivery_failure_key(identifier, purpose),
             payload,
@@ -284,31 +291,28 @@ class OTPService:
         if self._store.get(self._otp_key(identifier, purpose)):
             return {"state": "pending"}
         return {"state": "none"}
-    
+
     def _get_delivery_method(self, identifier: str) -> str:
         """Determine if identifier is email or phone number."""
         if "@" in identifier:
             return "email"
         return "whatsapp"
-    
+
     def _send_email_otp(self, email: str, otp: str, purpose: str) -> None:
         """Send OTP via email, trying every configured provider (ZeptoMail →
         Brevo) so a single provider's SMTP auth failure doesn't block login."""
         from app.utils.smtp import get_smtp_configs, send_email_with_fallback
 
         if not get_smtp_configs():
-            logger.error(
-                "SMTP not configured. Set SMTP_*_ZEP / SMTP_* / BREVO_SMTP_LOGIN+BREVO_SMTP_KEY."
-            )
+            logger.error("SMTP not configured. Set SMTP_*_ZEP / SMTP_* / BREVO_SMTP_LOGIN+BREVO_SMTP_KEY.")
             raise ValueError("Email OTP is not available")
 
         # Render the HTML template (+ plain-text fallback body).
         template_dir = Path(__file__).parent.parent.parent / "templates" / "email"
         jinja_env = Environment(
-            loader=FileSystemLoader(str(template_dir)),
-            autoescape=select_autoescape(['html', 'xml'])
+            loader=FileSystemLoader(str(template_dir)), autoescape=select_autoescape(["html", "xml"])
         )
-        html_body = jinja_env.get_template('otp_verification.html').render(
+        html_body = jinja_env.get_template("otp_verification.html").render(
             otp_code=otp,
             purpose=purpose,
             current_year=datetime.now(timezone.utc).year,
@@ -336,7 +340,6 @@ class OTPService:
             raise ValueError("Failed to send OTP email. Please try again.")
 
         logger.info("Successfully sent email OTP to %s", mask_email(email))
-
 
     def request_signup(self, identifier: str, payload: dict[str, Any], deliver_to: str | None = None) -> str:
         """Start signup by persisting user-provided data and sending OTP.
@@ -488,9 +491,7 @@ class OTPService:
                 # back to, so re-raise.
                 if not (deliver_to and self._get_delivery_method(identifier) == "whatsapp"):
                     raise
-                logger.warning(
-                    "Email OTP delivery failed; falling back to WhatsApp for %s", identifier
-                )
+                logger.warning("Email OTP delivery failed; falling back to WhatsApp for %s", identifier)
 
         # WhatsApp delivery — primary phone OTP, or fallback after an email failure.
         try:

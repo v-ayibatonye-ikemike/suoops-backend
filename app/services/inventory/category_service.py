@@ -3,6 +3,7 @@ Product Category Service - CRUD operations for product categories.
 
 Follows SRP: Only handles category-related operations.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class CategoryService(BaseInventoryService):
     """
     Service for product category operations.
-    
+
     Handles CRUD operations for organizing products into categories.
     Each user has their own set of categories.
     """
@@ -40,10 +41,14 @@ class CategoryService(BaseInventoryService):
 
     def get_category(self, category_id: int) -> ProductCategory | None:
         """Get a category by ID."""
-        return self._db.query(ProductCategory).filter(
-            ProductCategory.id == category_id,
-            ProductCategory.user_id == self._user_id,
-        ).first()
+        return (
+            self._db.query(ProductCategory)
+            .filter(
+                ProductCategory.id == category_id,
+                ProductCategory.user_id == self._user_id,
+            )
+            .first()
+        )
 
     def list_categories(self, include_inactive: bool = False) -> Sequence[ProductCategory]:
         """List all categories for the user."""
@@ -59,11 +64,11 @@ class CategoryService(BaseInventoryService):
         category = self.get_category(category_id)
         if not category:
             return None
-        
+
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(category, key, value)
-        
+
         self._db.commit()
         self._db.refresh(category)
         logger.info("Updated category: %s (id=%s)", category.name, category.id)
@@ -74,7 +79,7 @@ class CategoryService(BaseInventoryService):
         category = self.get_category(category_id)
         if not category:
             return False
-        
+
         category.is_active = False
         self._db.commit()
         logger.info("Deleted category: %s (id=%s)", category.name, category.id)

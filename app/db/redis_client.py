@@ -2,6 +2,7 @@
 Centralized Redis client manager with connection pooling.
 Prevents connection limit issues by reusing a single connection pool.
 """
+
 import logging
 
 import redis
@@ -21,11 +22,11 @@ def get_redis_pool() -> ConnectionPool:
     global _pool
     if _pool is not None:
         return _pool
-    
+
     redis_url = prepare_redis_url(settings.REDIS_URL)
     if not redis_url:
         raise RuntimeError("REDIS_URL is not configured")
-    
+
     # Parse connection parameters
     pool_kwargs = {
         "max_connections": 10,  # Shared across rate limiter, app cache; Celery has its own pool
@@ -35,10 +36,10 @@ def get_redis_pool() -> ConnectionPool:
         "health_check_interval": 30,
         "decode_responses": True,  # Return strings instead of bytes
     }
-    
+
     # Note: prepare_redis_url already adds ssl_cert_reqs and ssl_ca_certs as query params
     # No need to add them again in pool_kwargs - this can cause conflicts
-    
+
     _pool = ConnectionPool.from_url(redis_url, **pool_kwargs)
     logger.info("Redis connection pool created (max_connections=10)")
     return _pool
@@ -49,10 +50,10 @@ def get_redis_client() -> redis.Redis:
     global _client
     if _client is not None:
         return _client
-    
+
     pool = get_redis_pool()
     _client = redis.Redis(connection_pool=pool)
-    
+
     # Test connection
     try:
         _client.ping()
@@ -60,7 +61,7 @@ def get_redis_client() -> redis.Redis:
     except Exception as e:
         logger.error("Redis connection failed: %s", e)
         raise
-    
+
     return _client
 
 

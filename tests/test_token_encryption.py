@@ -1,9 +1,10 @@
 """Tests for token encryption utilities."""
-from unittest.mock import patch
-import pytest
-from cryptography.fernet import InvalidToken
 
-from app.utils.token_encryption import encrypt_token, decrypt_token, is_encryption_configured
+from unittest.mock import patch
+
+import pytest
+
+from app.utils.token_encryption import decrypt_token, encrypt_token, is_encryption_configured
 
 
 def test_encrypt_decrypt_token_with_key():
@@ -11,10 +12,10 @@ def test_encrypt_decrypt_token_with_key():
     with patch("app.core.config.settings.JWT_SECRET", "test_jwt_secret_key_for_testing"):
         token = "test_access_token_value"
         encrypted = encrypt_token(token)
-        
+
         # Should be encrypted (different from original)
         assert encrypted != token
-        
+
         # Should decrypt back to original
         decrypted = decrypt_token(encrypted)
         assert decrypted == token

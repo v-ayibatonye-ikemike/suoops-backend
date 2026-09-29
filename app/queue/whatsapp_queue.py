@@ -3,6 +3,7 @@
 For MVP this attempts to use Celery for async processing; if Celery is unavailable,
 processes messages synchronously for immediate response.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ _fallback_buffer: list[dict[str, Any]] = []
 
 try:  # pragma: no cover - connection attempt
     from app.db.redis_client import get_redis_client
+
     _redis = get_redis_client()
     _redis.ping()
     _ENABLED = True
@@ -55,7 +57,7 @@ def _flush_fallback_queue() -> None:
         return
     # Import task here to avoid circular imports
     from app.workers.tasks import process_whatsapp_inbound
-    
+
     pending = list(_fallback_buffer)
     _fallback_buffer.clear()
     for idx, entry in enumerate(pending):
@@ -71,7 +73,7 @@ def _flush_fallback_queue() -> None:
 def enqueue_message(payload: dict[str, Any]) -> None:
     # Import task here to avoid circular imports
     from app.workers.tasks import process_whatsapp_inbound
-    
+
     # Prefer asynchronous Celery worker
     try:
         process_whatsapp_inbound.delay(payload)

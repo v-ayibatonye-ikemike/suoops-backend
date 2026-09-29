@@ -1,4 +1,5 @@
 """Durable audit-log DB persistence + tamper-evident hash chain."""
+
 from __future__ import annotations
 
 from app.core import audit
@@ -7,12 +8,8 @@ from app.models.models import AuditLog
 
 
 def test_audit_db_persistence_and_hash_chain():
-    audit._persist_audit_db(
-        {"ts": 1, "action": "test.one", "user_id": 5, "status": "success", "foo": "bar"}
-    )
-    audit._persist_audit_db(
-        {"ts": 2, "action": "test.two", "user_id": None, "status": "denied"}
-    )
+    audit._persist_audit_db({"ts": 1, "action": "test.one", "user_id": 5, "status": "success", "foo": "bar"})
+    audit._persist_audit_db({"ts": 2, "action": "test.two", "user_id": None, "status": "denied"})
 
     with SessionLocal() as db:
         rows = db.query(AuditLog).order_by(AuditLog.id).all()
@@ -59,4 +56,3 @@ def test_audit_chain_recomputes_and_detects_tampering():
     # Tampering with any field makes the recomputed hash diverge → detectable.
     tampered = hash_entry("", "a.HACKED", rows[0].user_id, rows[0].status, rows[0].details)
     assert tampered != rows[0].entry_hash
-

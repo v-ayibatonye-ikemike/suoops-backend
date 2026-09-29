@@ -21,7 +21,12 @@ def test_signup_requires_terms_acceptance():
     phone = "+234" + secrets.token_hex(4)
     resp = client.post(
         "/auth/signup/request",
-        json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "NoTerms", "business_name": "No Terms Biz"},
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "NoTerms",
+            "business_name": "No Terms Biz",
+        },
     )
     assert resp.status_code == 400, resp.text
     assert "terms" in resp.text.lower()
@@ -34,7 +39,13 @@ def test_signup_and_login_with_otp():
     # Step 1: request signup OTP
     reg = client.post(
         "/auth/signup/request",
-        json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "UserA", "business_name": "User A Biz", "accept_terms": True},
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "UserA",
+            "business_name": "User A Biz",
+            "accept_terms": True,
+        },
     )
     assert reg.status_code == 200, reg.text
 

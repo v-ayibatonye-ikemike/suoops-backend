@@ -4,15 +4,17 @@ Revision ID: 0016_rename_nrs_to_firs_fields
 Revises: 0015_add_index_invoice_issuer_id
 Create Date: 2025-11-07
 """
+
 from typing import Sequence, Union
+
 from alembic import op
-import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "0016_rename_nrs_to_firs_fields"
 down_revision: Union[str, None] = "0015_add_index_invoice_issuer_id"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
 
 def upgrade() -> None:
     # Tax profile column renames

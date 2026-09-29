@@ -2,7 +2,7 @@
 
 Sends feedback requests to users who hit milestones:
 - 10th invoice created
-- 50th invoice created  
+- 50th invoice created
 - 100th invoice created
 - First month active
 - First invoice paid
@@ -16,7 +16,6 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from celery import Task
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -42,6 +41,7 @@ def mark_feedback_pending(phone: str) -> None:
     """Mark that a user has been asked for feedback (they can reply within 7 days)."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         r.setex(f"{_FEEDBACK_PENDING_PREFIX}{phone}", _FEEDBACK_TTL, "1")
     except Exception:
@@ -52,6 +52,7 @@ def is_feedback_pending(phone: str) -> bool:
     """Check if a user has a pending feedback request."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         return bool(r.get(f"{_FEEDBACK_PENDING_PREFIX}{phone}"))
     except Exception:
@@ -62,6 +63,7 @@ def clear_feedback_pending(phone: str) -> None:
     """Clear the pending feedback flag after user responds."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         r.delete(f"{_FEEDBACK_PENDING_PREFIX}{phone}")
     except Exception:
@@ -72,6 +74,7 @@ def _was_recently_asked(user_id: int) -> bool:
     """Check if we already asked this user recently (90 days)."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         return bool(r.get(f"{_FEEDBACK_REDIS_PREFIX}{user_id}"))
     except Exception:
@@ -82,6 +85,7 @@ def _mark_asked(user_id: int) -> None:
     """Record that we asked this user for feedback."""
     try:
         from app.db.redis_client import get_redis_client
+
         r = get_redis_client()
         r.setex(f"{_FEEDBACK_REDIS_PREFIX}{user_id}", _FEEDBACK_ASKED_TTL, "1")
     except Exception:
@@ -178,20 +182,24 @@ def collect_user_feedback() -> dict[str, Any]:
                         try:
                             from app.core.whatsapp import get_whatsapp_client
                             from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
+
                             template_name = getattr(settings, "WHATSAPP_TEMPLATE_FEEDBACK", None)
                             if template_name and can_send_whatsapp(priority=False):
                                 client = get_whatsapp_client()
                                 lang = settings.WHATSAPP_TEMPLATE_LANGUAGE or "en"
-                                components = [{
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": name},
-                                        {"type": "text", "text": str(invoice_count)},
-                                    ],
-                                }]
+                                components = [
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                            {"type": "text", "text": name},
+                                            {"type": "text", "text": str(invoice_count)},
+                                        ],
+                                    }
+                                ]
                                 if client.send_template(user.phone, template_name, lang, components):
                                     record_whatsapp_send(priority=False)
                                     from app.workers.tasks.feedback_tasks import mark_feedback_pending
+
                                     mark_feedback_pending(user.phone)
                                     stats["whatsapp_sent"] = stats.get("whatsapp_sent", 0) + 1
                                     delivered = True
@@ -227,15 +235,22 @@ def _send_feedback_email(email: str, name: str, invoice_count: int, token: str) 
 
     subject = f"🎉 {name}, you've sent {invoice_count} invoices! How's SuoOps working for you?"
     html = f"""
-    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; \
+padding: 20px;">
         <h2 style="color: #0B3318;">Hey {name}! 🎉</h2>
-        <p>You've created <strong>{invoice_count} invoices</strong> with SuoOps — that's amazing!</p>
-        <p>We'd love to hear how SuoOps is helping your business. A quick sentence or two would mean the world to us.</p>
+        <p>You've created <strong>{invoice_count} invoices</strong> with SuoOps — \
+that's amazing!</p>
+        <p>We'd love to hear how SuoOps is helping your business. A quick sentence \
+or two would mean the world to us.</p>
         <p style="text-align: center; margin: 24px 0;">
-            <a href="{feedback_url}" style="display: inline-block; background-color: #0B6B3A; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;">Share Your Feedback</a>
+            <a href="{feedback_url}" style="display: inline-block; \
+background-color: #0B6B3A; color: white; padding: 14px 28px; border-radius: 8px; \
+text-decoration: none; font-weight: 600; font-size: 15px;">Share Your Feedback</a>
         </p>
-        <p style="color: #666; font-size: 13px;">Takes less than 30 seconds. Your feedback may be featured on our website.</p>
-        <p style="color: #666; font-size: 13px; margin-top: 24px;">— The SuoOps Team</p>
+        <p style="color: #666; font-size: 13px;">Takes less than 30 seconds. Your \
+feedback may be featured on our website.</p>
+        <p style="color: #666; font-size: 13px; margin-top: 24px;">— The SuoOps \
+Team</p>
     </div>
     """
     plain = (

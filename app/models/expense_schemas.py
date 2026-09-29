@@ -3,6 +3,7 @@ Pydantic schemas for expense tracking API.
 
 Used for request/response validation in expense endpoints.
 """
+
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -12,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # Expense Categories
 ExpenseCategoryType = Literal[
     "rent",
-    "utilities", 
+    "utilities",
     "data_internet",
     "transport",
     "supplies",
@@ -33,6 +34,7 @@ ChannelType = Literal["whatsapp", "email", "dashboard"]
 
 class ExpenseBase(BaseModel):
     """Base expense fields"""
+
     amount: Decimal = Field(..., gt=0, description="Expense amount in Naira")
     expense_date: date = Field(..., description="Date of expense")
     category: ExpenseCategoryType = Field(..., description="Expense category")
@@ -42,9 +44,10 @@ class ExpenseBase(BaseModel):
 
 class ExpenseCreate(ExpenseBase):
     """Schema for creating an expense manually"""
+
     notes: str | None = Field(None, description="User notes")
-    
-    @field_validator('amount')
+
+    @field_validator("amount")
     @classmethod
     def validate_amount(cls, v: Decimal) -> Decimal:
         if v <= 0:
@@ -55,6 +58,7 @@ class ExpenseCreate(ExpenseBase):
 
 class ExpenseUpdate(BaseModel):
     """Schema for updating an expense"""
+
     amount: Decimal | None = Field(None, gt=0)
     expense_date: date | None = None
     category: ExpenseCategoryType | None = None
@@ -65,6 +69,7 @@ class ExpenseUpdate(BaseModel):
 
 class ExpenseOut(ExpenseBase):
     """Schema for expense response"""
+
     id: int
     user_id: int
     input_method: str | None
@@ -77,12 +82,13 @@ class ExpenseOut(ExpenseBase):
     notes: str | None
     created_at: datetime
     updated_at: datetime | None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class ExpenseSummary(BaseModel):
     """Schema for expense summary by category"""
+
     total_expenses: float = Field(..., description="Total expenses for period")
     by_category: dict[str, float] = Field(..., description="Expenses grouped by category")
     period_type: str = Field(..., description="Period type: day, week, month, year")
@@ -93,6 +99,7 @@ class ExpenseSummary(BaseModel):
 
 class ExpenseStats(BaseModel):
     """Schema for expense statistics"""
+
     total_expenses: float
     total_revenue: float
     actual_profit: float

@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from app.api.main import app
 
 client = TestClient(app)
@@ -22,7 +23,7 @@ def test_telemetry_ingestion_success():
     metrics_text = m.text
     assert "suoops_telemetry_events_total" in metrics_text
     # Optionally check that an oauth_start label is present
-    assert "type=\"oauth_start\"" in metrics_text
+    assert 'type="oauth_start"' in metrics_text
 
 
 def test_telemetry_ingestion_missing_type():
@@ -33,4 +34,3 @@ def test_telemetry_ingestion_missing_type():
     assert r.status_code == 422  # Pydantic validation returns 422
     # Validation errors may be in "detail" key
     assert "detail" in r.json()
-

@@ -7,6 +7,7 @@ the right invoice.
 
 Mirrors the Redis-backed pattern from :mod:`app.bot.onboarding_flow`.
 """
+
 from __future__ import annotations
 
 import json

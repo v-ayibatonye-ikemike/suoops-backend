@@ -4,6 +4,7 @@ Stored presigned URLs expire (~1h); serving the stored value later yields
 'AccessDenied / Request has expired'. refresh_presigned_url re-signs from the
 object key so invoice/receipt/product/tax links stay valid when clicked.
 """
+
 from __future__ import annotations
 
 from app.storage.s3_client import S3Client

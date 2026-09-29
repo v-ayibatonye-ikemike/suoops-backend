@@ -8,6 +8,7 @@ Design goals (see the module docstring in __init__.py for the full picture):
 - Only real, sellable products — active, in stock (when stock is tracked),
   has a photo, storefront actually live (not suspended/delisted).
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -23,9 +24,7 @@ from app.models.models import SocialPost, User
 def get_eligible_products(db: Session, limit: int | None = None) -> list[Product]:
     """Return up to `limit` products to feature today, best candidates first."""
     limit = limit or settings.SOCIAL_PROMOTION_DAILY_LIMIT
-    cooldown_cutoff = datetime.now(timezone.utc) - timedelta(
-        days=settings.SOCIAL_PROMOTION_REPOST_COOLDOWN_DAYS
-    )
+    cooldown_cutoff = datetime.now(timezone.utc) - timedelta(days=settings.SOCIAL_PROMOTION_REPOST_COOLDOWN_DAYS)
 
     # Products already featured within the cooldown window — skip these so
     # the same item doesn't show up in the feed over and over.

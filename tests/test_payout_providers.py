@@ -1,4 +1,5 @@
 """Payout provider abstraction: factory + Paystack/Flutterwave payload shape."""
+
 from types import SimpleNamespace
 
 
@@ -43,9 +44,9 @@ def test_factory_selects_provider(monkeypatch):
 
 
 def test_paystack_transfer_uses_cached_recipient(monkeypatch):
-    from app.core.config import settings
     import app.services.payouts.paystack as ps
     import app.services.paystack_http as psh
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "PAYSTACK_SECRET", "sk_test_x")
     captured = {}
@@ -69,9 +70,7 @@ def test_paystack_transfer_uses_cached_recipient(monkeypatch):
         name="X",
     )
     db = SimpleNamespace(commit=lambda: None)
-    res = ps.PaystackPayoutProvider().transfer(
-        db, seller=seller, amount_kobo=50000, reference="REF1", reason="r"
-    )
+    res = ps.PaystackPayoutProvider().transfer(db, seller=seller, amount_kobo=50000, reference="REF1", reason="r")
     assert res.ok is True and res.provider == "paystack"
     assert captured["url"].endswith("/transfer")
     assert captured["body"]["amount"] == 50000  # Paystack uses kobo
@@ -81,8 +80,8 @@ def test_paystack_transfer_uses_cached_recipient(monkeypatch):
 
 
 def test_flutterwave_transfer_converts_amount_and_resolves_bank(monkeypatch):
-    from app.core.config import settings
     import app.services.payouts.flutterwave as fw
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "FLUTTERWAVE_SECRET", "FLWSECK_test")
     monkeypatch.setattr(fw, "_fw_bank_cache", {})
@@ -106,9 +105,7 @@ def test_flutterwave_transfer_converts_amount_and_resolves_bank(monkeypatch):
         bank_name="GTBank",
     )
     db = SimpleNamespace(commit=lambda: None)
-    res = fw.FlutterwavePayoutProvider().transfer(
-        db, seller=seller, amount_kobo=50000, reference="REF2", reason="r"
-    )
+    res = fw.FlutterwavePayoutProvider().transfer(db, seller=seller, amount_kobo=50000, reference="REF2", reason="r")
     assert res.ok is True and res.provider == "flutterwave"
     assert posts["url"].endswith("/v3/transfers")
     assert posts["body"]["amount"] == 500.0  # 50000 kobo -> ₦500 (major unit)
@@ -119,17 +116,15 @@ def test_flutterwave_transfer_converts_amount_and_resolves_bank(monkeypatch):
 
 def test_paystack_transfer_status_maps(monkeypatch):
     """verify-by-reference maps to normalized status; exists = successful only."""
-    from app.core.config import settings
     import app.services.payouts.paystack as ps
     import app.services.paystack_http as psh
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "PAYSTACK_SECRET", "sk_test_x")
     prov = ps.PaystackPayoutProvider()
 
     def use(payload):
-        monkeypatch.setattr(
-            psh.httpx, "Client", lambda *a, **k: _FakeClient(lambda m, u, b: _Resp(payload))
-        )
+        monkeypatch.setattr(psh.httpx, "Client", lambda *a, **k: _FakeClient(lambda m, u, b: _Resp(payload)))
 
     use({"status": True, "data": {"status": "success"}})
     assert prov.transfer_status("R") == "successful"
@@ -148,8 +143,8 @@ def test_paystack_transfer_status_maps(monkeypatch):
 
 def test_flutterwave_transfer_status_scans(monkeypatch):
     """Scans recent transfers by reference; exists = SUCCESSFUL only."""
-    from app.core.config import settings
     import app.services.payouts.flutterwave as fw
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "FLUTTERWAVE_SECRET", "FLWSECK_test")
     monkeypatch.setattr(fw, "_fw_transfer_cache", {})
@@ -178,8 +173,8 @@ def test_flutterwave_balance_guard_blocks_underfunded(monkeypatch):
     """A payout larger than the FW payout balance raises before queuing."""
     import pytest
 
-    from app.core.config import settings
     import app.services.payouts.flutterwave as fw
+    from app.core.config import settings
     from app.services.payouts.base import PayoutError
 
     monkeypatch.setattr(settings, "FLUTTERWAVE_SECRET", "FLWSECK_test")
@@ -204,5 +199,9 @@ def test_flutterwave_balance_guard_blocks_underfunded(monkeypatch):
     db = SimpleNamespace(commit=lambda: None)
     with pytest.raises(PayoutError):
         fw.FlutterwavePayoutProvider().transfer(
-            db, seller=seller, amount_kobo=50000, reference="R", reason="r"  # ₦500 > ₦100
+            db,
+            seller=seller,
+            amount_kobo=50000,
+            reference="R",
+            reason="r",  # ₦500 > ₦100
         )

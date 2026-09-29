@@ -9,10 +9,12 @@ may actually pay out. Sellers settle on a T+1 cadence (the daily settlement run
 after Flutterwave's own T+1 settlement lands), so payouts come from settled
 collections rather than float, and no seller is paid the same day.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260710_escrow_settle_at"
@@ -26,9 +28,7 @@ def upgrade() -> None:
         "storefront_order_escrow",
         sa.Column("settle_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index(
-        "ix_storefront_order_escrow_settle_at", "storefront_order_escrow", ["settle_at"]
-    )
+    op.create_index("ix_storefront_order_escrow_settle_at", "storefront_order_escrow", ["settle_at"])
 
 
 def downgrade() -> None:

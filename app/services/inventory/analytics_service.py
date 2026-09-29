@@ -4,6 +4,7 @@ Inventory Analytics Service.
 Handles inventory analytics, reporting, and low stock alerts.
 Follows SRP by focusing solely on analytics and reporting.
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,12 +48,17 @@ class InventoryAnalyticsService(InventoryServiceBase):
 
     def get_low_stock_alerts(self) -> list[LowStockAlert]:
         """Get list of products that need restocking."""
-        products = self._db.query(Product).filter(
-            Product.user_id == self._user_id,
-            Product.is_active.is_(True),
-            Product.track_stock.is_(True),
-            Product.quantity_in_stock <= Product.reorder_level,
-        ).order_by(Product.quantity_in_stock).all()
+        products = (
+            self._db.query(Product)
+            .filter(
+                Product.user_id == self._user_id,
+                Product.is_active.is_(True),
+                Product.track_stock.is_(True),
+                Product.quantity_in_stock <= Product.reorder_level,
+            )
+            .order_by(Product.quantity_in_stock)
+            .all()
+        )
 
         return [self._build_low_stock_alert(p) for p in products]
 
@@ -71,30 +77,44 @@ class InventoryAnalyticsService(InventoryServiceBase):
 
     def _count_low_stock(self) -> int:
         """Count products with low stock."""
-        return self._db.query(func.count(Product.id)).filter(
-            Product.user_id == self._user_id,
-            Product.is_active.is_(True),
-            Product.track_stock.is_(True),
-            Product.quantity_in_stock <= Product.reorder_level,
-            Product.quantity_in_stock > 0,
-        ).scalar() or 0
+        return (
+            self._db.query(func.count(Product.id))
+            .filter(
+                Product.user_id == self._user_id,
+                Product.is_active.is_(True),
+                Product.track_stock.is_(True),
+                Product.quantity_in_stock <= Product.reorder_level,
+                Product.quantity_in_stock > 0,
+            )
+            .scalar()
+            or 0
+        )
 
     def _count_out_of_stock(self) -> int:
         """Count products out of stock."""
-        return self._db.query(func.count(Product.id)).filter(
-            Product.user_id == self._user_id,
-            Product.is_active.is_(True),
-            Product.track_stock.is_(True),
-            Product.quantity_in_stock <= 0,
-        ).scalar() or 0
+        return (
+            self._db.query(func.count(Product.id))
+            .filter(
+                Product.user_id == self._user_id,
+                Product.is_active.is_(True),
+                Product.track_stock.is_(True),
+                Product.quantity_in_stock <= 0,
+            )
+            .scalar()
+            or 0
+        )
 
     def _calculate_stock_values(self) -> tuple[Decimal, Decimal]:
         """Calculate total stock value and potential revenue."""
-        products = self._db.query(Product).filter(
-            Product.user_id == self._user_id,
-            Product.is_active.is_(True),
-            Product.track_stock.is_(True),
-        ).all()
+        products = (
+            self._db.query(Product)
+            .filter(
+                Product.user_id == self._user_id,
+                Product.is_active.is_(True),
+                Product.track_stock.is_(True),
+            )
+            .all()
+        )
 
         total_stock_value = Decimal("0")
         total_potential_revenue = Decimal("0")
@@ -107,10 +127,15 @@ class InventoryAnalyticsService(InventoryServiceBase):
 
     def _count_categories(self) -> int:
         """Count active categories."""
-        return self._db.query(func.count(ProductCategory.id)).filter(
-            ProductCategory.user_id == self._user_id,
-            ProductCategory.is_active.is_(True),
-        ).scalar() or 0
+        return (
+            self._db.query(func.count(ProductCategory.id))
+            .filter(
+                ProductCategory.user_id == self._user_id,
+                ProductCategory.is_active.is_(True),
+            )
+            .scalar()
+            or 0
+        )
 
     @staticmethod
     def _build_low_stock_alert(product: Product) -> LowStockAlert:

@@ -62,13 +62,13 @@ def _bundle_to_response(
     response = JSONResponse(content=jsonable_encoder(token_out))
     if include_refresh_cookie:
         _set_refresh_cookie(response, bundle.refresh_token)
-    
+
     # Set CSRF token on successful authentication
     if request:
         csrf_token = get_csrf_token(request)
         secure = settings.ENV.lower() in {"prod", "production"}
         set_csrf_cookie(response, csrf_token, secure=secure)
-    
+
     return response
 
 
@@ -213,6 +213,7 @@ def refresh_token(request: Request, svc: AuthServiceDep, payload: schemas.Refres
     try:
         from app.core.token_blocklist import is_token_revoked
         from app.db.redis_client import get_redis_client
+
         if is_token_revoked(get_redis_client(), refresh_value):
             log_failure("auth.refresh", user_id=None, error="revoked_token")
             raise HTTPException(status_code=401, detail="Token has been revoked")
@@ -233,6 +234,7 @@ def refresh_token(request: Request, svc: AuthServiceDep, payload: schemas.Refres
 
             old_payload = decode_token(refresh_value, expected_type=TokenType.REFRESH)
             from datetime import datetime, timezone
+
             old_exp = datetime.fromtimestamp(old_payload["exp"], tz=timezone.utc)
             revoke_token(get_redis_client(), refresh_value, expires_at=old_exp)
         except Exception:  # noqa: BLE001
@@ -241,6 +243,7 @@ def refresh_token(request: Request, svc: AuthServiceDep, payload: schemas.Refres
         bundle = svc.refresh(refresh_value)
         # Extract user_id from the new access token
         from app.core.security import TokenType, decode_token
+
         token_payload = decode_token(bundle.access_token, expected_type=TokenType.ACCESS)
         user_id = int(token_payload["sub"])
         log_audit_event("auth.refresh", user_id=user_id)
@@ -264,6 +267,7 @@ def logout(request: Request):
 
             payload = decode_token(refresh_value, expected_type=TokenType.REFRESH)
             from datetime import datetime, timezone
+
             expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
             user_id = payload.get("sub")
             revoke_token(get_redis_client(), refresh_value, expires_at=expires_at)
@@ -286,10 +290,10 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     try:
         payload = decode_token(token)
         user_id = int(payload["sub"])  # type: ignore
-        
+
         # Set Sentry user context for better error tracking
         sentry_sdk.set_user({"id": user_id})
-        
+
         return user_id
     except TokenExpiredError as exc:
         log_failure("auth.token.expired", user_id=None, error="expired")
@@ -297,5 +301,6 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     except TokenValidationError as exc:
         log_failure("auth.token.invalid", user_id=None, error="invalid")
         raise HTTPException(status_code=401, detail="Invalid token") from exc
+
 
 # Legacy password-based endpoints removed (migrated fully to OTP flows).

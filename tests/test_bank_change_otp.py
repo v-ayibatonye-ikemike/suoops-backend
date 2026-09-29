@@ -1,4 +1,5 @@
 """Step-up OTP required to change an existing bank account."""
+
 import json
 import secrets
 
@@ -47,12 +48,8 @@ def test_bank_change_requires_step_up_otp(monkeypatch):
     from app.services.paystack_subaccount_service import PaystackSubaccountService
 
     # Keep the server-side name resolution hermetic (no real Paystack call).
-    monkeypatch.setattr(
-        PaystackSubaccountService, "resolve_bank_code", AsyncMock(return_value="999")
-    )
-    monkeypatch.setattr(
-        PaystackSubaccountService, "resolve_account", AsyncMock(return_value="Bank User")
-    )
+    monkeypatch.setattr(PaystackSubaccountService, "resolve_bank_code", AsyncMock(return_value="999"))
+    monkeypatch.setattr(PaystackSubaccountService, "resolve_account", AsyncMock(return_value="Bank User"))
 
     phone = "+234" + secrets.token_hex(4)
     headers = {"Authorization": f"Bearer {_signup_with_bank(phone)}"}
@@ -88,9 +85,7 @@ def test_bank_update_syncs_payout_account(monkeypatch):
     from app.models import models
     from app.services.paystack_subaccount_service import PaystackSubaccountService
 
-    monkeypatch.setattr(
-        PaystackSubaccountService, "resolve_bank_code", AsyncMock(return_value="999")
-    )
+    monkeypatch.setattr(PaystackSubaccountService, "resolve_bank_code", AsyncMock(return_value="999"))
     monkeypatch.setattr(
         PaystackSubaccountService,
         "resolve_account",
@@ -124,4 +119,3 @@ def test_bank_update_syncs_payout_account(monkeypatch):
         assert user.payout_account_name == "VERIFIED HOLDER"
     finally:
         db.close()
-

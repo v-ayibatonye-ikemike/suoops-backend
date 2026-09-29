@@ -1,4 +1,5 @@
 """Delivery-quote cache/cap helpers are fail-open and sane by default."""
+
 from app.services.shipping import quote_cache
 
 

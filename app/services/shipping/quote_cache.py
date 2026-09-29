@@ -8,6 +8,7 @@ quotes for a short window and cap the number of fresh fetches per store per day.
 Fail-open: if Redis is unavailable, quotes still work (just uncached) — a cache
 blip must never block a real checkout.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,9 +29,7 @@ def _key(slug: str, lat: float | None, lng: float | None, cart_sig: str) -> str:
     return "dq:" + hashlib.sha1(raw.encode()).hexdigest()
 
 
-def get_cached(
-    slug: str, lat: float | None, lng: float | None, cart_sig: str
-) -> dict[str, Any] | None:
+def get_cached(slug: str, lat: float | None, lng: float | None, cart_sig: str) -> dict[str, Any] | None:
     """Return a cached quote response for this store+location+cart, or None."""
     try:
         from app.db.redis_client import get_redis_client
@@ -41,9 +40,7 @@ def get_cached(
         return None
 
 
-def set_cached(
-    slug: str, lat: float | None, lng: float | None, cart_sig: str, value: dict[str, Any]
-) -> None:
+def set_cached(slug: str, lat: float | None, lng: float | None, cart_sig: str, value: dict[str, Any]) -> None:
     """Cache a quote response briefly (SHIPBUBBLE_QUOTE_CACHE_SECONDS)."""
     try:
         from app.db.redis_client import get_redis_client

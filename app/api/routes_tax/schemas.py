@@ -1,6 +1,7 @@
 """
 Shared Pydantic schemas for tax-related routes.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -11,27 +12,24 @@ from pydantic import BaseModel, Field
 class TaxProfileUpdate(BaseModel):
     """Tax profile update request."""
 
-    annual_turnover: Decimal | None = Field(
-        None, ge=0, description="Annual turnover in Naira"
-    )
-    fixed_assets: Decimal | None = Field(
-        None, ge=0, description="Fixed assets value in Naira"
-    )
+    annual_turnover: Decimal | None = Field(None, ge=0, description="Annual turnover in Naira")
+    fixed_assets: Decimal | None = Field(None, ge=0, description="Fixed assets value in Naira")
     tin: str | None = Field(None, max_length=20, description="Tax Identification Number")
-    vat_registration_number: str | None = Field(
-        None, max_length=20, description="VAT registration number"
-    )
+    vat_registration_number: str | None = Field(None, max_length=20, description="VAT registration number")
     vat_registered: bool | None = Field(None, description="VAT registration status")
     business_type: str | None = Field(
-        None, description="Business type: goods, services, or mixed",
+        None,
+        description="Business type: goods, services, or mixed",
         pattern="^(goods|services|mixed)$",
     )
     vat_apply_to: str | None = Field(
-        None, description="Apply VAT to: all or selected invoices",
+        None,
+        description="Apply VAT to: all or selected invoices",
         pattern="^(all|selected)$",
     )
     withholding_vat_applies: bool | None = Field(
-        None, description="Whether customers sometimes withhold VAT",
+        None,
+        description="Whether customers sometimes withhold VAT",
     )
 
 
@@ -73,6 +71,7 @@ class AlertEventOut(BaseModel):
 
 # ── Tax profile responses ─────────────────────────────────────────────
 
+
 class SmallBusinessThreshold(BaseModel):
     turnover: float
     assets: float
@@ -107,6 +106,7 @@ class TaxBenefits(BaseModel):
 
 class TaxSummaryOut(BaseModel):
     """GET /tax/profile — excludes internal IDs."""
+
     user_id: int
     business_size: str
     is_small_business: bool
@@ -118,12 +118,14 @@ class TaxSummaryOut(BaseModel):
 
 class TaxProfileUpdateOut(BaseModel):
     """POST /tax/profile response."""
+
     message: str
     summary: TaxSummaryOut
 
 
 class SmallBusinessCheckOut(BaseModel):
     """GET /tax/small-business-check response."""
+
     eligible: bool
     business_size: str
     current_turnover: float
@@ -145,6 +147,7 @@ class ComplianceRequirements(BaseModel):
 
 class ComplianceSummaryOut(BaseModel):
     """GET /tax/compliance response."""
+
     compliance_status: str
     compliance_score: float
     requirements: ComplianceRequirements
@@ -156,6 +159,7 @@ class ComplianceSummaryOut(BaseModel):
 
 class TaxConfigOut(BaseModel):
     """GET /tax/config response."""
+
     small_business_turnover_limit: float
     small_business_assets_limit: float
     vat_rate: float
@@ -167,6 +171,7 @@ class TaxConfigOut(BaseModel):
 
 # ── Tax report responses ──────────────────────────────────────────────
 
+
 class TaxAlertItem(BaseModel):
     type: str
     severity: str
@@ -175,6 +180,7 @@ class TaxAlertItem(BaseModel):
 
 class TaxReportOut(BaseModel):
     """POST /tax/reports/generate — excludes debug_info."""
+
     id: int
     period_type: str
     period_label: str
@@ -208,6 +214,7 @@ class TaxReportOut(BaseModel):
 
 class ReportDownloadOut(BaseModel):
     """GET /tax/reports/{id}/download response."""
+
     pdf_url: str
     period_type: str
     start_date: str | None = None
@@ -216,14 +223,17 @@ class ReportDownloadOut(BaseModel):
 
 class ReportCsvOut(BaseModel):
     """GET /tax/reports/{id}/csv response."""
+
     csv_url: str
     basis: str
 
 
 # ── VAT responses ─────────────────────────────────────────────────────
 
+
 class VATSummaryOut(BaseModel):
     """GET /tax/vat/summary response."""
+
     current_month: dict[str, object] | None = None
     recent_returns: list[dict[str, object]] | None = None
     compliance_status: str | None = None
@@ -235,6 +245,7 @@ class VATSummaryOut(BaseModel):
 
 class VATCalculateOut(BaseModel):
     """GET /tax/vat/calculate response."""
+
     subtotal: float
     vat_rate: float
     vat_amount: float
@@ -244,6 +255,7 @@ class VATCalculateOut(BaseModel):
 
 class VATReturnOut(BaseModel):
     """POST /tax/vat/return response."""
+
     tax_period: str
     output_vat: float
     input_vat: float
@@ -258,6 +270,7 @@ class VATReturnOut(BaseModel):
 
 # ── Fiscalization responses ───────────────────────────────────────────
 
+
 class VATBreakdown(BaseModel):
     subtotal: float
     vat_rate: float
@@ -267,6 +280,7 @@ class VATBreakdown(BaseModel):
 
 class FiscalizeInvoiceOut(BaseModel):
     """POST /tax/invoice/{id}/fiscalize — excludes fiscal_signature, firs_transaction_id."""
+
     message: str
     fiscal_code: str
     vat_breakdown: VATBreakdown

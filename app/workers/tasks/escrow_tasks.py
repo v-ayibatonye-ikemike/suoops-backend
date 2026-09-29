@@ -5,6 +5,7 @@ elapsed with no dispute — Transferring the seller their share (gross − 3%). 
 release is idempotent (deterministic Paystack reference), and a failed release
 simply stays 'held' and retries on the next run.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -96,15 +97,11 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                 groups.setdefault((escrow.seller_id, rail), []).append(escrow)
             for (seller_id, rail), group in groups.items():
                 try:
-                    released += release_seller_batch(
-                        db, group, provider_name=rail, reason="window elapsed"
-                    )
+                    released += release_seller_batch(db, group, provider_name=rail, reason="window elapsed")
                 except Exception as exc:  # noqa: BLE001 — keep going; retry next run
                     failed += len(group)
                     db.rollback()
-                    logger.warning(
-                        "Escrow batch release failed for seller %s: %s", seller_id, exc
-                    )
+                    logger.warning("Escrow batch release failed for seller %s: %s", seller_id, exc)
         else:
             for escrow in due:
                 try:
@@ -163,9 +160,7 @@ def cancel_stale_pending_orders(self: Task) -> dict[str, Any]:
 
     canceled = 0
     with session_scope() as db:
-        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
-            hours=settings.ESCROW_PENDING_ORDER_TTL_HOURS
-        )
+        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=settings.ESCROW_PENDING_ORDER_TTL_HOURS)
         rows = (
             db.query(StorefrontOrderEscrow)
             .filter(

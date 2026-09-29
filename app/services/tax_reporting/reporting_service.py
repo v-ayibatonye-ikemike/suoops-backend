@@ -3,6 +3,7 @@
 Main service class for generating and managing tax reports
 with multi-period aggregation support.
 """
+
 import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class TaxReportingService:
     """Service for generating tax reports with multi-period support.
-    
+
     Responsibilities:
     - Assessable profit computation (basis-aware) for multiple time periods
     - VAT aggregation for day/week/month/year periods
@@ -34,7 +35,7 @@ class TaxReportingService:
     - Report persistence & PDF attachment
     - Period type: day, week, month, year
     """
-    
+
     def __init__(self, db: Session):
         self.db = db
         self.profile_service = TaxProfileService(db)
@@ -91,7 +92,7 @@ class TaxReportingService:
             week: Required for week reports (ISO week number)
             basis: 'paid' (only paid invoices) or 'all' (all non-refunded)
             force_regenerate: Force regeneration even if report exists
-            
+
         Returns:
             MonthlyTaxReport instance with calculated data
         """
@@ -103,15 +104,19 @@ class TaxReportingService:
             day=day,
             week=week,
         )
-        
+
         # Check for existing report
-        existing = self.db.query(MonthlyTaxReport).filter(
-            MonthlyTaxReport.user_id == user_id,
-            MonthlyTaxReport.period_type == period_type,
-            MonthlyTaxReport.start_date == start_date,
-            MonthlyTaxReport.end_date == end_date,
-        ).first()
-        
+        existing = (
+            self.db.query(MonthlyTaxReport)
+            .filter(
+                MonthlyTaxReport.user_id == user_id,
+                MonthlyTaxReport.period_type == period_type,
+                MonthlyTaxReport.start_date == start_date,
+                MonthlyTaxReport.end_date == end_date,
+            )
+            .first()
+        )
+
         if existing and not force_regenerate:
             return existing
 
@@ -130,14 +135,14 @@ class TaxReportingService:
         profit = base_profit - cogs_amount
         if profit < Decimal("0"):
             profit = Decimal("0")  # Profit can't be negative for tax purposes
-        
+
         logger.info(
             f"Tax profit calculation for user {user_id}: "
             f"Base profit (Rev-Exp)={base_profit}, COGS={cogs_amount}, Final profit={profit}"
         )
-        
+
         levy = self.compute_development_levy(user_id, profit)
-        
+
         # Calculate Personal Income Tax (PIT) on profit
         pit_calc = compute_personal_income_tax(profit)
         pit_amount = pit_calc["pit_amount"]
@@ -148,18 +153,26 @@ class TaxReportingService:
 
         # Get VAT data
         vat_data = self._compute_vat_data(user_id, start_date, end_date, basis)
-        
+
         # Create or update report
         if not existing:
             report = self._create_report(
-                user_id, period_type, start_date, end_date, year, month,
-                profit, levy, pit_amount, cit_amount, vat_data, cogs_data
+                user_id,
+                period_type,
+                start_date,
+                end_date,
+                year,
+                month,
+                profit,
+                levy,
+                pit_amount,
+                cit_amount,
+                vat_data,
+                cogs_data,
             )
         else:
-            report = self._update_report(
-                existing, profit, levy, pit_amount, cit_amount, vat_data, cogs_data
-            )
-        
+            report = self._update_report(existing, profit, levy, pit_amount, cit_amount, vat_data, cogs_data)
+
         self.db.commit()
         self.db.refresh(report)
         return report
@@ -173,13 +186,13 @@ class TaxReportingService:
     ) -> dict:
         """Compute Company Income Tax (CIT) for PRO plan."""
         from app.models.models import SubscriptionPlan, User
-        
+
         user = self.db.query(User).filter(User.id == user_id).first()
         user_plan = user.plan if user else SubscriptionPlan.FREE
-        
+
         # CIT is only calculated for PRO plan
         is_cit_eligible = user_plan == SubscriptionPlan.PRO
-        
+
         if not is_cit_eligible:
             return {
                 "cit_amount": Decimal("0"),
@@ -187,27 +200,28 @@ class TaxReportingService:
                 "company_size": "n/a",
                 "notes": "CIT requires PRO plan",
             }
-        
+
         # Get annual turnover estimate (for company size classification)
         # Estimate based on current period profit (annualized)
         days_in_period = (end_date - start_date).days + 1
         annual_turnover = (profit / days_in_period * 365) if days_in_period > 0 else profit * 12
-        
+
         # Get tax profile for capital allowances if available
         from app.models.tax_models import TaxProfile
+
         tax_profile = self.db.query(TaxProfile).filter(TaxProfile.user_id == user_id).first()
         capital_allowances = None
         if tax_profile and tax_profile.fixed_assets:
             # Simplified: assume 25% depreciation on fixed assets per year
             annual_allowance = float(tax_profile.fixed_assets) * 0.25
             capital_allowances = Decimal(str(annual_allowance * days_in_period / 365))
-        
+
         cit_calc = compute_company_income_tax(
             profit=profit,
             annual_turnover=Decimal(str(annual_turnover)),
             capital_allowances=capital_allowances,
         )
-        
+
         return cit_calc
 
     def _compute_vat_data(
@@ -236,10 +250,10 @@ class TaxReportingService:
         tax_profile = self.db.query(TaxProfile).filter(TaxProfile.user_id == user_id).first()
         if not (tax_profile and tax_profile.vat_registered):
             return vat_data
-        
+
         start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_dt = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
-        
+
         q = self.db.query(Invoice).filter(
             Invoice.issuer_id == user_id,
             Invoice.invoice_type == "revenue",
@@ -252,7 +266,7 @@ class TaxReportingService:
             # Exclude both refunded AND cancelled invoices for "all" basis
             q = q.filter(Invoice.status.notin_(["refunded", "cancelled"]))
         invoices = q.all()
-        
+
         for inv in invoices:
             amount = Decimal(str(inv.amount))
             if inv.discount_amount:
@@ -264,6 +278,7 @@ class TaxReportingService:
                 vat_amt = Decimal(str(inv.vat_amount or 0))
                 if not vat_amt:
                     from app.services.fiscalization_service import VATCalculator
+
                     vat_result = VATCalculator.calculate(amount, "standard")
                     vat_amt = vat_result["vat_amount"]
                 # taxable_sales = VAT-exclusive base (net amount)
@@ -276,10 +291,11 @@ class TaxReportingService:
             else:
                 # Unknown category — treat as standard
                 from app.services.fiscalization_service import VATCalculator
+
                 vat_result = VATCalculator.calculate(amount, "standard")
                 vat_data["taxable_sales"] += amount - vat_result["vat_amount"]
                 vat_data["vat_collected"] += vat_result["vat_amount"]
-        
+
         return vat_data
 
     def _create_report(
@@ -400,16 +416,13 @@ class TaxReportingService:
     ) -> Decimal:
         """Compute assessable profit (legacy method for backward compat)."""
         from app.models.models import Invoice
-        
-        q = self.db.query(Invoice).filter(
-            Invoice.issuer_id == user_id,
-            Invoice.invoice_type == "revenue"
-        )
+
+        q = self.db.query(Invoice).filter(Invoice.issuer_id == user_id, Invoice.invoice_type == "revenue")
         if basis == "paid":
             q = q.filter(Invoice.status == "paid")
         else:
             q = q.filter(Invoice.status != "refunded")
-        
+
         # Apply due_date gating only for global computations
         if not (year and month):
             now = datetime.now(timezone.utc)
@@ -418,7 +431,7 @@ class TaxReportingService:
             start = datetime(year, month, 1, tzinfo=timezone.utc)
             end = datetime(year + (month == 12), (month % 12) + 1, 1, tzinfo=timezone.utc)
             q = q.filter(Invoice.created_at >= start, Invoice.created_at < end)
-        
+
         invoices = q.all()
         total = Decimal("0")
         for inv in invoices:

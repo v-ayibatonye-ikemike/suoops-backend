@@ -9,6 +9,7 @@ This mirrors the Flutterwave transfer-proxy approach, but is applied to every
 Paystack call because Paystack's "Allowed IP addresses" restriction gates the
 whole API, not just transfers.
 """
+
 from __future__ import annotations
 
 import httpx

@@ -3,6 +3,7 @@ VAT Routes.
 
 Handles VAT summary, calculation, and return generation.
 """
+
 from __future__ import annotations
 
 import logging

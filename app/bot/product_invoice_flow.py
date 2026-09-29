@@ -12,6 +12,7 @@ Flow:
 
 All state is ephemeral (in-memory with TTL). No DB writes until invoice creation.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,6 +38,7 @@ CART_TTL_SECONDS = 900
 @dataclass
 class CartItem:
     """A product in the user's draft invoice cart."""
+
     product_id: int
     product_name: str
     quantity: int
@@ -50,7 +52,8 @@ class CartItem:
 @dataclass
 class CartSession:
     """Ephemeral cart state for a WhatsApp user."""
-    user_id: int          # DB user_id (issuer)
+
+    user_id: int  # DB user_id (issuer)
     items: list[CartItem] = field(default_factory=list)
     # Conversation step: "awaiting_items" | "awaiting_customer"
     step: str = "awaiting_items"
@@ -125,11 +128,7 @@ def _fuzzy_match_product(
             return product
 
     # 2. Substring match (prefer shorter names = more specific)
-    substring_matches = [
-        (name_lower, product)
-        for name_lower, product in products
-        if query_lower in name_lower
-    ]
+    substring_matches = [(name_lower, product) for name_lower, product in products if query_lower in name_lower]
     if substring_matches:
         return min(substring_matches, key=lambda x: len(x[0]))[1]
 
@@ -260,15 +259,15 @@ class ProductInvoiceFlow:
             if search:
                 self.client.send_text(
                     phone,
-                    f"🔍 No products found for \"{search}\".\n\n"
-                    "Try a different keyword, or type *products* to see all."
+                    f'🔍 No products found for "{search}".\n\n'
+                    "Try a different keyword, or type *products* to see all.",
                 )
             else:
                 self.client.send_text(
                     phone,
                     "📦 You have no products in your inventory yet.\n\n"
                     "Add products at suoops.com/dashboard/inventory\n"
-                    "Then come back and type *products* to invoice from stock!"
+                    "Then come back and type *products* to invoice from stock!",
                 )
             return
 
@@ -315,7 +314,7 @@ class ProductInvoiceFlow:
             "📝 *Reply with items to invoice:*\n"
             "e.g. `3 wig, 2 shoe`\n\n"
             "Or just the name for 1 unit:\n"
-            "e.g. `wig, shoe, belt`"
+            "e.g. `wig, shoe, belt`",
         )
 
     def handle_items_reply(self, phone: str, text: str) -> bool:
@@ -353,12 +352,14 @@ class ProductInvoiceFlow:
                     continue
 
                 price = product.selling_price or Decimal("0")
-                matched.append(CartItem(
-                    product_id=product.id,
-                    product_name=product.name,
-                    quantity=qty,
-                    unit_price=price,
-                ))
+                matched.append(
+                    CartItem(
+                        product_id=product.id,
+                        product_name=product.name,
+                        quantity=qty,
+                        unit_price=price,
+                    )
+                )
             else:
                 unmatched.append(desc)
 
@@ -366,22 +367,17 @@ class ProductInvoiceFlow:
             self.client.send_text(
                 phone,
                 f"❌ Couldn't find: {', '.join(unmatched)}\n\n"
-                "Check the spelling and try again, or type *products* to see your catalog."
+                "Check the spelling and try again, or type *products* to see your catalog.",
             )
             return True
 
         if not matched and stock_warnings:
-            self.client.send_text(
-                phone,
-                "\n".join(stock_warnings) + "\n\nTry again with lower quantities."
-            )
+            self.client.send_text(phone, "\n".join(stock_warnings) + "\n\nTry again with lower quantities.")
             return True
 
         # Merge matched items into cart (handle duplicates)
         for new_item in matched:
-            existing = next(
-                (i for i in session.items if i.product_id == new_item.product_id), None
-            )
+            existing = next((i for i in session.items if i.product_id == new_item.product_id), None)
             if existing:
                 existing.quantity += new_item.quantity
             else:
@@ -412,7 +408,7 @@ class ProductInvoiceFlow:
             "👤 *Who is this invoice for?*\n"
             "e.g. `Joy 08012345678`\n\n"
             "Or type *more* to add more items\n"
-            "Or type *clear* to start over"
+            "Or type *clear* to start over",
         )
         return True
 
@@ -442,6 +438,7 @@ class ProductInvoiceFlow:
 
         # Parse customer name and phone from text
         from app.bot.nlp_service import NLPService
+
         nlp = NLPService()
         customer_phone = nlp._extract_phone(text)
         customer_email = nlp._extract_email(text)
@@ -458,12 +455,14 @@ class ProductInvoiceFlow:
         # Build line items with product_id for inventory integration
         lines = []
         for item in session.items:
-            lines.append({
-                "description": item.product_name,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price,
-                "product_id": item.product_id,
-            })
+            lines.append(
+                {
+                    "description": item.product_name,
+                    "quantity": item.quantity,
+                    "unit_price": item.unit_price,
+                    "product_id": item.product_id,
+                }
+            )
 
         invoice_data = {
             "customer_name": customer_name,

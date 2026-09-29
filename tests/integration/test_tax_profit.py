@@ -115,6 +115,7 @@ def test_development_levy_medium_business_calculation():
     levy2 = service2.compute_development_levy(7, profit2)
     assert levy2["levy_amount"] == 7200.0
 
+
 def test_assessable_profit_month_filter():
     session = SessionLocal()
     make_user(session, 4)
@@ -149,6 +150,7 @@ def test_assessable_profit_month_filter():
     profit = service.compute_assessable_profit(4, year=target_year, month=2, basis="paid")
     assert profit == Decimal("7000")
 
+
 def test_assessable_profit_discount_subtraction():
     session = SessionLocal()
     make_user(session, 5)
@@ -156,6 +158,7 @@ def test_assessable_profit_discount_subtraction():
     make_invoice(session, 5, 10000, status="paid", discount=1234, days_offset=-1)
     profit = service.compute_assessable_profit(5, basis="paid")
     assert profit == Decimal("8766")
+
 
 def test_assessable_profit_basis_toggle_difference():
     session = SessionLocal()
@@ -181,4 +184,3 @@ def test_assessable_profit_basis_toggle_difference():
     levy = service.compute_development_levy(3, profit)
     # Profit = 180000; levy 4% = 7200
     assert levy["levy_amount"] == 7200.0
-

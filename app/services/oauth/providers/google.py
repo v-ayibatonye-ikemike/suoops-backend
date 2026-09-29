@@ -1,4 +1,5 @@
 """Google OAuth 2.0 / OpenID Connect implementation."""
+
 from typing import Any
 
 from .base import OAuthProvider
@@ -28,7 +29,7 @@ class GoogleOAuthProvider(OAuthProvider):
     def extract_user_data(self, user_info: dict[str, Any]) -> dict[str, str]:
         """
         Extract user data from Google user info response.
-        
+
         Expected fields:
         - email: User's email address
         - name: Full name

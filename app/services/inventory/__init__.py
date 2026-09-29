@@ -30,6 +30,7 @@ Usage:
     summary = service.get_inventory_summary()
     alerts = service.get_low_stock_alerts()
 """
+
 from __future__ import annotations
 
 from typing import Sequence
@@ -165,9 +166,7 @@ class InventoryService:
     # Stock Movement Operations (delegated to StockMovementService)
     # ========================================================================
 
-    def adjust_stock(
-        self, data: StockAdjustmentCreate, created_by: str = "user"
-    ) -> StockMovement:
+    def adjust_stock(self, data: StockAdjustmentCreate, created_by: str = "user") -> StockMovement:
         """Adjust stock for a product."""
         return self._stock.adjust_stock(data, created_by)
 

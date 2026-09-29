@@ -6,6 +6,7 @@ one card funding many orders and enforce a temporary blocklist — mitigating th
 Orders paid with a blocked/over-velocity card are HELD FOR REVIEW (never
 auto-released), not silently refunded, so an admin makes the call.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -43,11 +44,7 @@ def extract_fingerprint(provider: str | None, raw: dict | None) -> str | None:
 def is_card_blocked(db: Session, fingerprint: str | None) -> bool:
     if not fingerprint:
         return False
-    row = (
-        db.query(models.BlockedCard)
-        .filter(models.BlockedCard.fingerprint == fingerprint)
-        .first()
-    )
+    row = db.query(models.BlockedCard).filter(models.BlockedCard.fingerprint == fingerprint).first()
     if not row:
         return False
     until = row.blocked_until
@@ -70,11 +67,7 @@ def block_card(
         return
     days = days if days is not None else settings.CARD_BLOCK_DAYS_ON_REFUND
     until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=days)
-    row = (
-        db.query(models.BlockedCard)
-        .filter(models.BlockedCard.fingerprint == fingerprint)
-        .first()
-    )
+    row = db.query(models.BlockedCard).filter(models.BlockedCard.fingerprint == fingerprint).first()
     if row:
         row.blocked_until = until
         row.reason = (reason or "")[:120]

@@ -4,10 +4,12 @@ Revision ID: 20260728_expense_integrity
 Revises: 20260727_escrow_indexes
 Create Date: 2026-07-28
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260728_expense_integrity"
 down_revision = "20260727_escrow_indexes"

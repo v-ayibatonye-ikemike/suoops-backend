@@ -8,10 +8,12 @@ Adds ``buyer_reputation.last_false_dispute_at`` so a buyer's abuse flag can deca
 after a quiet period (no new admin-ruled false disputes), instead of being
 permanent.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260710_buyer_rep_decay"

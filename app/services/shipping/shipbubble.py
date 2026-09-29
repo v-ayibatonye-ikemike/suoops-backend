@@ -15,6 +15,7 @@ missing, or the API errors, callers get ``None``/``[]`` and the manual dispatch
 flow continues unaffected. Nothing activates until ``SHIPBUBBLE_ENABLED`` is set
 and an API key + funded wallet exist.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -42,7 +43,6 @@ def clean_name(name: str | None, pad: str = "Customer") -> str:
     if len(cleaned.split()) < 2:
         return f"{cleaned} {pad}"[:60]
     return cleaned[:60]
-
 
 
 def enabled() -> bool:
@@ -259,9 +259,7 @@ def fetch_rates(
     }
 
 
-def create_shipment(
-    *, request_token: str, courier_id: str, service_code: str
-) -> dict[str, Any] | None:
+def create_shipment(*, request_token: str, courier_id: str, service_code: str) -> dict[str, Any] | None:
     """Book the chosen courier. Returns ``{"order_id", "tracking_url", "courier",
     "delivery_eta"}`` or None. The shipping fee is drawn from the Shipbubble wallet."""
     data = _post(
@@ -292,7 +290,7 @@ def cancel_shipment(order_id: str) -> bool:
     return data is not None
 
 
-def within_hours(option: "DeliveryOption", max_hours: int = 24) -> bool:
+def within_hours(option: DeliveryOption, max_hours: int = 24) -> bool:
     """True if a courier option's ETA is within ``max_hours``.
 
     Same-day and N-hour services qualify; any multi-'working day' ETA does not.
@@ -300,9 +298,7 @@ def within_hours(option: "DeliveryOption", max_hours: int = 24) -> bool:
     'Same day delivery' / 'Within 6 hrs' / '24 Hours after pickup' → True, while
     'Within 1 - 2 working days' → False.
     """
-    text = " ".join(
-        s.lower() for s in (option.delivery_eta, option.delivery_eta_time) if s
-    )
+    text = " ".join(s.lower() for s in (option.delivery_eta, option.delivery_eta_time) if s)
     if not text:
         return False
     if "same day" in text or "same-day" in text:

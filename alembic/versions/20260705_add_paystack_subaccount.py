@@ -8,10 +8,12 @@ Adds per-business Paystack subaccount tracking so invoice/marketplace payments
 can be settled directly to the business's bank via split payments, with the
 platform retaining a commission.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260705_paystack_subaccount"

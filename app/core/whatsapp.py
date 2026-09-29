@@ -1,4 +1,5 @@
 """WhatsApp client factory — single source of truth for client instantiation."""
+
 from __future__ import annotations
 
 import logging

@@ -17,6 +17,7 @@ Optional flags:
     --big 20                 how many largest single invoices to list (default 15)
     --exclude a@b.com,c@d.com emails to remove from the recomputed GMV
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,9 +57,7 @@ def main() -> None:
 
     with SessionLocal() as db:
         # ── Total GMV ──
-        total_gmv = db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(
-            *paid_revenue
-        ).scalar()
+        total_gmv = db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(*paid_revenue).scalar()
         total_paid_count = db.query(func.count(Invoice.id)).filter(*paid_revenue).scalar()
 
         print("=" * 72)
@@ -80,12 +79,7 @@ def main() -> None:
             .limit(args.top)
             .all()
         )
-        user_map = {
-            u.id: u
-            for u in db.query(User).filter(
-                User.id.in_([r.issuer_id for r in rows])
-            ).all()
-        }
+        user_map = {u.id: u for u in db.query(User).filter(User.id.in_([r.issuer_id for r in rows])).all()}
 
         print(f"\nTOP {args.top} CONTRIBUTORS TO GMV")
         print("-" * 72)
@@ -102,8 +96,10 @@ def main() -> None:
                 f"{_naira(r.gmv):<22} {pct:5.1f}%  n={r.cnt}  max={_naira(r.biggest)}{flag}"
             )
         print("-" * 72)
-        print(f"Top {args.top} together = {_naira(running)} "
-              f"({(running/float(total_gmv)*100) if total_gmv else 0:.1f}% of GMV)")
+        print(
+            f"Top {args.top} together = {_naira(running)} "
+            f"({(running/float(total_gmv)*100) if total_gmv else 0:.1f}% of GMV)"
+        )
 
         # ── Largest single paid invoices (test data is usually one giant row) ──
         big = (
@@ -113,12 +109,7 @@ def main() -> None:
             .limit(args.big)
             .all()
         )
-        big_user_map = {
-            u.id: u
-            for u in db.query(User).filter(
-                User.id.in_([b.issuer_id for b in big])
-            ).all()
-        }
+        big_user_map = {u.id: u for u in db.query(User).filter(User.id.in_([b.issuer_id for b in big])).all()}
         print(f"\n{args.big} LARGEST SINGLE PAID INVOICES")
         print("-" * 72)
         for b in big:
@@ -131,14 +122,9 @@ def main() -> None:
         # ── GMV excluding the emails you passed ──
         if excluded_emails:
             excluded_ids = [
-                uid
-                for (uid,) in db.query(User.id).filter(
-                    func.lower(User.email).in_(excluded_emails)
-                ).all()
+                uid for (uid,) in db.query(User.id).filter(func.lower(User.email).in_(excluded_emails)).all()
             ]
-            gmv_excl_q = db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(
-                *paid_revenue
-            )
+            gmv_excl_q = db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(*paid_revenue)
             if excluded_ids:
                 gmv_excl_q = gmv_excl_q.filter(Invoice.issuer_id.notin_(excluded_ids))
             gmv_excl = gmv_excl_q.scalar()
@@ -147,8 +133,10 @@ def main() -> None:
             print(f"Excluded emails : {', '.join(sorted(excluded_emails))}")
             print(f"Matched user IDs: {excluded_ids or 'NONE (emails not found!)'}")
             print(f"GMV excluding them: {_naira(gmv_excl)}")
-            print(f"Removed by exclusion: {_naira(removed)} "
-                  f"({(removed/float(total_gmv)*100) if total_gmv else 0:.1f}% of GMV)")
+            print(
+                f"Removed by exclusion: {_naira(removed)} "
+                f"({(removed/float(total_gmv)*100) if total_gmv else 0:.1f}% of GMV)"
+            )
             print("=" * 72)
         else:
             print("\n(Pass --exclude a@b.com to see GMV without your test accounts.)")

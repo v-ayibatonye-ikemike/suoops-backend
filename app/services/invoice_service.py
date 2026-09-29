@@ -31,7 +31,7 @@ class InvoiceService(
 
     def __init__(self, db: Session, pdf_service: PDFService, cache: InvoiceCacheRepository | None = None):
         """Core invoice workflow with optional caching layer.
-        
+
         Args:
             db: Database session
             pdf_service: PDF generation service
@@ -46,13 +46,13 @@ class InvoiceService(
 
 def build_invoice_service(db: Session, user_id: int | None = None) -> InvoiceService:
     """Factory function to construct InvoiceService with dependencies.
-    
+
     Simple bank transfer model - no payment platform integration needed.
-    
+
     Args:
         db: Database session
         user_id: Business owner's user ID (optional, not used in simple model)
-    
+
     Returns:
         InvoiceService configured with PDF generation and optional caching
     """
@@ -63,7 +63,7 @@ def build_invoice_service(db: Session, user_id: int | None = None) -> InvoiceSer
     from app.storage.s3_client import S3Client
 
     pdf = PDFService(S3Client())
-    
+
     # Add cache if Redis is configured
     cache = None
     if getattr(settings, "REDIS_URL", None):
@@ -72,6 +72,5 @@ def build_invoice_service(db: Session, user_id: int | None = None) -> InvoiceSer
             cache = InvoiceCacheRepository(redis_client)
         except Exception as e:
             logger.warning("Failed to initialize invoice cache: %s", e)
-    
-    return InvoiceService(db, pdf, cache=cache)
 
+    return InvoiceService(db, pdf, cache=cache)

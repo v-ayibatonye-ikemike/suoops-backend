@@ -7,6 +7,7 @@ Covers:
   * Invoice line items with a non-positive unit price are rejected (422) instead
     of silently accepted.
 """
+
 import datetime as dt
 import json
 from unittest.mock import MagicMock, patch
@@ -21,7 +22,13 @@ client = TestClient(app)
 def _signup_and_get_token(phone: str) -> str:
     r = client.post(
         "/auth/signup/request",
-        json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "FixUser", "business_name": "Fix Biz", "accept_terms": True},
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "FixUser",
+            "business_name": "Fix Biz",
+            "accept_terms": True,
+        },
     )
     assert r.status_code == 200, r.text
 
@@ -82,9 +89,7 @@ def test_expense_appears_in_list_and_stats():
                 "due_date": date_str,
                 "category": "supplies",
                 "vendor_name": "Test Vendor",
-                "lines": [
-                    {"description": "supplies", "quantity": 1, "unit_price": amount}
-                ],
+                "lines": [{"description": "supplies", "quantity": 1, "unit_price": amount}],
                 "status": "paid",
             },
             headers=headers,

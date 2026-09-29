@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
+import sys
 import warnings
+from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
-
-import sys
-from pathlib import Path
 
 # Ensure project root (suoops-backend) is on sys.path for 'app' imports when running tests directly.
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -24,14 +24,14 @@ if str(ROOT_DIR) not in sys.path:
 # REDIS_URL if a dev really wants to test against Redis. Must run before app import.
 os.environ.setdefault("REDIS_URL", "")
 
-from app.api.main import app  # noqa: E402
-from app.core.config import settings
-from app.db import session as db_session
-from app.db.base_class import Base
-from app.db.session import SessionLocal
+app = import_module("app.api.main").app
+settings = import_module("app.core.config").settings
+db_session = import_module("app.db.session")
+Base = import_module("app.db.base_class").Base
+SessionLocal = db_session.SessionLocal
 
 try:
-    from app.models.models import WebhookEvent
+    WebhookEvent = import_module("app.models.models").WebhookEvent
 except ImportError:  # pragma: no cover - legacy tables may be removed
     WebhookEvent = None
 

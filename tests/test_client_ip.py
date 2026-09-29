@@ -1,5 +1,6 @@
 """X-Forwarded-For must be read from the RIGHT (trusted proxy hops) so a client
 can't spoof their IP by prepending fake entries."""
+
 from __future__ import annotations
 
 from starlette.requests import Request

@@ -13,6 +13,7 @@ class AlertEvent(Base):
     Stored in DB so we can later surface in an admin dashboard or forward to an external
     log/metrics system without adding external service dependencies initially.
     """
+
     __tablename__ = "alert_events"
 
     id = Column(Integer, primary_key=True, index=True)

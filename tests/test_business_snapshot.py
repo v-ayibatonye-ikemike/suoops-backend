@@ -2,6 +2,7 @@
 
 Follows the same in-memory-SQLite pattern as test_analytics_service.py.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -122,23 +123,45 @@ def test_snapshot_splits_activity_mix_and_data_provenance(db_session, test_user,
 
     # A webhook-confirmed online payment (no human clicked "paid").
     _make_invoice(
-        db_session, test_user.id, test_customer.id, Decimal("5000"),
-        status="paid", status_updated_by_user_id=None, created_at=now,
+        db_session,
+        test_user.id,
+        test_customer.id,
+        Decimal("5000"),
+        status="paid",
+        status_updated_by_user_id=None,
+        created_at=now,
     )
     # A storefront order (gateway-confirmed via escrow/checkout).
     _make_invoice(
-        db_session, test_user.id, test_customer.id, Decimal("3000"),
-        status="paid", channel="storefront", status_updated_by_user_id=test_user.id, created_at=now,
+        db_session,
+        test_user.id,
+        test_customer.id,
+        Decimal("3000"),
+        status="paid",
+        channel="storefront",
+        status_updated_by_user_id=test_user.id,
+        created_at=now,
     )
     # A walk-in quick sale — self-reported (the business marked it paid itself).
     _make_invoice(
-        db_session, test_user.id, test_customer.id, Decimal("2000"),
-        status="paid", channel="quick_sale", status_updated_by_user_id=test_user.id, created_at=now,
+        db_session,
+        test_user.id,
+        test_customer.id,
+        Decimal("2000"),
+        status="paid",
+        channel="quick_sale",
+        status_updated_by_user_id=test_user.id,
+        created_at=now,
     )
     # A manually confirmed regular invoice — also self-reported.
     _make_invoice(
-        db_session, test_user.id, test_customer.id, Decimal("1000"),
-        status="paid", status_updated_by_user_id=test_user.id, created_at=now,
+        db_session,
+        test_user.id,
+        test_customer.id,
+        Decimal("1000"),
+        status="paid",
+        status_updated_by_user_id=test_user.id,
+        created_at=now,
     )
 
     snapshot = calculate_business_snapshot(db_session, test_user.id)
@@ -161,8 +184,13 @@ def test_snapshot_penalises_heavy_overdue_load(db_session, test_user, test_custo
 
     # Mostly overdue billed amount, nothing paid.
     _make_invoice(
-        db_session, test_user.id, test_customer.id, Decimal("10000"),
-        status="pending", created_at=very_overdue, due_date=very_overdue,
+        db_session,
+        test_user.id,
+        test_customer.id,
+        Decimal("10000"),
+        status="pending",
+        created_at=very_overdue,
+        due_date=very_overdue,
     )
 
     snapshot = calculate_business_snapshot(db_session, test_user.id)
@@ -178,17 +206,20 @@ def test_snapshot_component_weights_sum_to_one(db_session, test_user):
 
     # The composite score is exactly the weighted sum of the components —
     # no hidden adjustment, so a reader can verify the number themselves.
-    expected = sum(
-        snapshot["components"][k] * w for k, w in snapshot["component_weights"].items()
-    )
+    expected = sum(snapshot["components"][k] * w for k, w in snapshot["component_weights"].items())
     assert snapshot["composite_score"] == pytest.approx(round(expected, 1))
 
 
 def test_snapshot_fulfillment_reliability_perfect_when_all_delivered(db_session, test_user, test_customer):
     for _ in range(3):
         inv = _make_invoice(
-            db_session, test_user.id, test_customer.id, Decimal("4000"),
-            status="paid", channel="storefront", status_updated_by_user_id=test_user.id,
+            db_session,
+            test_user.id,
+            test_customer.id,
+            Decimal("4000"),
+            status="paid",
+            channel="storefront",
+            status_updated_by_user_id=test_user.id,
         )
         _make_escrow(db_session, inv, test_user.id, status="released")
 
@@ -202,8 +233,13 @@ def test_snapshot_fulfillment_reliability_perfect_when_all_delivered(db_session,
 def test_snapshot_fulfillment_reliability_penalised_by_disputes_and_refunds(db_session, test_user, test_customer):
     def _order(status: str, disputed: bool = False):
         inv = _make_invoice(
-            db_session, test_user.id, test_customer.id, Decimal("2000"),
-            status="paid", channel="storefront", status_updated_by_user_id=test_user.id,
+            db_session,
+            test_user.id,
+            test_customer.id,
+            Decimal("2000"),
+            status="paid",
+            channel="storefront",
+            status_updated_by_user_id=test_user.id,
         )
         return _make_escrow(db_session, inv, test_user.id, status=status, disputed=disputed)
 

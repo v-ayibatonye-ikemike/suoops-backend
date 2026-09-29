@@ -23,7 +23,7 @@ def seed_user(session, user_id: int = 1):
     Ensures uniqueness across test invocations.
     """
     from app.models.models import SubscriptionPlan
-    
+
     u = User(
         id=user_id,
         phone=f"+234{user_id:09d}",
@@ -77,6 +77,7 @@ def test_monthly_report_aggregation_vat_and_levy():
     seed_user(session, 1)
     # VAT is opt-in: register this user as VAT-registered
     from app.models.tax_models import TaxProfile
+
     profile = TaxProfile(user_id=1, vat_registered=True)
     session.add(profile)
     session.commit()
@@ -114,6 +115,7 @@ def test_monthly_report_regeneration_retains_pdf_url():
     seed_user(session, 2)
     # VAT is opt-in: register this user as VAT-registered
     from app.models.tax_models import TaxProfile
+
     profile = TaxProfile(user_id=2, vat_registered=True)
     session.add(profile)
     session.commit()

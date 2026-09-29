@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from io import BytesIO
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover - for type hints only
 
 try:
     from weasyprint import HTML  # type: ignore
+
     _WEASY_AVAILABLE = True
 except Exception:  # noqa: BLE001
     _WEASY_AVAILABLE = False
@@ -52,13 +54,13 @@ class PDFService:
         user_plan: str = "free",  # Default to free plan
     ) -> str:
         """Generate PDF with bank transfer payment instructions and business logo.
-        
+
         Args:
             invoice: Invoice model instance
             bank_details: Dict with bank_name, account_number, account_name
             logo_url: URL to business logo image
             user_plan: User's subscription plan (free/starter/pro/business)
-            
+
         Returns:
             URL or path to generated PDF
         """
@@ -93,7 +95,7 @@ class PDFService:
         c.drawString(40, 780, f"Customer: {invoice.customer.name}")
         _sym = "$" if getattr(invoice, "currency", "NGN") == "USD" else "₦"
         c.drawString(40, 760, f"Amount: {_sym}{invoice.amount:,.2f}")
-        
+
         # Add bank transfer details
         if bank_details:
             y = 720
@@ -154,14 +156,14 @@ class PDFService:
 
         # Generate QR code for receipt verification
         qr_code_data = self._generate_qr_code(invoice.invoice_id)
-        
+
         # Get business info (logo and name) from issuer
         logo_url = None
         business_name = None
-        if hasattr(invoice, 'issuer') and invoice.issuer:
-            business_name = getattr(invoice.issuer, 'business_name', None)
+        if hasattr(invoice, "issuer") and invoice.issuer:
+            business_name = getattr(invoice.issuer, "business_name", None)
             # Generate fresh presigned URL for logo if stored
-            stored_logo_url = getattr(invoice.issuer, 'logo_url', None)
+            stored_logo_url = getattr(invoice.issuer, "logo_url", None)
             if stored_logo_url:
                 logo_key = self.s3.extract_key_from_url(stored_logo_url)
                 if logo_key:
@@ -169,7 +171,7 @@ class PDFService:
                 if not logo_url:
                     # Fallback to stored URL if key extraction fails
                     logo_url = stored_logo_url
-        
+
         if settings.HTML_PDF_ENABLED and _WEASY_AVAILABLE:
             try:
                 # If a dedicated receipt template exists use it; otherwise reuse invoice.html
@@ -179,17 +181,17 @@ class PDFService:
                 except Exception:  # noqa: BLE001
                     template = self.jinja.get_template("invoice.html")
                 watermark_text = "PAID"  # force PAID watermark on receipt
-                
+
                 # Get creator name if available
                 created_by_name = None
-                if hasattr(invoice, 'created_by') and invoice.created_by:
+                if hasattr(invoice, "created_by") and invoice.created_by:
                     created_by_name = invoice.created_by.name
-                
+
                 # Get confirmer name if available
                 confirmed_by_name = None
-                if hasattr(invoice, 'status_updated_by') and invoice.status_updated_by:
+                if hasattr(invoice, "status_updated_by") and invoice.status_updated_by:
                     confirmed_by_name = invoice.status_updated_by.name
-                
+
                 # Determine currency symbol from invoice
                 currency = getattr(invoice, "currency", "NGN") or "NGN"
                 currency_symbol = "$" if currency == "USD" else "₦"
@@ -208,7 +210,6 @@ class PDFService:
                     confirmed_by_name=confirmed_by_name,
                     currency_symbol=currency_symbol,
                 )
-                from weasyprint import HTML  # type: ignore
                 pdf_bytes = _pdf_pool.submit(_weasy_render, html_str).result(timeout=_PDF_TIMEOUT)
                 key = f"receipts/{invoice.invoice_id}.pdf"
                 url = self.s3.upload_bytes(pdf_bytes, key)
@@ -235,15 +236,15 @@ class PDFService:
         y -= 15
         c.drawString(40, y, f"Payment Date: {paid_at_display}")
         y -= 15
-        
+
         # Add creator and confirmer info
-        if hasattr(invoice, 'created_by') and invoice.created_by:
+        if hasattr(invoice, "created_by") and invoice.created_by:
             c.drawString(40, y, f"Invoice Created by: {invoice.created_by.name}")
             y -= 15
-        if hasattr(invoice, 'status_updated_by') and invoice.status_updated_by:
+        if hasattr(invoice, "status_updated_by") and invoice.status_updated_by:
             c.drawString(40, y, f"Payment Confirmed by: {invoice.status_updated_by.name}")
             y -= 15
-        
+
         y -= 10
         c.setFont("Helvetica", 9)
         c.drawString(
@@ -280,37 +281,31 @@ class PDFService:
         # Use expense template for expense invoices
         template_name = "expense_invoice.html" if invoice.invoice_type == "expense" else "invoice.html"
         template = self.jinja.get_template(template_name)
-        watermark_text = (
-            settings.PDF_WATERMARK_TEXT
-            if getattr(settings, "PDF_WATERMARK_ENABLED", False)
-            else None
-        )
-        
+        watermark_text = settings.PDF_WATERMARK_TEXT if getattr(settings, "PDF_WATERMARK_ENABLED", False) else None
+
         # Fetch and encode receipt image for expense invoices
         receipt_data_url = None
         if invoice.invoice_type == "expense" and invoice.receipt_url:
             receipt_data_url = self._fetch_receipt_as_data_url(invoice.receipt_url)
-        
+
         # Check if user is eligible for VAT tracking (BUSINESS plan only)
         is_vat_eligible = user_plan.lower() == "business"
-        
+
         # Get creator name if available
         created_by_name = None
-        if hasattr(invoice, 'created_by') and invoice.created_by:
+        if hasattr(invoice, "created_by") and invoice.created_by:
             created_by_name = invoice.created_by.name
-        
+
         # Get business name from issuer
         business_name = None
-        if hasattr(invoice, 'issuer') and invoice.issuer:
-            business_name = getattr(invoice.issuer, 'business_name', None)
+        if hasattr(invoice, "issuer") and invoice.issuer:
+            business_name = getattr(invoice.issuer, "business_name", None)
 
         # Online payments (card/transfer via the pay portal) available? When on,
         # the buyer pays through the portal link, so the invoice must NOT show a
         # "bank details missing — contact the business" warning.
         issuer = getattr(invoice, "issuer", None)
-        online_payments_enabled = bool(
-            issuer is not None and getattr(issuer, "online_payments_active", False)
-        )
+        online_payments_enabled = bool(issuer is not None and getattr(issuer, "online_payments_active", False))
 
         # Determine currency symbol from invoice
         currency = getattr(invoice, "currency", "NGN") or "NGN"
@@ -345,6 +340,7 @@ class PDFService:
         Uses HTML template if WeasyPrint enabled; else simple ReportLab fallback.
         """
         from app.models.tax_models import MonthlyTaxReport  # local import to avoid circular
+
         assert isinstance(report, MonthlyTaxReport)
         cogs = float(report.cogs_amount or 0)
         # Attempt HTML path first
@@ -352,9 +348,7 @@ class PDFService:
             try:
                 template = self.jinja.get_template("monthly_tax_report.html")
                 watermark_text = (
-                    settings.PDF_WATERMARK_TEXT
-                    if getattr(settings, "PDF_WATERMARK_ENABLED", False)
-                    else None
+                    settings.PDF_WATERMARK_TEXT if getattr(settings, "PDF_WATERMARK_ENABLED", False) else None
                 )
                 html_str = template.render(
                     report=report,
@@ -365,6 +359,7 @@ class PDFService:
                     cogs_amount=cogs,
                 )
                 from weasyprint import HTML  # type: ignore
+
                 pdf_bytes = HTML(string=html_str).write_pdf()  # type: ignore
                 key = f"tax-reports/{report.user_id}/{report.year}-{report.month}.pdf"
                 return self.s3.upload_bytes(pdf_bytes, key)
@@ -403,7 +398,13 @@ class PDFService:
         c.rect(40, y_meta - 4, 3, 20, fill=True, stroke=False)
         c.setFillColorRGB(0.059, 0.463, 0.431)  # teal text
         c.setFont("Helvetica", 9)
-        period_str = f"{report.start_date} to {report.end_date}" if report.start_date and report.end_date else f"{report.year}-{report.month:02d}" if report.month else str(report.year)
+        period_str = (
+            f"{report.start_date} to {report.end_date}"
+            if report.start_date and report.end_date
+            else f"{report.year}-{report.month:02d}"
+            if report.month
+            else str(report.year)
+        )
         c.drawString(50, y_meta + 2, f"Period: {period_str}   |   Generated: {getattr(report, 'generated_at', '')}")
 
         # ── Section helper ──
@@ -454,7 +455,11 @@ class PDFService:
         y = draw_section_title(c, y, "VAT Summary")
         c.setFont("Helvetica-Oblique", 8)
         c.setFillColorRGB(0.059, 0.463, 0.431)  # teal
-        c.drawString(50, y, "Internal VAT summary based on invoices created in SuoOps. Review with your accountant before filing.")
+        c.drawString(
+            50,
+            y,
+            "Internal VAT summary based on invoices created in SuoOps. Review with your accountant before filing.",
+        )
         y -= 14
         c.setFont("Helvetica", 10)
         c.setFillColorRGB(0.059, 0.118, 0.09)
@@ -483,11 +488,14 @@ class PDFService:
         c.setFillColorRGB(0.059, 0.463, 0.431)  # teal
         c.setFont("Helvetica-Oblique", 7.5)
         c.drawString(
-            40, 40,
-            "Disclaimer: Internal VAT & tax summary. VAT reflects what the business charged — SuoOps does not assume obligations or decide exemptions.",
+            40,
+            40,
+            "Disclaimer: Internal VAT & tax summary. VAT reflects what the business "
+            "charged — SuoOps does not assume obligations or decide exemptions.",
         )
         c.drawString(
-            40, 30,
+            40,
+            30,
             "Review with your accountant before filing with FIRS.",
         )
 
@@ -589,11 +597,14 @@ class PDFService:
         c.setFillColorRGB(0.059, 0.463, 0.431)
         c.setFont("Helvetica-Oblique", 7.5)
         c.drawString(
-            40, 40,
-            "Disclaimer: Internal VAT & tax summary. VAT reflects what the business charged — SuoOps does not assume obligations or decide exemptions.",
+            40,
+            40,
+            "Disclaimer: Internal VAT & tax summary. VAT reflects what the business "
+            "charged — SuoOps does not assume obligations or decide exemptions.",
         )
         c.drawString(
-            40, 30,
+            40,
+            30,
             "Review with your accountant before filing with FIRS.",
         )
         c.showPage()
@@ -608,10 +619,10 @@ class PDFService:
 
     def _generate_qr_code(self, invoice_id: str) -> str:
         """Generate QR code as base64 data URI for verification URL.
-        
+
         Args:
             invoice_id: Invoice ID to encode in QR code
-            
+
         Returns:
             Base64 encoded QR code image as data URI
         """
@@ -619,7 +630,7 @@ class PDFService:
         # opens a human-readable "Verified by SuoOps" card, not JSON.
         frontend = settings.FRONTEND_URL.rstrip("/")
         verify_url = f"{frontend}/verify/{invoice_id}"
-        
+
         # Create QR code
         qr = qrcode.QRCode(
             version=1,  # Size of QR code (1-40, 1 is smallest)
@@ -629,23 +640,23 @@ class PDFService:
         )
         qr.add_data(verify_url)
         qr.make(fit=True)
-        
+
         # Generate image
         img = qr.make_image(fill_color="black", back_color="white")
-        
+
         # Convert to base64 data URI
         buffer = BytesIO()
-        img.save(buffer, format='PNG')
-        img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        
+        img.save(buffer, format="PNG")
+        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
         return f"data:image/png;base64,{img_base64}"
 
     def _fetch_receipt_as_data_url(self, receipt_url: str) -> str | None:
         """Fetch receipt image from S3 and convert to base64 data URL.
-        
+
         Args:
             receipt_url: S3 URL of the receipt image
-            
+
         Returns:
             Base64 encoded image as data URI, or None if fetch fails
         """
@@ -654,7 +665,7 @@ class PDFService:
             from urllib.parse import urlparse
 
             import requests
-            
+
             # SSRF protection: only allow HTTPS URLs from trusted domains
             parsed = urlparse(receipt_url)
             if parsed.scheme not in ("https", "http"):
@@ -669,29 +680,29 @@ class PDFService:
             if not any(host == h or host.endswith(f".{h}") for h in allowed_hosts):
                 logger.warning("Blocked receipt URL from untrusted host: %s", host)
                 return None
-            
+
             # Fetch the image from S3 with timeout
             response = requests.get(receipt_url, timeout=15)
             response.raise_for_status()
             image_data = response.content
-            
+
             # Determine MIME type from URL or response headers
-            mime_type = response.headers.get('Content-Type')
+            mime_type = response.headers.get("Content-Type")
             if not mime_type:
                 mime_type = mimetypes.guess_type(receipt_url)[0]
             if not mime_type:
                 # Default to jpeg if unknown
                 mime_type = "image/jpeg"
-            
+
             # Convert to base64
-            img_base64 = base64.b64encode(image_data).decode('utf-8')
+            img_base64 = base64.b64encode(image_data).decode("utf-8")
             logger.info(
                 "Successfully fetched and encoded receipt image from %s (size: %d bytes)",
                 receipt_url,
                 len(image_data),
             )
             return f"data:{mime_type};base64,{img_base64}"
-            
+
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to fetch receipt image from %s: %s", receipt_url, e)
             return None

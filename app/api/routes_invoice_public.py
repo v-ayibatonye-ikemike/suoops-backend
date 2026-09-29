@@ -37,9 +37,7 @@ def _public_invoice_payload(invoice, issuer) -> dict[str, object]:
     # the customer can download it right on the pay page. Nothing is exposed
     # before payment — online-only invoices have no invoice PDF at all.
     is_paid = invoice.status == "paid"
-    receipt_pdf_url = (
-        _fresh_url(getattr(invoice, "receipt_pdf_url", None)) if is_paid else None
-    )
+    receipt_pdf_url = _fresh_url(getattr(invoice, "receipt_pdf_url", None)) if is_paid else None
     pdf_url = _fresh_url(getattr(invoice, "pdf_url", None)) if is_paid else None
 
     only_online = is_online_only(
@@ -113,9 +111,7 @@ def confirm_transfer(request: Request, invoice_id: str, db: Session = Depends(ge
 
 @router.post("/{invoice_id}/pay")
 @limiter.limit("5/minute")
-async def initialize_invoice_payment(
-    request: Request, invoice_id: str, db: Session = Depends(get_db)
-) -> dict:
+async def initialize_invoice_payment(request: Request, invoice_id: str, db: Session = Depends(get_db)) -> dict:
     """
     Public: start an online payment for an invoice via the issuer's Paystack
     subaccount. Reuses the shared invoice_payment_service.
@@ -138,9 +134,7 @@ async def initialize_invoice_payment(
         has_contact=invoice_has_contact(invoice),
         channel=getattr(invoice, "channel", None),
     ):
-        raise HTTPException(
-            status_code=400, detail="This invoice is paid by bank transfer."
-        )
+        raise HTTPException(status_code=400, detail="This invoice is paid by bank transfer.")
 
     # If this storefront order was set up as a buyer-protection HOLD, the retry
     # (e.g. after the customer cancelled at checkout) MUST use the same held
@@ -170,9 +164,7 @@ async def initialize_invoice_payment(
         )
 
     try:
-        return await start_invoice_payment(
-            db, invoice, issuer, hold=held, charge_amount_kobo=charge_kobo
-        )
+        return await start_invoice_payment(db, invoice, issuer, hold=held, charge_amount_kobo=charge_kobo)
     except PaymentInitError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
@@ -208,11 +200,7 @@ async def verify_invoice_payment(
         return {"status": "paid"}
 
     # The reference must be the one we created for THIS invoice's payment.
-    txn = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == reference)
-        .one_or_none()
-    )
+    txn = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     meta_invoice = (txn.payment_metadata or {}).get("invoice_id") if txn else None
     if not reference.startswith("INVPAY-") or (txn and meta_invoice != invoice.invoice_id):
         return {"status": invoice.status}

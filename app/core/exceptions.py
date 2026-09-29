@@ -22,7 +22,7 @@ from typing import Any
 
 class SuoOpsException(Exception):
     """Base exception for all SuoOps application errors.
-    
+
     All custom exceptions inherit from this to enable centralized error handling.
     Includes user-friendly messages with Nigerian English idioms where appropriate.
     """
@@ -35,7 +35,7 @@ class SuoOpsException(Exception):
         details: dict[str, Any] | None = None,
     ):
         """Initialize exception with user-friendly message and metadata.
-        
+
         Args:
             message: User-friendly error message
             code: Unique error code (e.g., "INV001")
@@ -63,14 +63,16 @@ class SuoOpsException(Exception):
 # INVOICE ERRORS (INV001-099)
 # ============================================================================
 
+
 class InvoiceError(SuoOpsException):
     """Base class for invoice-related errors."""
+
     pass
 
 
 class InvoiceNotFoundError(InvoiceError):
     """Invoice does not exist or user doesn't have access."""
-    
+
     def __init__(self, invoice_id: str | None = None):
         message = "Invoice not found" if not invoice_id else f"Invoice {invoice_id} not found"
         super().__init__(
@@ -83,11 +85,11 @@ class InvoiceNotFoundError(InvoiceError):
 
 class InvoiceLimitExceededError(InvoiceError):
     """DEPRECATED: User has exceeded their monthly invoice quota.
-    
+
     This error is kept for backward compatibility.
     New code should use InvoiceBalanceExhaustedError instead.
     """
-    
+
     def __init__(self, plan: str, limit: int, used: int):
         message = (
             f"You don reach your monthly invoice limit! "
@@ -126,7 +128,7 @@ class InvoiceBalanceExhaustedError(InvoiceError):
 
 class InvalidInvoiceStatusError(InvoiceError):
     """Invalid status transition or unsupported status value."""
-    
+
     def __init__(self, current_status: str | None = None, new_status: str | None = None):
         if current_status and new_status:
             message = f"Cannot change invoice status from '{current_status}' to '{new_status}'"
@@ -134,7 +136,7 @@ class InvalidInvoiceStatusError(InvoiceError):
             message = f"Invalid invoice status: '{new_status}'"
         else:
             message = "Invalid invoice status"
-        
+
         super().__init__(
             message=message,
             code="INV003",
@@ -145,7 +147,7 @@ class InvalidInvoiceStatusError(InvoiceError):
 
 class MissingBankDetailsError(InvoiceError):
     """User attempted to create invoice without setting up bank details."""
-    
+
     def __init__(self):
         message = (
             "Abeg, add your bank details first! "
@@ -164,14 +166,16 @@ class MissingBankDetailsError(InvoiceError):
 # USER/AUTH ERRORS (USR100-199)
 # ============================================================================
 
+
 class UserError(SuoOpsException):
     """Base class for user/authentication errors."""
+
     pass
 
 
 class UserNotFoundError(UserError):
     """User does not exist."""
-    
+
     def __init__(self, identifier: str | None = None):
         message = "User not found" if not identifier else f"User '{identifier}' not found"
         super().__init__(
@@ -184,7 +188,7 @@ class UserNotFoundError(UserError):
 
 class InvalidOTPError(UserError):
     """OTP verification failed."""
-    
+
     def __init__(self):
         message = "The OTP you entered is incorrect or has expired. Please request a new one."
         super().__init__(
@@ -196,7 +200,7 @@ class InvalidOTPError(UserError):
 
 class OTPExpiredError(UserError):
     """OTP has expired."""
-    
+
     def __init__(self):
         message = "Your verification code don expire. Please request a new one."
         super().__init__(
@@ -208,14 +212,14 @@ class OTPExpiredError(UserError):
 
 class TooManyOTPAttemptsError(UserError):
     """User exceeded maximum OTP verification attempts."""
-    
+
     def __init__(self, remaining_time: int | None = None):
         base_message = "Too many failed attempts. "
         if remaining_time:
             message = f"{base_message}Try again after {remaining_time} minutes."
         else:
             message = f"{base_message}Please request a new code."
-        
+
         super().__init__(
             message=message,
             code="USR103",
@@ -226,7 +230,7 @@ class TooManyOTPAttemptsError(UserError):
 
 class EmailAlreadyExistsError(UserError):
     """Email address is already registered."""
-    
+
     def __init__(self, email: str):
         message = f"This email address ({email}) is already registered. Please login instead."
         super().__init__(
@@ -239,7 +243,7 @@ class EmailAlreadyExistsError(UserError):
 
 class PhoneAlreadyExistsError(UserError):
     """Phone number is already registered."""
-    
+
     def __init__(self, phone: str):
         message = f"This phone number ({phone}) is already registered. Please login instead."
         super().__init__(
@@ -252,7 +256,7 @@ class PhoneAlreadyExistsError(UserError):
 
 class UnauthorizedError(UserError):
     """User is not authorized to perform this action."""
-    
+
     def __init__(self, action: str | None = None):
         message = "You are not authorized to perform this action" if not action else f"Not authorized: {action}"
         super().__init__(
@@ -266,14 +270,16 @@ class UnauthorizedError(UserError):
 # PAYMENT ERRORS (PAY200-299)
 # ============================================================================
 
+
 class PaymentError(SuoOpsException):
     """Base class for payment-related errors."""
+
     pass
 
 
 class PaymentVerificationError(PaymentError):
     """Failed to verify payment status."""
-    
+
     def __init__(self, reference: str | None = None):
         message = "Unable to verify payment at this time. Please try again."
         super().__init__(
@@ -286,7 +292,7 @@ class PaymentVerificationError(PaymentError):
 
 class PaymentAlreadyProcessedError(PaymentError):
     """Payment has already been processed."""
-    
+
     def __init__(self, reference: str):
         message = "This payment has already been processed."
         super().__init__(
@@ -301,14 +307,16 @@ class PaymentAlreadyProcessedError(PaymentError):
 # TAX/FISCAL ERRORS (TAX300-399)
 # ============================================================================
 
+
 class TaxError(SuoOpsException):
     """Base class for tax/fiscal errors."""
+
     pass
 
 
 class InvalidTINError(TaxError):
     """Tax Identification Number is invalid."""
-    
+
     def __init__(self, tin: str, reason: str | None = None):
         base_message = f"Invalid TIN: {tin}"
         message = f"{base_message}. {reason}" if reason else base_message
@@ -322,7 +330,7 @@ class InvalidTINError(TaxError):
 
 class FiscalizationError(TaxError):
     """Error during invoice fiscalization process."""
-    
+
     def __init__(self, message: str, provider: str | None = None):
         super().__init__(
             message=f"Fiscalization failed: {message}",
@@ -367,19 +375,21 @@ class InvalidCACError(TaxError):
 # SYSTEM ERRORS (SYS400-499)
 # ============================================================================
 
+
 class SystemError(SuoOpsException):
     """Base class for system/infrastructure errors."""
+
     pass
 
 
 class ServiceUnavailableError(SystemError):
     """External service or dependency is unavailable."""
-    
+
     def __init__(self, service_name: str, reason: str | None = None):
         message = f"{service_name} is currently unavailable"
         if reason:
             message = f"{message}: {reason}"
-        
+
         super().__init__(
             message=message,
             code="SYS400",
@@ -390,7 +400,7 @@ class ServiceUnavailableError(SystemError):
 
 class ConfigurationError(SystemError):
     """Application configuration is invalid or missing."""
-    
+
     def __init__(self, parameter: str):
         message = f"Configuration error: {parameter} is not configured properly"
         super().__init__(
@@ -403,14 +413,14 @@ class ConfigurationError(SystemError):
 
 class RateLimitExceededError(SystemError):
     """User has exceeded rate limit."""
-    
+
     def __init__(self, limit: str, retry_after: int | None = None):
         message = f"Rate limit exceeded: {limit}. "
         if retry_after:
             message += f"Try again in {retry_after} seconds."
         else:
             message += "Please slow down small!"
-        
+
         super().__init__(
             message=message,
             code="SYS402",

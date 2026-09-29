@@ -8,10 +8,12 @@ Adds the ``order_message`` table (guarded buyer/seller messaging tied to an
 escrow) and ``user.circumvention_attempts`` (count of off-platform-pushing
 messages; enough of them flags the seller for review).
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260710_order_messaging"

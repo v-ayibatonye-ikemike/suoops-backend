@@ -8,6 +8,3 @@ preserve import compatibility until callers are migrated.
 from app.services.notification.service import NotificationService  # re-export
 
 __all__ = ["NotificationService"]
-
-
-

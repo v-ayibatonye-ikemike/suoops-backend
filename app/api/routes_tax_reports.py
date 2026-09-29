@@ -1,4 +1,5 @@
 """Monthly tax report & CSV/PDF endpoints."""
+
 from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -51,11 +52,15 @@ def download_monthly_tax_report(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.user_id == current_user_id,
-        MonthlyTaxReport.year == year,
-        MonthlyTaxReport.month == month,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.user_id == current_user_id,
+            MonthlyTaxReport.year == year,
+            MonthlyTaxReport.month == month,
+        )
+        .first()
+    )
     if not report or not report.pdf_url:
         raise HTTPException(status_code=404, detail="Report or PDF not found. Generate first.")
     return {"pdf_url": report.pdf_url}
@@ -69,11 +74,15 @@ def download_monthly_tax_report_csv(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.user_id == current_user_id,
-        MonthlyTaxReport.year == year,
-        MonthlyTaxReport.month == month,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.user_id == current_user_id,
+            MonthlyTaxReport.year == year,
+            MonthlyTaxReport.month == month,
+        )
+        .first()
+    )
     if not report:
         raise HTTPException(status_code=404, detail="Report not found. Generate first.")
     refreshed = TaxReportingService(db).generate_monthly_report(
@@ -85,8 +94,16 @@ def download_monthly_tax_report_csv(
     )
     buf = StringIO()
     headers = [
-        "year","month","basis","assessable_profit","levy_amount","vat_collected",
-        "taxable_sales","zero_rated_sales","exempt_sales","generated_at"
+        "year",
+        "month",
+        "basis",
+        "assessable_profit",
+        "levy_amount",
+        "vat_collected",
+        "taxable_sales",
+        "zero_rated_sales",
+        "exempt_sales",
+        "generated_at",
     ]
     buf.write(",".join(headers) + "\n")
     row = [

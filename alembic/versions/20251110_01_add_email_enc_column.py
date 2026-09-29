@@ -5,16 +5,19 @@ Revises: 20251109_add_paid_at_receipt
 Create Date: 2025-11-10
 
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20251110_01"
 down_revision = "20251109_add_paid_at_receipt"
 branch_labels = None
 depends_on = None
+
 
 def upgrade() -> None:
     # Add nullable encrypted email column alongside existing email

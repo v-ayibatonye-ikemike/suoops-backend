@@ -1,4 +1,5 @@
 """Flutterwave payout calls route through the static-IP proxy only when set."""
+
 from __future__ import annotations
 
 import httpx

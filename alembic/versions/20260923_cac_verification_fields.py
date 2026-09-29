@@ -4,10 +4,12 @@ Revision ID: 20260923_cac_verification
 Revises: 20260922_quick_sale_pm
 Create Date: 2026-09-23
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260923_cac_verification"
 down_revision = "20260922_quick_sale_pm"

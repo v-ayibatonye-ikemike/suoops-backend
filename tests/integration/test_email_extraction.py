@@ -45,9 +45,9 @@ def test_email_extraction():
         expected = case["expected_email"]
         result = nlp.parse_text(text)
         extracted_email = result.entities.get("customer_email")
-        assert extracted_email == expected, (
-            f"Email extraction mismatch for '{text}' (expected {expected}, got {extracted_email})"
-        )
+        assert (
+            extracted_email == expected
+        ), f"Email extraction mismatch for '{text}' (expected {expected}, got {extracted_email})"
         passed += 1
 
     assert passed == len(test_cases)

@@ -4,8 +4,10 @@ Revision ID: 20260427_signup_source
 Revises: 20260406_ix_invoice_created_at
 Create Date: 2026-04-27
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers
 revision = "20260427_signup_source"

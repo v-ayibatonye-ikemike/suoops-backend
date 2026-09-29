@@ -6,6 +6,7 @@ seeded (users, invoices, customers, payments, referrals, influencers) so the
 list/metrics/segment endpoints run their real query logic. External I/O
 (Celery, Brevo) is either unconfigured (early-return) or patched.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -204,6 +205,7 @@ def test_metrics_summary_includes_expense_adoption(admin_client, seeded):
 # POST endpoints (safe / mocked)
 # ---------------------------------------------------------------------------
 
+
 def test_credit_wallet(admin_client, seeded):
     uid = seeded["users"][1]
     r = admin_client.post(
@@ -213,14 +215,20 @@ def test_credit_wallet(admin_client, seeded):
     assert r.status_code == 200, r.text
     assert r.json()["credited_naira"] == 1000
     # Missing user → 404; invalid amount → 422.
-    assert admin_client.post(
-        "/admin/users/99999/credit-wallet",
-        json={"amount_naira": 1000, "reason": "x reason"},
-    ).status_code == 404
-    assert admin_client.post(
-        f"/admin/users/{uid}/credit-wallet",
-        json={"amount_naira": 0, "reason": "bad"},
-    ).status_code == 422
+    assert (
+        admin_client.post(
+            "/admin/users/99999/credit-wallet",
+            json={"amount_naira": 1000, "reason": "x reason"},
+        ).status_code
+        == 404
+    )
+    assert (
+        admin_client.post(
+            f"/admin/users/{uid}/credit-wallet",
+            json={"amount_naira": 0, "reason": "bad"},
+        ).status_code
+        == 422
+    )
 
 
 def test_trigger_task_mocked(admin_client, seeded):

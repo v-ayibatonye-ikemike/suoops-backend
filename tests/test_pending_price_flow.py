@@ -4,13 +4,12 @@ Test conversational price-gathering flow for quantity-only invoices.
 When a user types "Invoice Tonye 08078557662, 5 wig, 10 shoe" and has NO
 product catalog, the bot should ask for prices instead of blocking.
 """
+
 from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-
-import pytest
 
 from app.bot.invoice_intent_processor import (
     InvoiceIntentProcessor,
@@ -20,7 +19,6 @@ from app.bot.invoice_intent_processor import (
     get_pending_price_session,
 )
 from app.bot.nlp_service import NLPService
-
 
 # ── Helpers ───────────────────────────────────────────────────────
 
@@ -70,7 +68,9 @@ class TestPendingPriceSession:
 
     def test_clear_session(self):
         _pending_prices["2348012345678"] = PendingPriceSession(
-            user_id=1, lines=[], data={},
+            user_id=1,
+            lines=[],
+            data={},
         )
         clear_pending_price_session("2348012345678")
         assert "2348012345678" not in _pending_prices
@@ -91,62 +91,72 @@ class TestParsePriceReply:
 
     def test_comma_separated(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000, 3000, 2000", self.lines_3,
+            "5000, 3000, 2000",
+            self.lines_3,
         )
         assert result == [5000.0, 3000.0, 2000.0]
 
     def test_space_separated(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000 3000 2000", self.lines_3,
+            "5000 3000 2000",
+            self.lines_3,
         )
         assert result == [5000.0, 3000.0, 2000.0]
 
     def test_thousand_formatted(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5,000  3,000  2,000", self.lines_3,
+            "5,000  3,000  2,000",
+            self.lines_3,
         )
         assert result == [5000.0, 3000.0, 2000.0]
 
     def test_thousand_formatted_comma_separated(self):
         """Handle '5,000, 3,000, 2,000' — commas as both thousands + separators."""
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5,000, 3,000, 2,000", self.lines_3,
+            "5,000, 3,000, 2,000",
+            self.lines_3,
         )
         assert result == [5000.0, 3000.0, 2000.0]
 
     def test_price_with_item_names(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000 wig, 3000 shoe, 2000 pack", self.lines_3,
+            "5000 wig, 3000 shoe, 2000 pack",
+            self.lines_3,
         )
         assert result == [5000.0, 3000.0, 2000.0]
 
     def test_single_item(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000", self.lines_1,
+            "5000",
+            self.lines_1,
         )
         assert result == [5000.0]
 
     def test_single_item_with_name(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000 wig", self.lines_1,
+            "5000 wig",
+            self.lines_1,
         )
         assert result == [5000.0]
 
     def test_no_numbers_returns_none(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "hello there", self.lines_3,
+            "hello there",
+            self.lines_3,
         )
         assert result is None
 
     def test_wrong_count_returns_none(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000, 3000", self.lines_3,  # 2 prices but 3 items
+            "5000, 3000",
+            self.lines_3,  # 2 prices but 3 items
         )
         assert result is None
 
     def test_decimal_prices(self):
         result = InvoiceIntentProcessor._parse_price_reply(
-            "5000.50, 3000.75, 2000.25", self.lines_3,
+            "5000.50, 3000.75, 2000.25",
+            self.lines_3,
         )
         assert result == [5000.50, 3000.75, 2000.25]
 
@@ -179,7 +189,10 @@ class TestStartPendingPriceSession:
             return_value="NGN",
         ):
             proc._start_pending_price_session(
-                "2348012345678", 1, lines, data,
+                "2348012345678",
+                1,
+                lines,
+                data,
             )
 
         # Session stored
@@ -235,7 +248,7 @@ class TestHandlePriceReply:
             patch.object(proc, "_create_invoice", new_callable=AsyncMock) as mock_create,
             patch(
                 "app.bot.invoice_intent_processor.build_invoice_service",
-            ) as mock_build,
+            ),
         ):
             result = asyncio.run(
                 proc.handle_price_reply(sender, "5000, 3000"),
@@ -317,7 +330,10 @@ class TestNoCatalogTriggersSession:
             MockProdSvc.return_value.list_products.return_value = ([], 0)
 
             result = proc._resolve_prices_from_inventory(
-                issuer_id=42, lines=lines, sender=sender, data=data,
+                issuer_id=42,
+                lines=lines,
+                sender=sender,
+                data=data,
             )
 
         assert result is None
@@ -348,5 +364,5 @@ class TestNLPQuantityOnlyWithoutCatalog:
         assert parse.intent == "create_invoice"
         lines = parse.entities.get("lines", [])
         # Should detect quantity-only items
-        qty_only = [l for l in lines if l.get("unit_price") is None]
+        qty_only = [line for line in lines if line.get("unit_price") is None]
         assert len(qty_only) >= 2, f"Expected quantity-only items, got {lines}"

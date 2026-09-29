@@ -1,4 +1,5 @@
 """OAuth providers module."""
+
 from .base import OAuthProvider
 from .google import GoogleOAuthProvider
 

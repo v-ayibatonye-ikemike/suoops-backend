@@ -11,10 +11,12 @@ an optional note and a photo of the packaged item. Forms an auditable handoff
 chain (dispatch -> delivery -> release) and lets the buyer see the order is on
 its way.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260710_seller_dispatch"

@@ -9,12 +9,13 @@ Sub-modules:
 - analytics: Analytics schemas
 - utils: Common utility functions
 """
+
 # Invoice schemas
 # Analytics schemas
 from .analytics import (
+    ActivityMixOut,
     AgingReport,
     AnalyticsDashboard,
-    ActivityMixOut,
     BusinessSnapshotOut,
     CustomerMetrics,
     DataProvenanceOut,

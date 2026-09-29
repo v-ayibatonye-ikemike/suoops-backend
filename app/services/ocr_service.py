@@ -34,6 +34,7 @@ def check_ocr_quota(user_id: int) -> bool:
     """Return True if the user is within their monthly OCR quota."""
     try:
         from datetime import datetime, timezone
+
         from app.db.redis_client import get_redis_client
 
         r = get_redis_client()
@@ -49,6 +50,7 @@ def record_ocr_use(user_id: int) -> None:
     """Increment the user's monthly OCR counter."""
     try:
         from datetime import datetime, timezone
+
         from app.db.redis_client import get_redis_client
 
         r = get_redis_client()
@@ -65,32 +67,29 @@ def record_ocr_use(user_id: int) -> None:
 class OCRService:
     """
     Extract structured invoice data from receipt/invoice images.
-    
+
     Uses OpenAI GPT-4 Vision for intelligent parsing with Nigerian context.
     """
-    
+
     def __init__(self):
         from app.core.config import settings
+
         self.api_key = settings.OPENAI_API_KEY
         if not self.api_key:
             logger.warning("OPENAI_API_KEY not set - OCR will fail")
-        
+
         self.api_url = "https://api.openai.com/v1/chat/completions"
         self.model = "gpt-4o"  # GPT-4 Turbo with vision
         self.max_image_size = (2048, 2048)  # Resize large images
-    
-    async def parse_receipt(
-        self, 
-        image_bytes: bytes, 
-        context: Optional[str] = None
-    ) -> dict:
+
+    async def parse_receipt(self, image_bytes: bytes, context: Optional[str] = None) -> dict:
         """
         Extract invoice data from receipt image.
-        
+
         Args:
             image_bytes: Raw image bytes (JPEG, PNG, etc.)
             context: Optional business context (e.g., "hair salon invoice")
-        
+
         Returns:
             dict with keys:
                 - success: bool
@@ -102,7 +101,7 @@ class OCRService:
                 - confidence: str (high/medium/low)
                 - raw_text: str (all extracted text)
                 - error: str (if success=False)
-        
+
         Example:
             result = await ocr.parse_receipt(image_bytes, "hair salon")
             if result["success"]:
@@ -112,131 +111,109 @@ class OCRService:
         try:
             # Fail fast if no API key configured
             if not self.api_key:
-                return {
-                    "success": False,
-                    "error": "OCR processing error: OPENAI_API_KEY not configured"
-                }
+                return {"success": False, "error": "OCR processing error: OPENAI_API_KEY not configured"}
 
             # Validate and preprocess image
             processed_image = self._preprocess_image(image_bytes)
             if not processed_image:
-                return {
-                    "success": False,
-                    "error": "Invalid image format or corrupted image"
-                }
-            
+                return {"success": False, "error": "Invalid image format or corrupted image"}
+
             # Convert to base64 for API
             base64_image = self._encode_image(processed_image)
-            
+
             # Call OpenAI Vision API
             extracted_data = await self._call_vision_api(base64_image, context)
-            
+
             # Validate and structure response
             return self._validate_and_format(extracted_data)
-            
+
         except Exception as e:
             # Log as warning - OCR failures are expected for invalid images or API issues
             logger.warning("OCR parsing failed: %s", e)
-            return {
-                "success": False,
-                "error": f"OCR processing error: {str(e)}"
-            }
-    
+            return {"success": False, "error": f"OCR processing error: {str(e)}"}
+
     def _preprocess_image(self, image_bytes: bytes) -> Optional[bytes]:
         """
         Validate and resize image if needed.
-        
+
         Returns:
             Processed image bytes or None if invalid
         """
         try:
             img = Image.open(io.BytesIO(image_bytes))
-            
+
             # Convert to RGB if needed (handles RGBA, grayscale, etc.)
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            
+
             # Resize if too large (API limits)
             if img.size[0] > self.max_image_size[0] or img.size[1] > self.max_image_size[1]:
                 img.thumbnail(self.max_image_size, Image.Resampling.LANCZOS)
                 logger.info("Resized image from %s to fit %s", img.size, self.max_image_size)
-            
+
             # Convert back to bytes
             output = io.BytesIO()
             img.save(output, format="JPEG", quality=85)
             return output.getvalue()
-            
+
         except Exception as e:
             # User-provided invalid image - log as warning to avoid Sentry noise
             logger.warning("Image preprocessing failed: %s", e)
             return None
-    
+
     def _encode_image(self, image_bytes: bytes) -> str:
         """Convert image bytes to base64 string."""
-        return base64.b64encode(image_bytes).decode('utf-8')
-    
-    async def _call_vision_api(
-        self, 
-        base64_image: str, 
-        context: Optional[str]
-    ) -> dict:
+        return base64.b64encode(image_bytes).decode("utf-8")
+
+    async def _call_vision_api(self, base64_image: str, context: Optional[str]) -> dict:
         """
         Call OpenAI Vision API to extract receipt data.
-        
+
         Returns structured JSON with invoice details.
         """
         # Build context-aware prompt
         prompt = self._build_prompt(context)
-        
+
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:image/jpeg;base64,{base64_image}",
-                                "detail": "auto"  # Let OpenAI choose; "high" costs 2-4× more
-                            }
-                        }
-                    ]
+                                "detail": "auto",  # Let OpenAI choose; "high" costs 2-4× more
+                            },
+                        },
+                    ],
                 }
             ],
             "max_tokens": 1000,
             "temperature": 0.1,  # Low temperature for consistent parsing
-            "response_format": {"type": "json_object"}  # Force JSON response
+            "response_format": {"type": "json_object"},  # Force JSON response
         }
-        
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
+
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                self.api_url,
-                json=payload,
-                headers=headers
-            )
+            response = await client.post(self.api_url, json=payload, headers=headers)
             response.raise_for_status()
-            
+
             result = response.json()
             content = result["choices"][0]["message"]["content"]
-            
+
             # Parse JSON response
             import json
+
             return json.loads(content)
-    
+
     def _build_prompt(self, context: Optional[str]) -> str:
         """
         Build context-aware prompt for vision API.
-        
+
         Includes Nigerian business context and currency handling.
         """
         base_prompt = """
@@ -270,17 +247,17 @@ Guidelines:
 - Date formats: DD/MM/YYYY or DD-MM-YYYY common in Nigeria
 - Be generous with "Unknown" if data is unclear
 """
-        
+
         if context:
             base_prompt += f"\n\nBusiness context: {context}\n"
             base_prompt += "Use this context to interpret ambiguous items/services.\n"
-        
+
         return base_prompt
-    
+
     def _validate_and_format(self, data: dict) -> dict:
         """
         Validate extracted data and format for invoice creation.
-        
+
         Ensures minimum requirements met (at least amount extracted).
         """
         try:
@@ -289,35 +266,27 @@ Guidelines:
             try:
                 amount = Decimal(amount_str.replace(",", ""))
                 if amount <= 0:
-                    return {
-                        "success": False,
-                        "error": "No valid amount found in image"
-                    }
+                    return {"success": False, "error": "No valid amount found in image"}
             except (InvalidOperation, ValueError):
-                return {
-                    "success": False,
-                    "error": f"Invalid amount format: {amount_str}"
-                }
-            
+                return {"success": False, "error": f"Invalid amount format: {amount_str}"}
+
             # Format items
             items = data.get("items", [])
             if not items:
                 # Create default item if none extracted
-                items = [{
-                    "description": "Service (from receipt)",
-                    "quantity": 1,
-                    "unit_price": str(amount)
-                }]
-            
+                items = [{"description": "Service (from receipt)", "quantity": 1, "unit_price": str(amount)}]
+
             # Ensure each item has required fields
             formatted_items = []
             for item in items:
-                formatted_items.append({
-                    "description": item.get("description", "Unknown item"),
-                    "quantity": item.get("quantity", 1),
-                    "unit_price": item.get("unit_price", "0")
-                })
-            
+                formatted_items.append(
+                    {
+                        "description": item.get("description", "Unknown item"),
+                        "quantity": item.get("quantity", 1),
+                        "unit_price": item.get("unit_price", "0"),
+                    }
+                )
+
             return {
                 "success": True,
                 "customer_name": data.get("customer_name", "Unknown"),
@@ -327,12 +296,9 @@ Guidelines:
                 "items": formatted_items,
                 "date": data.get("date"),
                 "confidence": data.get("confidence", "medium"),
-                "raw_text": data.get("raw_text", "")
+                "raw_text": data.get("raw_text", ""),
             }
-            
+
         except Exception as e:
             logger.warning("Validation failed: %s", e)
-            return {
-                "success": False,
-                "error": f"Data validation error: {str(e)}"
-            }
+            return {"success": False, "error": f"Data validation error: {str(e)}"}

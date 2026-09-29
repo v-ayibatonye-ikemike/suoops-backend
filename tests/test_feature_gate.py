@@ -1,12 +1,12 @@
 """Tests for feature gate utilities."""
+
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-import pytest
 
 from app.db.base_class import Base
-from app.models.models import User, SubscriptionPlan
+from app.models.models import SubscriptionPlan, User
 from app.utils.feature_gate import FeatureGate
-
 
 engine = create_engine("sqlite:///:memory:")
 SessionLocal = sessionmaker(bind=engine)
@@ -61,7 +61,7 @@ def test_is_paid_tier(db_session):
     )
     db_session.add(user)
     db_session.commit()
-    
+
     gate = FeatureGate(db_session, user.id)
     assert gate.is_free_tier() is False
     assert gate.is_paid_tier() is True

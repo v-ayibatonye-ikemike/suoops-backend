@@ -4,6 +4,7 @@ Supplier Service.
 Handles all supplier CRUD operations. Follows SRP by focusing
 solely on supplier management.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,10 +45,14 @@ class SupplierService(InventoryServiceBase):
 
     def get(self, supplier_id: int) -> Supplier | None:
         """Get a supplier by ID."""
-        return self._db.query(Supplier).filter(
-            Supplier.id == supplier_id,
-            Supplier.user_id == self._user_id,
-        ).first()
+        return (
+            self._db.query(Supplier)
+            .filter(
+                Supplier.id == supplier_id,
+                Supplier.user_id == self._user_id,
+            )
+            .first()
+        )
 
     def list(self, include_inactive: bool = False) -> Sequence[Supplier]:
         """List all suppliers."""

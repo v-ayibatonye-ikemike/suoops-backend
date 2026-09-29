@@ -4,6 +4,7 @@ Used to derive a TRUSTED state from GPS coordinates for the escrow same/differen
 -state window — the client sends coordinates, the server decides the state, so a
 client can't fake "same state" to shorten the hold.
 """
+
 from __future__ import annotations
 
 import logging

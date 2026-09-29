@@ -5,6 +5,7 @@ IP allowlist CRUD, and the get_current_admin dependency error paths.
 
 External email delivery (SMTP) is mocked so nothing leaves the process.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,10 +20,10 @@ from app.core.security import create_access_token
 from app.models.admin_models import AdminIpAllowlistEntry, AdminUser
 from app.services.otp_service import OTPService
 
-
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _reset_admin_allowlist_cache():
@@ -58,8 +59,16 @@ def client():
     return TestClient(app)
 
 
-def make_admin(db, *, email="admin@suoops.com", name="Admin", is_active=True,
-               is_super_admin=False, can_invite_admins=False, **extra):
+def make_admin(
+    db,
+    *,
+    email="admin@suoops.com",
+    name="Admin",
+    is_active=True,
+    is_super_admin=False,
+    can_invite_admins=False,
+    **extra,
+):
     admin = AdminUser(
         email=email,
         name=name,
@@ -95,6 +104,7 @@ def read_otp(email: str) -> str:
 # ---------------------------------------------------------------------------
 # Passwordless OTP login flow
 # ---------------------------------------------------------------------------
+
 
 def test_login_flow_end_to_end(client, db_session):
     make_admin(db_session, email="ops@suoops.com", name="Ops", is_super_admin=True)
@@ -179,6 +189,7 @@ def test_verify_otp_inactive_admin_401(client, db_session):
 # get_current_admin dependency error paths
 # ---------------------------------------------------------------------------
 
+
 def test_me_missing_token_401(client, db_session):
     r = client.get("/admin/auth/me")
     assert r.status_code == 401
@@ -212,6 +223,7 @@ def test_me_via_cookie(client, db_session):
 # ---------------------------------------------------------------------------
 # Invites
 # ---------------------------------------------------------------------------
+
 
 def test_invite_success(client, db_session):
     admin = make_admin(db_session, email="boss@suoops.com", is_super_admin=True)
@@ -272,6 +284,7 @@ def test_invite_reinvite_pending(client, db_session):
 # Accept invite
 # ---------------------------------------------------------------------------
 
+
 def test_accept_invite_success(client, db_session, monkeypatch):
     import datetime as dt
 
@@ -288,7 +301,9 @@ def test_accept_invite_success(client, db_session, monkeypatch):
     monkeypatch.setattr(_auth_mod, "datetime", _NaiveNow)
 
     pending = make_admin(
-        db_session, email="acceptme@suoops.com", is_active=False,
+        db_session,
+        email="acceptme@suoops.com",
+        is_active=False,
         invite_token="tok-123",
         invite_expires_at=dt.datetime.utcnow() + dt.timedelta(days=3),
     )
@@ -317,7 +332,9 @@ def test_accept_invite_expired_400(client, db_session, monkeypatch):
     monkeypatch.setattr(_auth_mod, "datetime", _NaiveNow)
 
     make_admin(
-        db_session, email="expired@suoops.com", is_active=False,
+        db_session,
+        email="expired@suoops.com",
+        is_active=False,
         invite_token="tok-exp",
         invite_expires_at=dt.datetime.utcnow() - dt.timedelta(days=1),
     )
@@ -334,6 +351,7 @@ def test_accept_invite_already_active_400(client, db_session):
 # ---------------------------------------------------------------------------
 # Logout / list admins / remove admin
 # ---------------------------------------------------------------------------
+
 
 def test_logout(client, db_session):
     r = client.post("/admin/auth/logout")
@@ -421,6 +439,7 @@ def test_remove_admin_success(client, db_session):
 # Login audit
 # ---------------------------------------------------------------------------
 
+
 def test_login_audit_forbidden(client, db_session):
     admin = make_admin(db_session, email="auditns@suoops.com", is_super_admin=False)
     override_admin(admin)
@@ -445,6 +464,7 @@ def test_login_audit_success(client, db_session):
 # ---------------------------------------------------------------------------
 # IP allowlist
 # ---------------------------------------------------------------------------
+
 
 def test_ip_allowed_public(client, db_session):
     r = client.get("/admin/auth/ip-allowed")

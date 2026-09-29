@@ -1,4 +1,5 @@
 """Support ticket model for contact form submissions."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -17,6 +18,7 @@ def utcnow() -> dt.datetime:
 
 class TicketStatus(str, enum.Enum):
     """Support ticket status."""
+
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     WAITING = "waiting"  # Waiting for customer response
@@ -26,6 +28,7 @@ class TicketStatus(str, enum.Enum):
 
 class TicketPriority(str, enum.Enum):
     """Support ticket priority."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -34,6 +37,7 @@ class TicketPriority(str, enum.Enum):
 
 class TicketCategory(str, enum.Enum):
     """Support ticket category."""
+
     GENERAL = "general"
     BILLING = "billing"
     TECHNICAL = "technical"
@@ -44,14 +48,15 @@ class TicketCategory(str, enum.Enum):
 
 class SupportTicket(Base):
     """Model for storing support tickets from contact form."""
+
     __tablename__ = "support_tickets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    
+
     # Submitter info (may not be a registered user)
     name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str] = mapped_column(String(255), index=True)
-    
+
     # Ticket content
     subject: Mapped[str] = mapped_column(String(500))
     message: Mapped[str] = mapped_column(Text)
@@ -59,7 +64,7 @@ class SupportTicket(Base):
         Enum(TicketCategory, values_callable=lambda x: [e.value for e in x]),
         default=TicketCategory.GENERAL,
     )
-    
+
     # Ticket management
     status: Mapped[TicketStatus] = mapped_column(
         Enum(TicketStatus, values_callable=lambda x: [e.value for e in x]),
@@ -71,17 +76,17 @@ class SupportTicket(Base):
         default=TicketPriority.MEDIUM,
         index=True,
     )
-    
+
     # Assigned admin (optional - just stores user ID, no FK constraint)
     assigned_to_id: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         index=True,
     )
-    
+
     # Internal notes (admin only)
     internal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # Response tracking
     response: Mapped[str | None] = mapped_column(Text, nullable=True)
     responded_at: Mapped[dt.datetime | None] = mapped_column(
@@ -92,7 +97,7 @@ class SupportTicket(Base):
         Integer,
         nullable=True,
     )
-    
+
     # Timestamps
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True),

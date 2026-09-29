@@ -9,6 +9,7 @@ Sub-modules:
 - inventory_integration: COGS data from inventory system
 - reporting_service: Main TaxReportingService class
 """
+
 from .computations import (
     CIT_THRESHOLDS,
     PIT_BANDS,

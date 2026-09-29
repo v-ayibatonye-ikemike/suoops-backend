@@ -103,16 +103,22 @@ def extract_message(payload: dict[str, Any]) -> dict[str, Any] | None:
                 button_reply = interactive.get("button_reply", {})
                 extracted["button_id"] = button_reply.get("id")
                 extracted["button_title"] = button_reply.get("title")
-                logger.info("[EXTRACT] Button clicked: id=%s, title=%s", 
-                           extracted.get("button_id"), extracted.get("button_title"))
+                logger.info(
+                    "[EXTRACT] Button clicked: id=%s, title=%s",
+                    extracted.get("button_id"),
+                    extracted.get("button_title"),
+                )
             elif interactive_type == "list_reply":
                 # List item was selected - extract row ID and title
                 list_reply = interactive.get("list_reply", {})
                 extracted["list_reply_id"] = list_reply.get("id")
                 extracted["list_reply_title"] = list_reply.get("title")
                 extracted["list_reply_description"] = list_reply.get("description")
-                logger.info("[EXTRACT] List selected: id=%s, title=%s",
-                           extracted.get("list_reply_id"), extracted.get("list_reply_title"))
+                logger.info(
+                    "[EXTRACT] List selected: id=%s, title=%s",
+                    extracted.get("list_reply_id"),
+                    extracted.get("list_reply_title"),
+                )
 
         contacts = value.get("contacts", [])
         if contacts:

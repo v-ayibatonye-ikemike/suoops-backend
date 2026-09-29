@@ -1,4 +1,5 @@
 """Invoice creation workflow mixin."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -22,7 +23,7 @@ class InvoiceCreationMixin:
 
     db: Session
 
-    def _find_recent_duplicate(self, issuer_id: int, data: dict) -> "models.Invoice | None":
+    def _find_recent_duplicate(self, issuer_id: int, data: dict) -> models.Invoice | None:
         """Return a just-created identical revenue invoice, if any (idempotency).
 
         Matches on issuer + amount + customer identity + item descriptions within
@@ -119,7 +120,8 @@ class InvoiceCreationMixin:
             if existing is not None:
                 logger.info(
                     "Deduped duplicate invoice create for issuer %s -> existing %s",
-                    issuer_id, existing.invoice_id,
+                    issuer_id,
+                    existing.invoice_id,
                 )
                 return existing
 
@@ -142,6 +144,7 @@ class InvoiceCreationMixin:
         # ── VAT calculation (opt-in: only for VAT-registered businesses) ──
         # SuoOps calculates VAT from what the business charges — not what the law assumes.
         from app.models.tax_models import TaxProfile
+
         tax_profile = self.db.query(TaxProfile).filter(TaxProfile.user_id == issuer_id).first()
         is_vat_registered = tax_profile.vat_registered if tax_profile else False
 
@@ -165,7 +168,7 @@ class InvoiceCreationMixin:
         customer_phone = data.get("customer_phone")
         customer_email = data.get("customer_email")
         has_contact_info = bool(customer_phone or customer_email)
-        
+
         if invoice_type == "expense":
             status = "paid"
             paid_at = dt.datetime.now(dt.timezone.utc)
@@ -255,7 +258,7 @@ class InvoiceCreationMixin:
         # Process inventory updates ONLY for expense invoices at creation time
         # Revenue invoices have inventory deducted when marked as PAID (see status.py)
         # This ensures proper workflow: Invoice Created -> Payment Received -> Stock Deducted
-        if invoice_type == "expense" and hasattr(self, 'process_inventory_for_invoice'):
+        if invoice_type == "expense" and hasattr(self, "process_inventory_for_invoice"):
             self.process_inventory_for_invoice(invoice, lines_data)
 
         if self.cache:
@@ -286,8 +289,7 @@ class InvoiceCreationMixin:
                 invoice.pdf_url = self._generate_pdf(invoice, invoice_type, user)
             except Exception:
                 logger.exception(
-                    "Synchronous PDF generation failed for invoice %s; "
-                    "falling back to async generation",
+                    "Synchronous PDF generation failed for invoice %s; " "falling back to async generation",
                     invoice.invoice_id,
                 )
                 try:
@@ -328,7 +330,7 @@ class InvoiceCreationMixin:
             self.db.refresh(user)
             logger.info(
                 "Revenue invoice - remaining balance: %d",
-                getattr(user, 'invoice_balance', 0),
+                getattr(user, "invoice_balance", 0),
             )
             metrics.invoice_created()
 
@@ -343,9 +345,7 @@ class InvoiceCreationMixin:
 
                     send_daily_professionalism_score.delay(issuer_id)
                 except Exception:
-                    logger.exception(
-                        "Failed to enqueue professionalism-score nudge for %s", issuer_id
-                    )
+                    logger.exception("Failed to enqueue professionalism-score nudge for %s", issuer_id)
 
         if self.cache:
             self.cache.invalidate_user_invoices(issuer_id)
@@ -357,9 +357,7 @@ class InvoiceCreationMixin:
         from app.workers.tasks import generate_invoice_pdf_async
 
         bank_details = None
-        online_only = is_online_only(
-            user, has_contact=invoice_has_contact(invoice), channel=invoice.channel
-        )
+        online_only = is_online_only(user, has_contact=invoice_has_contact(invoice), channel=invoice.channel)
         if invoice_type == "revenue" and not online_only:
             bank_details = self._ensure_bank_details(user)
 
@@ -383,16 +381,10 @@ class InvoiceCreationMixin:
 
     def _generate_pdf(self, invoice: models.Invoice, invoice_type: str, user: models.User) -> str | None:
         from app.storage.s3_client import s3_client
-        
-        online_only = is_online_only(
-            user, has_contact=invoice_has_contact(invoice), channel=invoice.channel
-        )
-        bank_details = (
-            self._ensure_bank_details(user)
-            if invoice_type == "revenue" and not online_only
-            else None
-        )
-        
+
+        online_only = is_online_only(user, has_contact=invoice_has_contact(invoice), channel=invoice.channel)
+        bank_details = self._ensure_bank_details(user) if invoice_type == "revenue" and not online_only else None
+
         # Generate fresh presigned URL for logo
         logo_url = None
         if user.logo_url:
@@ -401,7 +393,7 @@ class InvoiceCreationMixin:
                 logo_url = s3_client.get_presigned_url(logo_key, expires_in=3600)
             if not logo_url:
                 logo_url = user.logo_url  # Fallback to stored URL
-        
+
         return self.pdf_service.generate_invoice_pdf(
             invoice,
             bank_details=bank_details,
@@ -424,12 +416,10 @@ class InvoiceCreationMixin:
 
         return normalize_phone(phone)
 
-    def _get_or_create_customer(
-        self, name: str, phone: str | None, email: str | None = None
-    ) -> models.Customer:
+    def _get_or_create_customer(self, name: str, phone: str | None, email: str | None = None) -> models.Customer:
         # Normalize phone for consistent lookup/storage
         normalized_phone = self._normalize_phone(phone) if phone else None
-        
+
         # Build phone candidates for lookup (handle existing records with different formats)
         phone_candidates = set()
         if normalized_phone:
@@ -440,7 +430,7 @@ class InvoiceCreationMixin:
                 phone_candidates.add(digits_only)  # 234XXXXXXXXXX
                 phone_candidates.add("0" + digits_only[3:])  # 0XXXXXXXXXX
             phone_candidates.add(phone)  # Original input too
-        
+
         q = self.db.query(models.Customer).filter(models.Customer.name == name)
         if phone_candidates:
             q = q.filter(models.Customer.phone.in_(list(phone_candidates)))

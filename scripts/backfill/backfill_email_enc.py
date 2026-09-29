@@ -7,16 +7,15 @@ Requires ENCRYPTION_KEY to be set; exits 0 if key absent (no-op).
 Usage:
   python scripts/backfill/backfill_email_enc.py
 """
+
 from __future__ import annotations
 
-import os
-import sys
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.encryption import encrypt_value
 from app.db.session import SessionLocal
 from app.models.models import User
-from app.core.encryption import encrypt_value
-from app.core.config import settings
 
 
 def main() -> int:

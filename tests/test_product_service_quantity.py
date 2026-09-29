@@ -1,4 +1,5 @@
 """Service/digital products can set quantity inline; physical stock stays audited."""
+
 from decimal import Decimal
 
 from app.models import models
@@ -28,9 +29,7 @@ def test_service_quantity_is_editable_inline(db_session):
     )
     # Adding an availability quantity to a service applies directly (no stock
     # movement needed) and flips it to tracked/limited.
-    updated = svc.update_product(
-        product.id, ProductUpdate(quantity_in_stock=5, track_stock=True)
-    )
+    updated = svc.update_product(product.id, ProductUpdate(quantity_in_stock=5, track_stock=True))
     assert updated.quantity_in_stock == 5
     assert updated.track_stock is True
     assert updated.fulfilment_type == "service"

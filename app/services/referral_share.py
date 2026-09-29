@@ -1,4 +1,5 @@
 """Helpers for sharing referral codes via WhatsApp / email."""
+
 from __future__ import annotations
 
 from urllib.parse import quote

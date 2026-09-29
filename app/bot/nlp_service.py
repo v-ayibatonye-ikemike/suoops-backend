@@ -16,31 +16,29 @@ class ParseResult:
 class NLPService:
     """
     Natural language processing for invoice commands.
-    
+
     Single Responsibility: Parse text into structured invoice data.
     """
-    
+
     AMOUNT_PATTERN = re.compile(r"(?:₦|ngn)?\s?([0-9]{3,}(?:,[0-9]{3})*|[0-9]+)(?:\.[0-9]{1,2})?")
     # Detect USD-prefixed amounts: $50, $1,200.50, USD 500, usd500
     USD_AMOUNT_PATTERN = re.compile(r"(?:\$|usd)\s?([0-9]{1,}(?:,[0-9]{3})*|[0-9]+)(?:\.[0-9]{1,2})?", re.IGNORECASE)
-    
+
     # Phone number patterns - supports Nigerian and international formats
     # Nigerian: +2348012345678, 2348012345678, 08012345678, 8012345678
     # International: +1234567890, +447123456789, +33612345678, etc.
     NIGERIAN_PHONE_PATTERN = re.compile(r"(\+?234[7-9]\d{9}|\+?[7-9]\d{9}|0[7-9]\d{9})")
     INTL_PHONE_PATTERN = re.compile(r"(\+[1-9]\d{6,14})")
     # Combined pattern for extraction - Nigerian first (more specific), then international
-    PHONE_PATTERN = re.compile(
-        r"(\+?234[7-9]\d{9}|0[7-9]\d{9}|[7-9]\d{9}|\+[1-9]\d{6,14})"
-    )
-    
+    PHONE_PATTERN = re.compile(r"(\+?234[7-9]\d{9}|0[7-9]\d{9}|[7-9]\d{9}|\+[1-9]\d{6,14})")
+
     # Email pattern
     # Matches: user@example.com, name.surname@company.co.uk
     EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
-    
+
     # Filler words to remove from speech transcripts
     FILLER_WORDS = ["uhh", "umm", "like", "you know", "so", "basically", "actually"]
-    
+
     # Common spoken number patterns (Nigerian English)
     NUMBER_WORDS = {
         r"\bfifty thousand\b": "50000",
@@ -75,16 +73,63 @@ class NLPService:
         "eight": "8",
         "nine": "9",
     }
-    
+
     # Common Nigerian names for smarter extraction
     COMMON_NAMES = {
-        "joy", "ada", "mike", "john", "mary", "grace", "blessing", "favour",
-        "chidi", "emeka", "ngozi", "chioma", "uche", "eze", "amara", "kemi",
-        "tunde", "segun", "bola", "funke", "yemi", "femi", "bukky", "tobi",
-        "dayo", "kunle", "sade", "wale", "ayo", "ola", "tola", "shade",
-        "monica", "peter", "paul", "james", "david", "sarah", "ruth", "esther",
-        "fatimah", "fatima", "aisha", "musa", "ibrahim", "yusuf", "abdullahi",
-        "solomon", "daniel", "samuel", "joshua", "rachel", "rebecca", "hannah",
+        "joy",
+        "ada",
+        "mike",
+        "john",
+        "mary",
+        "grace",
+        "blessing",
+        "favour",
+        "chidi",
+        "emeka",
+        "ngozi",
+        "chioma",
+        "uche",
+        "eze",
+        "amara",
+        "kemi",
+        "tunde",
+        "segun",
+        "bola",
+        "funke",
+        "yemi",
+        "femi",
+        "bukky",
+        "tobi",
+        "dayo",
+        "kunle",
+        "sade",
+        "wale",
+        "ayo",
+        "ola",
+        "tola",
+        "shade",
+        "monica",
+        "peter",
+        "paul",
+        "james",
+        "david",
+        "sarah",
+        "ruth",
+        "esther",
+        "fatimah",
+        "fatima",
+        "aisha",
+        "musa",
+        "ibrahim",
+        "yusuf",
+        "abdullahi",
+        "solomon",
+        "daniel",
+        "samuel",
+        "joshua",
+        "rachel",
+        "rebecca",
+        "hannah",
     }
 
     def parse_text(
@@ -95,21 +140,21 @@ class NLPService:
     ) -> ParseResult:
         """
         Parse text command into structured data.
-        
+
         Args:
             text: User input text
             is_speech: Whether text is from speech transcription
             caller_currency: The caller's preferred currency (e.g. "NGN" or "USD").
                 When "USD", small amounts (1+ digit) are accepted automatically
                 without requiring $ or "usd" markers in the message.
-        
+
         Returns:
             ParseResult with intent and extracted entities
         """
         # Clean speech artifacts if needed
         if is_speech:
             text = self._clean_speech_text(text)
-        
+
         lower = text.lower()
         if "invoice" in lower and not self._is_question(lower):
             entities = self._extract_invoice(lower, caller_currency=caller_currency)
@@ -127,10 +172,24 @@ class NLPService:
         """
         # Starts with a question word
         question_starters = (
-            "can i", "can we", "how do", "how to", "how can",
-            "what is", "what's", "what are", "is it", "is there",
-            "do you", "does it", "could i", "will it", "would it",
-            "why", "where", "when",
+            "can i",
+            "can we",
+            "how do",
+            "how to",
+            "how can",
+            "what is",
+            "what's",
+            "what are",
+            "is it",
+            "is there",
+            "do you",
+            "does it",
+            "could i",
+            "will it",
+            "would it",
+            "why",
+            "where",
+            "when",
         )
         stripped = text.strip().rstrip("?")
         if any(stripped.startswith(q) for q in question_starters):
@@ -143,18 +202,18 @@ class NLPService:
     def _clean_speech_text(self, text: str) -> str:
         """
         Clean speech transcription artifacts.
-        
+
         Removes filler words and converts number words to digits.
         DRY: Single place for all speech cleaning logic.
         """
         # Remove filler words
         for filler in self.FILLER_WORDS:
             text = re.sub(rf"\b{filler}\b", "", text, flags=re.IGNORECASE)
-        
+
         # Convert spoken numbers to digits
         for pattern, number in self.NUMBER_WORDS.items():
             text = re.sub(pattern, number, text, flags=re.IGNORECASE)
-        
+
         # Normalize whitespace
         text = re.sub(r"\s+", " ", text).strip()
 
@@ -174,27 +233,27 @@ class NLPService:
             tokens.append("".join(digit_buffer))
 
         text = " ".join(tokens)
-        
+
         return text
-    
+
     def _extract_phone(self, text: str) -> str | None:
         """
         Extract phone number from text - supports Nigerian and international formats.
-        
+
         Returns normalized phone number with + prefix or None if not found.
-        
+
         Handles:
             - Spaces in phone numbers: "0902018 0595" → "+2349020180595"
             - Standard formats: "08012345678" → "+2348012345678"
             - With country code: "2348012345678" → "+2348012345678"
-        
+
         Nigerian Examples:
             "+2348012345678" → "+2348012345678"
             "2348012345678"  → "+2348012345678"
             "08012345678"    → "+2348012345678"
             "8012345678"     → "+2348012345678"
             "0902018 0595"   → "+2349020180595"
-        
+
         International Examples:
             "+14155551234"   → "+14155551234" (US)
             "+447911123456"  → "+447911123456" (UK)
@@ -215,49 +274,68 @@ class NLPService:
                 phone = space_match.group(1).replace(" ", "")
             else:
                 return None
-        
+
         # If already has +, it's properly formatted
-        if phone.startswith('+'):
+        if phone.startswith("+"):
             return phone
-        
+
         # Check if it's a Nigerian number format
-        if phone.startswith('234') and len(phone) == 13:
-            return '+' + phone
-        elif phone.startswith('0') and len(phone) == 11 and phone[1] in '789':
-            return '+234' + phone[1:]  # Remove leading 0, add +234
-        elif len(phone) == 10 and phone[0] in '789':
-            return '+234' + phone  # Add +234 country code
-        
+        if phone.startswith("234") and len(phone) == 13:
+            return "+" + phone
+        elif phone.startswith("0") and len(phone) == 11 and phone[1] in "789":
+            return "+234" + phone[1:]  # Remove leading 0, add +234
+        elif len(phone) == 10 and phone[0] in "789":
+            return "+234" + phone  # Add +234 country code
+
         # For other international formats without +, return as-is with + prefix
         # This handles cases like "14155551234" → "+14155551234"
-        return '+' + phone
-    
+        return "+" + phone
+
     def _extract_name_from_text(self, text: str) -> str:
         """
         Extract customer name from text when format is non-standard.
-        
+
         Handles cases like 'Invoice 500, Monica fish' where amount comes before name.
         Looks for known names or capitalized words that aren't amounts/items.
-        
+
         Returns:
             Extracted name or 'Customer' as fallback.
         """
         # Remove 'invoice' prefix and split
         clean = re.sub(r"^invoice\s+", "", text.lower())
         tokens = clean.replace(",", " ").split()
-        
+
         # First pass: look for known common names
         for token in tokens:
             if token in self.COMMON_NAMES:
                 return token.capitalize()
-        
+
         # Second pass: find first alphabetic token that's not a common item word
         item_words = {
-            "wig", "hair", "braids", "gel", "shoe", "shoes", "shirt", "dress",
-            "bag", "phone", "laptop", "service", "consulting", "design", "food",
-            "fish", "rice", "item", "product", "goods", "delivery", "transport",
+            "wig",
+            "hair",
+            "braids",
+            "gel",
+            "shoe",
+            "shoes",
+            "shirt",
+            "dress",
+            "bag",
+            "phone",
+            "laptop",
+            "service",
+            "consulting",
+            "design",
+            "food",
+            "fish",
+            "rice",
+            "item",
+            "product",
+            "goods",
+            "delivery",
+            "transport",
         }
-        
+
         for token in tokens:
             # Skip if it's a number, phone-like, or common item word
             if token.isdigit():
@@ -271,37 +349,56 @@ class NLPService:
             # Found a potential name
             if token.isalpha():
                 return token.capitalize()
-        
+
         return "Customer"
-    
+
     # ---------- due-date helpers ----------
     _WEEKDAYS = {
-        "monday": 0, "mon": 0,
-        "tuesday": 1, "tue": 1, "tues": 1,
-        "wednesday": 2, "wed": 2,
-        "thursday": 3, "thu": 3, "thurs": 3,
-        "friday": 4, "fri": 4,
-        "saturday": 5, "sat": 5,
-        "sunday": 6, "sun": 6,
+        "monday": 0,
+        "mon": 0,
+        "tuesday": 1,
+        "tue": 1,
+        "tues": 1,
+        "wednesday": 2,
+        "wed": 2,
+        "thursday": 3,
+        "thu": 3,
+        "thurs": 3,
+        "friday": 4,
+        "fri": 4,
+        "saturday": 5,
+        "sat": 5,
+        "sunday": 6,
+        "sun": 6,
     }
     _MONTHS = {
-        "jan": 1, "january": 1,
-        "feb": 2, "february": 2,
-        "mar": 3, "march": 3,
-        "apr": 4, "april": 4,
+        "jan": 1,
+        "january": 1,
+        "feb": 2,
+        "february": 2,
+        "mar": 3,
+        "march": 3,
+        "apr": 4,
+        "april": 4,
         "may": 5,
-        "jun": 6, "june": 6,
-        "jul": 7, "july": 7,
-        "aug": 8, "august": 8,
-        "sep": 9, "sept": 9, "september": 9,
-        "oct": 10, "october": 10,
-        "nov": 11, "november": 11,
-        "dec": 12, "december": 12,
+        "jun": 6,
+        "june": 6,
+        "jul": 7,
+        "july": 7,
+        "aug": 8,
+        "august": 8,
+        "sep": 9,
+        "sept": 9,
+        "september": 9,
+        "oct": 10,
+        "october": 10,
+        "nov": 11,
+        "november": 11,
+        "dec": 12,
+        "december": 12,
     }
 
-    _DUE_IN_PATTERN = re.compile(
-        r"(?:due\s+)?in\s+(\d{1,3})\s*(?:days?|d)", re.IGNORECASE
-    )
+    _DUE_IN_PATTERN = re.compile(r"(?:due\s+)?in\s+(\d{1,3})\s*(?:days?|d)", re.IGNORECASE)
     _DUE_WEEKDAY_PATTERN = re.compile(
         r"due\s+(?:next\s+)?(?:on\s+)?(" + "|".join(_WEEKDAYS) + r")",
         re.IGNORECASE,
@@ -367,16 +464,16 @@ class NLPService:
     def _extract_email(self, text: str) -> str | None:
         """
         Extract email address from text.
-        
+
         Returns email address or None if not found.
-        
+
         Examples:
             "jane@example.com" → "jane@example.com"
             "Send to john.doe@company.co.uk" → "john.doe@company.co.uk"
         """
         match = self.EMAIL_PATTERN.search(text)
         return match.group(0).lower() if match else None
-    
+
     def _extract_invoice(
         self,
         text: str,
@@ -385,20 +482,20 @@ class NLPService:
     ) -> dict[str, object]:
         """
         Extract invoice data including support for multiple items.
-        
+
         Supported formats:
             Standard (name first):
                 "invoice Joy 08012345678, 12000 wig"
                 "invoice Joy 12000 wig"
-            
+
             Alternate (amount first - common user mistake):
                 "invoice 500, Monica fish"
                 "invoice 12000 Joy wig"
-            
+
             Multiple items (comma separated, amount before item):
                 "invoice Joy 08012345678, 2000 boxers, 5000 hair"
                 "invoice Joy 08012345678, 1000 wig, 2000 shoe, 4000 belt"
-        
+
         Args:
             caller_currency: The caller's preferred currency.  When ``"USD"``,
                 amounts as small as 1 digit are accepted automatically.
@@ -410,7 +507,7 @@ class NLPService:
         text_lower = text.lower()
         has_usd_marker = bool(self.USD_AMOUNT_PATTERN.search(text)) or "dollar" in text_lower
         is_usd = caller_currency == "USD" or has_usd_marker
-        
+
         # Smart name extraction: check if second token looks like amount
         # If so, look for name elsewhere in the text
         name = "Customer"
@@ -444,10 +541,10 @@ class NLPService:
                     if len(name_parts) >= 3:
                         break
                 name = " ".join(name_parts)
-        
+
         # Extract phone number first so we can avoid treating it as amount
         phone = self._extract_phone(text)
-        
+
         # Extract email address
         email = self._extract_email(text)
 
@@ -463,7 +560,7 @@ class NLPService:
         # Try to extract multiple items using pattern: <item_name> <amount>
         # Supports: "wig 1000, shoe 3000" or "wig 1000 shoe 3000"
         lines = self._extract_line_items(text, phone_variants, is_usd=is_usd)
-        
+
         # Calculate total amount from all items
         if lines:
             needs_price = any(line.get("unit_price") is None for line in lines)
@@ -491,21 +588,21 @@ class NLPService:
                     amount_raw = candidate
                     break
             total_amount = Decimal(amount_raw)
-            
+
             # Create a single line item with description
             description = self._extract_description(text)
             lines = [{"description": description, "quantity": 1, "unit_price": total_amount}]
-        
+
         # Extract due date — supports natural language
         due = self._extract_due_date(text)
-        
+
         # If name looks like a phone number, use a default name
         if name and name.replace("+", "").replace("-", "").isdigit():
             name = "Customer"
 
         # Currency already detected at the top of this method
         currency = "USD" if is_usd else "NGN"
-        
+
         return {
             "customer_name": name.title(),
             "amount": total_amount,
@@ -515,7 +612,7 @@ class NLPService:
             "customer_email": email,
             "lines": lines,
         }
-    
+
     def _extract_line_items(
         self,
         text: str,
@@ -525,7 +622,7 @@ class NLPService:
     ) -> list[dict[str, object]]:
         """
         Extract multiple line items from text.
-        
+
         Supports formats:
             1. Amount first: "1000 wig, 2000 shoe, 4000 belt"
             2. Item first: "wig 1000, shoe 2000" (fallback)
@@ -535,21 +632,21 @@ class NLPService:
             6. Typo handling: "20,00" treated as "2000" (2 digits after comma)
             7. Quantity-only: "5 wig, 10 shoe, 20 pack" (unit_price=None, needs inventory lookup)
             8. USD small amounts: "$50 wig, $25 shoe" (1+ digit when USD)
-        
+
         When *is_usd* is True, amounts as small as 1 digit are accepted
         (e.g. ``$5 wig``).  Otherwise the minimum is 3 digits (NGN).
         """
         lines = []
-        
+
         # Remove common prefixes to focus on item data
         clean_text = text.lower()
-        
+
         # Remove "invoice" and customer name (consecutive alpha tokens after invoice)
         clean_text = re.sub(r"^invoice(?:\s+[a-zA-Z]+)+\s*", "", clean_text)
-        
+
         # Expand 'k' shorthand BEFORE stripping symbols (5k→5000, 10k→10000)
         clean_text = re.sub(r"\b(\d+)k\b", lambda m: str(int(m.group(1)) * 1000), clean_text)
-        
+
         # Strip currency symbols/prefixes so amounts are clean digits
         # Support 'N' as informal Naira shorthand (N5000 → 5000)
         clean_text = clean_text.replace("₦", "").replace("$", "")
@@ -557,22 +654,22 @@ class NLPService:
         clean_text = re.sub(r"\busd\b", "", clean_text)
         clean_text = re.sub(r"\bngn\b", "", clean_text)
         clean_text = re.sub(r"\bdollars?\b", "", clean_text)
-        
+
         for word in ["for", "due", "tomorrow", "today", "next week"]:
             clean_text = clean_text.replace(word, " ")
-        
+
         # Remove phone number from text (include +prefix)
         # IMPORTANT: Sort by length descending to avoid partial replacements
         for variant in sorted(phone_variants, key=len, reverse=True):
             clean_text = clean_text.replace("+" + variant.lower(), " ")
             clean_text = clean_text.replace(variant.lower(), " ")
-        
+
         # Also remove phone patterns directly (including + prefix)
         clean_text = re.sub(r"\+?" + self.PHONE_PATTERN.pattern, " ", clean_text)
-        
+
         # Remove email from text
         clean_text = self.EMAIL_PATTERN.sub(" ", clean_text)
-        
+
         # Normalize comma-formatted numbers FIRST
         # Convert "11,000" to "11000" but handle edge cases
         # Pattern: digit,digit (e.g., "11,000" but not "wig, shoe")
@@ -580,32 +677,32 @@ class NLPService:
         clean_text = re.sub(r"(\d),(\d{3})\b", r"\1\2", clean_text)  # 11,000 → 11000
         clean_text = re.sub(r"(\d),(\d{2})\b", r"\1\2", clean_text)  # 20,00 → 2000 (typo)
         clean_text = re.sub(r"(\d),(\d{1})\b", r"\1\2", clean_text)  # 5,0 → 50 (edge case)
-        
+
         # Remove any remaining commas (now safe since amounts are normalized)
         clean_text = clean_text.replace(",", " ")
-        
+
         # Normalize whitespace
         clean_text = re.sub(r"\s+", " ", clean_text).strip()
-        
+
         # Strategy: Use regex to find all <amount> <description> pairs
         # or <quantity> <description> at <amount> patterns
         # Pattern: number (3+ digits) followed by non-numeric words until next number
         # This handles both comma-separated and space-separated items
-        
+
         # Also support quantity prefix: "3 wigs" (small number before a word)
         # Vs amount: "5000 wig" (large number before a word)
-        
+
         # Find all amounts and their positions
         # USD amounts can be 1+ digit ($5, $50); NGN needs 3+ digits
         min_digits = 1 if is_usd else 3
         amount_pattern = re.compile(rf"\b(\d{{{min_digits},}})\b")
         matches = list(amount_pattern.finditer(clean_text))
-        
+
         if matches:
             # Determine format: description-first vs amount-first.
             # If there's meaningful text before the first amount, descriptions
             # precede their amounts (e.g. "Airport pick up 6000, 4kg 209000")
-            pre_first = clean_text[:matches[0].start()].strip()
+            pre_first = clean_text[: matches[0].start()].strip()
             desc_before_amount = bool(pre_first) and any(c.isalpha() for c in pre_first)
 
             if desc_before_amount:
@@ -616,15 +713,17 @@ class NLPService:
                     if amount_str in phone_variants:
                         prev_end = match.end()
                         continue
-                    description = clean_text[prev_end:match.start()].strip()
+                    description = clean_text[prev_end : match.start()].strip()
                     description = re.sub(r"^[\s,]+|[\s,]+$", "", description)
 
                     if description and not description.isdigit():
-                        lines.append({
-                            "description": description.capitalize(),
-                            "quantity": 1,
-                            "unit_price": Decimal(amount_str),
-                        })
+                        lines.append(
+                            {
+                                "description": description.capitalize(),
+                                "quantity": 1,
+                                "unit_price": Decimal(amount_str),
+                            }
+                        )
                     prev_end = match.end()
             else:
                 # Amount-first: pair each amount with text after it
@@ -650,12 +749,14 @@ class NLPService:
                     description = re.sub(r"^[\s,]+|[\s,]+$", "", description)
 
                     if description and not description.isdigit():
-                        lines.append({
-                            "description": description.capitalize(),
-                            "quantity": 1,
-                            "unit_price": Decimal(amount_str),
-                        })
-        
+                        lines.append(
+                            {
+                                "description": description.capitalize(),
+                                "quantity": 1,
+                                "unit_price": Decimal(amount_str),
+                            }
+                        )
+
         # Fallback: if no lines found with amount-first, try item-first pattern
         # e.g., "wig 1000, shoe 2000"
         if not lines:
@@ -665,15 +766,17 @@ class NLPService:
                 # Check if current token is non-numeric and next is amount
                 current = tokens[i]
                 next_token = tokens[i + 1]
-                
+
                 min_len = 1 if is_usd else 3
                 if not current[0].isdigit() and next_token.isdigit() and len(next_token) >= min_len:
                     if next_token not in phone_variants:
-                        lines.append({
-                            "description": current.capitalize(),
-                            "quantity": 1,
-                            "unit_price": Decimal(next_token),
-                        })
+                        lines.append(
+                            {
+                                "description": current.capitalize(),
+                                "quantity": 1,
+                                "unit_price": Decimal(next_token),
+                            }
+                        )
                         i += 2
                         continue
                 i += 1
@@ -682,28 +785,28 @@ class NLPService:
         # e.g., "5 wig 10 shoe 20 pack" → quantities without unit prices
         # These need inventory price lookup downstream.
         if not lines:
-            qty_pattern = re.compile(
-                r"\b(\d{1,2})\s+([a-zA-Z][a-zA-Z\s]*?)(?=\s+\d|\s*$)"
-            )
+            qty_pattern = re.compile(r"\b(\d{1,2})\s+([a-zA-Z][a-zA-Z\s]*?)(?=\s+\d|\s*$)")
             qty_matches = qty_pattern.findall(clean_text)
             for qty_str, desc in qty_matches:
                 qty = int(qty_str)
                 desc = desc.strip()
                 if 1 <= qty <= 99 and desc and not desc.isdigit():
-                    lines.append({
-                        "description": desc.capitalize(),
-                        "quantity": qty,
-                        "unit_price": None,  # signal: needs inventory lookup
-                    })
+                    lines.append(
+                        {
+                            "description": desc.capitalize(),
+                            "quantity": qty,
+                            "unit_price": None,  # signal: needs inventory lookup
+                        }
+                    )
 
         return lines
-    
+
     def _extract_description(self, text: str) -> str:
         """Extract item description from text (for single-item invoices)."""
         # Look for "for <description>" pattern
         for_match = re.search(r"\bfor\s+([a-zA-Z][a-zA-Z\s]+?)(?:\s+due|\s*$)", text, re.IGNORECASE)
         if for_match:
             return for_match.group(1).strip().capitalize()
-        
+
         # Default description
         return "Item"

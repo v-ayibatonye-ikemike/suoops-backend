@@ -1,4 +1,5 @@
 """Factory function for creating configured OAuth service."""
+
 import logging
 
 from sqlalchemy.orm import Session
@@ -14,12 +15,12 @@ logger = logging.getLogger(__name__)
 def create_oauth_service(db: Session) -> OAuthService:
     """
     Factory function to create configured OAuth service.
-    
+
     Automatically registers all enabled OAuth providers.
-    
+
     Args:
         db: Database session
-        
+
     Returns:
         Configured OAuthService instance
     """

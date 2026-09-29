@@ -9,10 +9,12 @@ Adds:
   timestamp, note, proof image URL) — defends against false "not delivered" claims.
 - ``buyer_reputation`` table — global, phone-keyed dispute / false-dispute counts.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260708_delivery_buyer_rep"
@@ -50,9 +52,7 @@ def upgrade() -> None:
         ),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index(
-        "ix_buyer_reputation_phone", "buyer_reputation", ["phone"], unique=True
-    )
+    op.create_index("ix_buyer_reputation_phone", "buyer_reputation", ["phone"], unique=True)
 
 
 def downgrade() -> None:

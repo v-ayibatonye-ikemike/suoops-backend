@@ -15,6 +15,7 @@ Requirements:
 
 import os
 import sys
+
 import requests
 
 # Add parent directory to path for imports
@@ -65,12 +66,12 @@ Name: {{7}}
 def create_template():
     """Create the WhatsApp message template via Graph API."""
     url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
-    
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
-    
+
     payload = {
         "name": TEMPLATE_NAME,
         "language": TEMPLATE_LANGUAGE,
@@ -89,23 +90,23 @@ def create_template():
                             "Access Bank",
                             "0123456789",
                             "Business Name Ltd",
-                            "https://suoops.com/pay/INV-2024-001"
+                            "https://suoops.com/pay/INV-2024-001",
                         ]
                     ]
-                }
+                },
             }
-        ]
+        ],
     }
-    
+
     print(f"📤 Creating WhatsApp template '{TEMPLATE_NAME}'...")
     print(f"   WABA ID: {WABA_ID}")
     print(f"   Category: {TEMPLATE_CATEGORY}")
     print(f"   Language: {TEMPLATE_LANGUAGE}")
-    print(f"   Parameters: 8 (name, invoice_id, amount, items, bank, account, account_name, link)")
+    print("   Parameters: 8 (name, invoice_id, amount, items, bank, account, account_name, link)")
     print()
-    
+
     response = requests.post(url, headers=headers, json=payload)
-    
+
     if response.status_code == 200:
         data = response.json()
         print("✅ Template created successfully!")
@@ -118,16 +119,16 @@ def create_template():
         print(f"   3. Once approved, add to Render: WHATSAPP_TEMPLATE_INVOICE_PAYMENT={TEMPLATE_NAME}")
         return True
     else:
-        print(f"❌ Failed to create template")
+        print("❌ Failed to create template")
         print(f"   Status: {response.status_code}")
         print(f"   Response: {response.text}")
-        
+
         # Handle common errors
         try:
             error_data = response.json()
             error_msg = error_data.get("error", {}).get("message", "")
             error_code = error_data.get("error", {}).get("code", 0)
-            
+
             if error_code == 100 and "already exists" in error_msg.lower():
                 print()
                 print("ℹ️  Template already exists. Checking status...")
@@ -140,45 +141,45 @@ def create_template():
                 print("ℹ️  Template with this name already exists.")
                 print("   To update it, you need to delete the old one first or use a different name.")
                 check_template_status()
-        except:
+        except Exception:
             pass
-        
+
         return False
 
 
 def check_template_status():
     """Check the status of existing templates."""
     url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
-    
+
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
     }
-    
+
     params = {
         "fields": "name,status,language,category,id",
         "limit": 50,
     }
-    
+
     response = requests.get(url, headers=headers, params=params)
-    
+
     if response.status_code == 200:
         data = response.json()
         templates = data.get("data", [])
-        
+
         print()
         print("📋 Existing WhatsApp Templates:")
         print("-" * 70)
-        
+
         payment_template = None
         for t in templates:
             status_emoji = "✅" if t.get("status") == "APPROVED" else "⏳" if t.get("status") == "PENDING" else "❌"
             print(f"   {status_emoji} {t.get('name')} ({t.get('language')}) - {t.get('status')} [ID: {t.get('id')}]")
-            
+
             if t.get("name") == TEMPLATE_NAME:
                 payment_template = t
-        
+
         print()
-        
+
         if payment_template:
             status = payment_template.get("status")
             if status == "APPROVED":
@@ -204,31 +205,31 @@ def delete_template(template_name=None):
     """Delete a template by name."""
     if not template_name:
         template_name = TEMPLATE_NAME
-    
+
     # First, get the template ID
     url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     params = {"name": template_name}
-    
+
     response = requests.get(url, headers=headers, params=params)
-    
+
     if response.status_code == 200:
         data = response.json()
         templates = data.get("data", [])
-        
+
         if templates:
             template_id = templates[0].get("id")
             template_name_found = templates[0].get("name")
-            
+
             # Delete the template
             delete_url = f"https://graph.facebook.com/v18.0/{WABA_ID}/message_templates"
             delete_params = {"name": template_name_found}
-            
+
             print(f"🗑️  Deleting template '{template_name_found}' (ID: {template_id})...")
             delete_response = requests.delete(delete_url, headers=headers, params=delete_params)
-            
+
             if delete_response.status_code == 200:
-                print(f"✅ Template deleted successfully!")
+                print("✅ Template deleted successfully!")
                 return True
             else:
                 print(f"❌ Failed to delete template: {delete_response.status_code}")
@@ -244,15 +245,15 @@ def delete_template(template_name=None):
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Manage WhatsApp Invoice Payment Template")
     parser.add_argument("--list", action="store_true", help="List existing templates")
     parser.add_argument("--create", action="store_true", help="Create payment template")
     parser.add_argument("--delete", action="store_true", help="Delete payment template")
     parser.add_argument("--recreate", action="store_true", help="Delete and recreate template")
-    
+
     args = parser.parse_args()
-    
+
     if args.list:
         check_template_status()
     elif args.delete:

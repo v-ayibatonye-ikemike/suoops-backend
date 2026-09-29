@@ -3,6 +3,7 @@ Tax Profile Routes.
 
 Handles tax profile management, small business checks, and compliance summaries.
 """
+
 from __future__ import annotations
 
 import logging

@@ -50,6 +50,7 @@ def _decode_feedback_token(token: str) -> int:
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail="Invalid or expired feedback link") from e
 
+
 # ── Public router (no auth) ─────────────────────────────────────────
 
 public_router = APIRouter(tags=["public"])
@@ -109,11 +110,7 @@ def get_top_users(db: Session = Depends(get_db)):
     ninety_days_ago = datetime.now(tz=timezone.utc) - timedelta(days=90)
 
     # Subquery: users with approved testimonials (opted in to public visibility)
-    opted_in_users = (
-        db.query(Testimonial.user_id)
-        .filter(Testimonial.approved.is_(True))
-        .subquery()
-    )
+    opted_in_users = db.query(Testimonial.user_id).filter(Testimonial.approved.is_(True)).subquery()
 
     results = (
         db.query(
@@ -232,11 +229,7 @@ def submit_testimonial(
 ):
     """Submit a testimonial. Requires admin approval before appearing publicly."""
     # Check if user already has a pending/approved testimonial
-    existing = (
-        db.query(Testimonial)
-        .filter(Testimonial.user_id == current_user_id)
-        .first()
-    )
+    existing = db.query(Testimonial).filter(Testimonial.user_id == current_user_id).first()
     if existing:
         raise HTTPException(
             status_code=409,

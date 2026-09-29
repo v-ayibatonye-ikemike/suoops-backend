@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 from decimal import Decimal
+
 from fastapi.testclient import TestClient
 
 from app.api.main import app
 from app.db.session import get_db
-from app.models.models import User, Customer, Invoice, SubscriptionPlan
+from app.models.models import Customer, Invoice, SubscriptionPlan, User
 
 
 def _setup_entities(db):
     user = User(phone="+234000000001", name="Test Biz")
     # Tax reports require PRO plan.
     user.plan = SubscriptionPlan.PRO
-    db.add(user); db.commit(); db.refresh(user)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     cust = Customer(name="CSV Customer")
-    db.add(cust); db.commit(); db.refresh(cust)
+    db.add(cust)
+    db.commit()
+    db.refresh(cust)
     inv1 = Invoice(
         invoice_id="INV-CSV-1",
         issuer_id=user.id,
@@ -36,7 +41,8 @@ def _setup_entities(db):
         vat_amount=Decimal("375"),
         vat_category="standard",
     )
-    db.add_all([inv1, inv2]); db.commit()
+    db.add_all([inv1, inv2])
+    db.commit()
     return user
 
 
@@ -45,6 +51,7 @@ def test_monthly_tax_report_csv_export(monkeypatch):
     db = next(get_db())
     user = _setup_entities(db)
     from app.api import routes_auth
+
     app.dependency_overrides[routes_auth.get_current_user_id] = lambda: user.id
     headers = {"Authorization": "Bearer test"}
     r = client.post("/tax/reports/generate?year=2025&month=10&basis=paid", headers=headers)
@@ -71,9 +78,7 @@ def test_fresh_pdf_url_resigns_from_key(monkeypatch):
         seen["key"] = key
         return "https://s3.example.com/tax-reports/1/2025-10.pdf?X-Amz-Signature=FRESH"
 
-    monkeypatch.setattr(
-        "app.storage.s3_client.s3_client.get_presigned_url", fake_presign
-    )
+    monkeypatch.setattr("app.storage.s3_client.s3_client.get_presigned_url", fake_presign)
 
     stale = "https://s3.example.com/tax-reports/1/2025-10.pdf?X-Amz-Signature=STALE"
     fresh = tax_reports._fresh_pdf_url(stale)
@@ -85,9 +90,7 @@ def test_fresh_pdf_url_falls_back(monkeypatch):
     """Falls back to the stored value when S3 can't re-sign (local dev / bad key)."""
     from app.api.routes_tax import reports as tax_reports
 
-    monkeypatch.setattr(
-        "app.storage.s3_client.s3_client.extract_key_from_url", lambda url: None
-    )
+    monkeypatch.setattr("app.storage.s3_client.s3_client.extract_key_from_url", lambda url: None)
     stored = "http://localhost/storage/tax-reports/1/2025-10.pdf"
     assert tax_reports._fresh_pdf_url(stored) == stored
     assert tax_reports._fresh_pdf_url(None) is None

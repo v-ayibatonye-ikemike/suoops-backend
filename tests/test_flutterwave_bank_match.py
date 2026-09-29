@@ -1,4 +1,5 @@
 """Flutterwave bank-name resolver tolerance tests (neobank naming differences)."""
+
 from __future__ import annotations
 
 from app.services.payouts.flutterwave import _match_bank_code, _normalize_bank_name

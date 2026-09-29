@@ -4,6 +4,7 @@ products on SuoOps's Facebook Page + Instagram Business account.
 See app.services.social_marketing for the full design (eligibility/rotation,
 caption generation, Meta Graph API client).
 """
+
 from __future__ import annotations
 
 import logging

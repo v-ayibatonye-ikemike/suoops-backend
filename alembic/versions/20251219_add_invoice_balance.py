@@ -11,26 +11,24 @@ Revises: 20251218_whatsapp_optin, 20251218_admin_users
 Create Date: 2025-12-19
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '20251219_add_invoice_balance'
-down_revision: Union[str, Sequence[str], None] = ('20251218_whatsapp_optin', '20251218_admin_users')
+revision: str = "20251219_add_invoice_balance"
+down_revision: Union[str, Sequence[str], None] = ("20251218_whatsapp_optin", "20251218_admin_users")
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     # Add invoice_balance column with default 5 (free starter invoices)
-    op.add_column(
-        'user',
-        sa.Column('invoice_balance', sa.Integer(), nullable=False, server_default='5')
-    )
-    
+    op.add_column("user", sa.Column("invoice_balance", sa.Integer(), nullable=False, server_default="5"))
+
     # Migrate existing users: give them invoices based on their current plan
     # - FREE users: 5 invoices (starter pack)
     # - STARTER: 100 invoices (1 pack equivalent)
@@ -49,4 +47,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column('user', 'invoice_balance')
+    op.drop_column("user", "invoice_balance")

@@ -11,6 +11,7 @@ Business App must have the `pages_manage_posts` and
 having WhatsApp Business Platform access does not automatically include
 these; they're a separate product/permission within the same app.
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,9 +66,7 @@ class MetaGraphClient:
         publish it. Returns the published media id.
         """
         if not settings.INSTAGRAM_BUSINESS_ACCOUNT_ID or not settings.FACEBOOK_PAGE_ACCESS_TOKEN:
-            raise MetaPostingError(
-                "INSTAGRAM_BUSINESS_ACCOUNT_ID / FACEBOOK_PAGE_ACCESS_TOKEN not configured"
-            )
+            raise MetaPostingError("INSTAGRAM_BUSINESS_ACCOUNT_ID / FACEBOOK_PAGE_ACCESS_TOKEN not configured")
         try:
             with httpx.Client(timeout=20) as client:
                 create_resp = client.post(
@@ -80,9 +79,7 @@ class MetaGraphClient:
                 )
                 create_data = create_resp.json()
                 if "error" in create_data:
-                    raise MetaPostingError(
-                        f"Instagram media creation failed: {create_data['error'].get('message')}"
-                    )
+                    raise MetaPostingError(f"Instagram media creation failed: {create_data['error'].get('message')}")
                 creation_id = create_data.get("id")
                 if not creation_id:
                     raise MetaPostingError("Instagram did not return a creation id")

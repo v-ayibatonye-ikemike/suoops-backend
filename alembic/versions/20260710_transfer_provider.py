@@ -11,10 +11,12 @@ routed to Flutterwave), the old reference is void and a fresh transfer is sent
 rather than reconciled against the wrong provider (which would deadlock on an
 'unknown' status).
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260710_transfer_provider"

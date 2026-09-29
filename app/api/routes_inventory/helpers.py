@@ -1,4 +1,5 @@
 """Helper functions for inventory routes."""
+
 from app.models import inventory_schemas as schemas
 from app.storage.s3_client import s3_client
 

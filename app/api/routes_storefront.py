@@ -6,10 +6,12 @@ open ``suoops.com/store/<slug>`` to browse the business's active products.
 Read-only for now (browse + contact); online ordering reuses the invoice
 "Pay Now" + subaccount flow added elsewhere.
 """
+
 from __future__ import annotations
 
 import logging
 import re
+from collections import OrderedDict
 from decimal import Decimal
 from typing import Annotated
 from urllib.parse import quote_plus
@@ -48,9 +50,7 @@ def _unique_slug(db: Session, base: str, user_id: int) -> str:
     n = 1
     while True:
         existing = (
-            db.query(models.User)
-            .filter(models.User.storefront_slug == candidate, models.User.id != user_id)
-            .first()
+            db.query(models.User).filter(models.User.storefront_slug == candidate, models.User.id != user_id).first()
         )
         if not existing:
             return candidate
@@ -113,9 +113,7 @@ def _presign(url: str | None, *, expires_in: int = 3600) -> str | None:
 
 # In-process presign cache (ordered for LRU eviction). Not persisted — a new
 # process picks its own URL and browsers just re-fetch once, then cache again.
-from collections import OrderedDict
-
-_PRESIGN_CACHE: "OrderedDict[tuple[str, int], tuple[str, float]]" = OrderedDict()
+_PRESIGN_CACHE: OrderedDict[tuple[str, int], tuple[str, float]] = OrderedDict()
 _PRESIGN_CACHE_MAX = 4096
 # AWS presigned URLs max out at 7 days; used for the public storefront so image
 # URLs stay stable long enough for browsers to reuse them across visits.
@@ -227,18 +225,14 @@ def _link_for(slug: str | None) -> str | None:
 def _product_count(db: Session, user_id: int) -> int:
     """Active products in the user's catalog (what the storefront displays)."""
     return (
-        db.query(func.count(Product.id))
-        .filter(Product.user_id == user_id, Product.is_active.is_(True))
-        .scalar()
+        db.query(func.count(Product.id)).filter(Product.user_id == user_id, Product.is_active.is_(True)).scalar()
     ) or 0
 
 
 def _listable_product_count(db: Session, user_id: int) -> int:
     """Products a shopper can actually see & buy (active + description + photo)."""
     return (
-        db.query(func.count(Product.id))
-        .filter(Product.user_id == user_id, *_listable_product_conditions())
-        .scalar()
+        db.query(func.count(Product.id)).filter(Product.user_id == user_id, *_listable_product_conditions()).scalar()
     ) or 0
 
 
@@ -308,6 +302,7 @@ def _open_now(hours: dict | None) -> tuple[bool, str | None, str | None]:
     if not hours:
         return (False, None, None)
     from datetime import datetime
+
     from zoneinfo import ZoneInfo
 
     now = datetime.now(ZoneInfo("Africa/Lagos"))
@@ -440,10 +435,9 @@ def set_storefront_location(
     if city:
         user.storefront_city = city
     db.commit()
-    logger.info(
-        "Storefront location set for user %s (state=%s, city=%s)", user.id, state, city
-    )
+    logger.info("Storefront location set for user %s (state=%s, city=%s)", user.id, state, city)
     return _storefront_out(db, user)
+
 
 @router.post("/storefront/disable", response_model=StorefrontOut)
 def disable_storefront(
@@ -498,11 +492,7 @@ def product_scan_to_pay(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    product = (
-        db.query(Product)
-        .filter(Product.id == product_id, Product.user_id == current_user_id)
-        .first()
-    )
+    product = db.query(Product).filter(Product.id == product_id, Product.user_id == current_user_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
@@ -579,14 +569,12 @@ def category_qr(
             status_code=400,
             detail="Turn on your storefront first — that's where customers browse after scanning.",
         )
-    link = (
-        f"{settings.FRONTEND_URL}/store/{user.storefront_slug}"
-        f"?category_id={category.id}"
-    )
+    link = f"{settings.FRONTEND_URL}/store/{user.storefront_slug}" f"?category_id={category.id}"
     return StorefrontQrOut(link=link, qr_png=_qr_data_url(link))
 
 
 # ── Business-facing storefront order (escrow) status + delivery proof ──
+
 
 def _delivery_status_label(code: str | None) -> str | None:
     """Friendly, buyer-facing label for a normalized courier status code."""
@@ -595,25 +583,17 @@ def _delivery_status_label(code: str | None) -> str | None:
     return status_label(code)
 
 
-def _escrow_summary(escrow: "models.StorefrontOrderEscrow", buyer: "models.Customer | None") -> dict:
+def _escrow_summary(escrow: models.StorefrontOrderEscrow, buyer: models.Customer | None) -> dict:
     """Business-safe escrow summary. NEVER includes the buyer-only delivery code."""
     return {
         "status": escrow.status,
         "held": escrow.status == "held",
         "release_due_at": escrow.release_due_at.isoformat() if escrow.release_due_at else None,
         "confirmed_at": escrow.confirmed_at.isoformat() if escrow.confirmed_at else None,
-        "delivered_at": (
-            escrow.seller_marked_delivered_at.isoformat()
-            if escrow.seller_marked_delivered_at
-            else None
-        ),
+        "delivered_at": (escrow.seller_marked_delivered_at.isoformat() if escrow.seller_marked_delivered_at else None),
         "delivery_proof_note": escrow.delivery_proof_note,
         "delivery_proof_url": _presign(escrow.delivery_proof_url),
-        "dispatched_at": (
-            escrow.seller_dispatched_at.isoformat()
-            if escrow.seller_dispatched_at
-            else None
-        ),
+        "dispatched_at": (escrow.seller_dispatched_at.isoformat() if escrow.seller_dispatched_at else None),
         "dispatch_tracking": escrow.dispatch_tracking,
         "dispatch_note": escrow.dispatch_note,
         "dispatch_carrier": escrow.dispatch_carrier,
@@ -632,9 +612,7 @@ def _escrow_summary(escrow: "models.StorefrontOrderEscrow", buyer: "models.Custo
         "customer_name": buyer.name if buyer else None,
         # For automated courier deliveries the courier handles buyer contact —
         # don't expose the buyer's phone to the seller.
-        "customer_phone": (
-            None if escrow.delivery_courier else (buyer.phone if buyer else None)
-        ),
+        "customer_phone": (None if escrow.delivery_courier else (buyer.phone if buyer else None)),
     }
 
 
@@ -683,7 +661,7 @@ def get_order_escrow(
     return {"escrow": summary}
 
 
-async def _save_proof_photo(escrow: "models.StorefrontOrderEscrow", file: "UploadFile", *, prefix: str) -> str:
+async def _save_proof_photo(escrow: models.StorefrontOrderEscrow, file: UploadFile, *, prefix: str) -> str:
     """Validate + store a seller proof photo (delivery or dispatch) to S3.
 
     Shared by the mark-delivered and mark-sent endpoints: enforces image type,
@@ -758,18 +736,10 @@ def _book_courier_pickup(escrow_id: int, invoice_id: str) -> None:
 
     try:
         with SessionLocal() as db:
-            escrow = (
-                db.query(models.StorefrontOrderEscrow)
-                .filter(models.StorefrontOrderEscrow.id == escrow_id)
-                .first()
-            )
+            escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
             if not escrow or escrow.shipbubble_order_id:
                 return
-            if not (
-                escrow.delivery_request_token
-                and escrow.delivery_courier_id
-                and escrow.delivery_service_code
-            ):
+            if not (escrow.delivery_request_token and escrow.delivery_courier_id and escrow.delivery_service_code):
                 return
             booking = shipbubble.create_shipment(
                 request_token=escrow.delivery_request_token,
@@ -798,7 +768,8 @@ def _book_courier_pickup(escrow_id: int, invoice_id: str) -> None:
             db.commit()
             logger.info(
                 "Booked Shipbubble shipment %s for order %s (background)",
-                booking["order_id"], invoice_id,
+                booking["order_id"],
+                invoice_id,
             )
     except Exception:  # noqa: BLE001
         logger.exception("Background Shipbubble booking failed for order %s", invoice_id)
@@ -840,23 +811,21 @@ async def mark_order_sent(
 
     logger.info(
         "mark-sent request: order=%s seller=%s has_file=%s",
-        invoice_id, current_user_id, bool(file is not None and file.filename),
+        invoice_id,
+        current_user_id,
+        bool(file is not None and file.filename),
     )
 
     # A photo of the packaged item is REQUIRED — it's the proof of quality and
     # shipment (and the buyer sees it), so a "sent out" mark is never empty.
     if not (file is not None and file.filename) and not escrow.dispatch_proof_url:
-        raise HTTPException(
-            status_code=400, detail="A photo of the packaged item is required to mark it sent out."
-        )
+        raise HTTPException(status_code=400, detail="A photo of the packaged item is required to mark it sent out.")
 
     proof_url = escrow.dispatch_proof_url
     if file is not None and file.filename:
         _t0 = time.monotonic()
         proof_url = await _save_proof_photo(escrow, file, prefix="dispatch-proof")
-        logger.info(
-            "mark-sent photo stored for %s in %.2fs", invoice_id, time.monotonic() - _t0
-        )
+        logger.info("mark-sent photo stored for %s in %.2fs", invoice_id, time.monotonic() - _t0)
 
     escrow.seller_dispatched_at = dt.datetime.now(dt.timezone.utc)
     if tracking is not None:
@@ -887,9 +856,7 @@ async def mark_order_sent(
         if escrow.dispatch_tracking:
             parts.append(f"Tracking: {escrow.dispatch_tracking}.")
         if escrow.dispatch_eta:
-            parts.append(
-                f"Expected delivery: {escrow.dispatch_eta.strftime('%a %d %b %Y')}."
-            )
+            parts.append(f"Expected delivery: {escrow.dispatch_eta.strftime('%a %d %b %Y')}.")
         _store_system_message(db, escrow, " ".join(parts))
     except Exception:  # noqa: BLE001
         logger.exception("Failed to post dispatch notice for order %s", invoice_id)
@@ -916,11 +883,7 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
     """Public: a business's shareable inventory catalog."""
     from sqlalchemy.orm import joinedload
 
-    owner = (
-        db.query(models.User)
-        .filter(models.User.storefront_slug == slug.lower())
-        .first()
-    )
+    owner = db.query(models.User).filter(models.User.storefront_slug == slug.lower()).first()
     if not owner:
         raise HTTPException(status_code=404, detail="Storefront not found")
 
@@ -979,12 +942,8 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
         "business_name": owner.business_name or owner.name,
         "description": owner.storefront_description,
         "logo_url": _presign(owner.logo_url, expires_in=_PUBLIC_ASSET_TTL),
-        "storefront_cover_url": _presign(
-            owner.storefront_cover_url, expires_in=_PUBLIC_ASSET_TTL
-        ),
-        "online_payments_enabled": bool(
-            owner.paystack_subaccount_active and owner.paystack_subaccount_code
-        ),
+        "storefront_cover_url": _presign(owner.storefront_cover_url, expires_in=_PUBLIC_ASSET_TTL),
+        "online_payments_enabled": bool(owner.paystack_subaccount_active and owner.paystack_subaccount_code),
         "whatsapp_url": _wa_url(owner),
         "announcement": owner.storefront_announcement,
         "location": {
@@ -992,8 +951,7 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
             "city": owner.storefront_city,
             "state": owner.storefront_state,
             "maps_url": (
-                f"https://www.google.com/maps/search/?api=1&query="
-                f"{quote_plus(full_address)}"
+                f"https://www.google.com/maps/search/?api=1&query=" f"{quote_plus(full_address)}"
                 if full_address
                 else None
             ),
@@ -1017,11 +975,7 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
                 "fulfilment_type": getattr(p, "fulfilment_type", "physical"),
                 # Category pack fee (₦) — one flat pack is added to an order that
                 # contains any packaged item; the frontend shows it in the total.
-                "pack_price": (
-                    float(p.category.pack_price)
-                    if p.category and p.category.pack_price
-                    else None
-                ),
+                "pack_price": (float(p.category.pack_price) if p.category and p.category.pack_price else None),
             }
             for p in products
         ],
@@ -1041,9 +995,7 @@ def live_storefronts_query(db: Session):
     ``list_public_stores`` REUSES this exact query, so the admin "Live in search"
     metric and what customers actually see on the landing page can never differ.
     """
-    product_owner_ids = (
-        db.query(Product.user_id).filter(*_listable_product_conditions()).distinct().subquery()
-    )
+    product_owner_ids = db.query(Product.user_id).filter(*_listable_product_conditions()).distinct().subquery()
     return db.query(models.User).filter(
         models.User.storefront_enabled.is_(True),
         models.User.store_status == "active",
@@ -1117,12 +1069,7 @@ def list_public_stores(
         )
 
     total = base.with_entities(func.count(models.User.id)).scalar() or 0
-    owners = (
-        base.order_by(models.User.storefront_slug.asc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    owners = base.order_by(models.User.storefront_slug.asc()).offset((page - 1) * page_size).limit(page_size).all()
 
     # For search results, surface up to 3 matching product names per store.
     matched: dict[int, list[str]] = {}
@@ -1154,10 +1101,7 @@ def list_public_stores(
                 "business_name": o.business_name or o.name,
                 "logo_url": _presign(o.logo_url),
                 "description": o.storefront_description,
-                "location": ", ".join(
-                    p for p in [o.storefront_city, o.storefront_state] if p
-                )
-                or None,
+                "location": ", ".join(p for p in [o.storefront_city, o.storefront_state] if p) or None,
                 "matched_products": matched.get(o.id, []),
             }
             for o in owners
@@ -1188,13 +1132,9 @@ async def store_delivery_quote(
         return {"enabled": False, "options": []}
 
     slug_l = slug.lower()
-    cart_sig = ",".join(
-        sorted(f"{it.product_id}:{it.quantity}" for it in payload.items)
-    )
+    cart_sig = ",".join(sorted(f"{it.product_id}:{it.quantity}" for it in payload.items))
     # 1) Serve an identical recent quote from cache (no Shipbubble calls).
-    cached = quote_cache.get_cached(
-        slug_l, payload.customer_lat, payload.customer_lng, cart_sig
-    )
+    cached = quote_cache.get_cached(slug_l, payload.customer_lat, payload.customer_lng, cart_sig)
     if cached is not None:
         return cached
 
@@ -1221,13 +1161,11 @@ async def store_delivery_quote(
         "request_token": quote.get("request_token"),
         "options": [o.as_dict() for o in quote.get("options", [])],
     }
-    quote_cache.set_cached(
-        slug_l, payload.customer_lat, payload.customer_lng, cart_sig, result
-    )
+    quote_cache.set_cached(slug_l, payload.customer_lat, payload.customer_lng, cart_sig, result)
     return result
 
 
-def _shipbubble_quote(db: Session, owner: "models.User", payload: "StoreOrderIn"):
+def _shipbubble_quote(db: Session, owner: models.User, payload: StoreOrderIn):
     """Validate both addresses and fetch live courier rates for this order.
     Returns ``{"request_token": str|None, "options": [DeliveryOption]}`` or None
     when the integration is off. Shared by the quote endpoint and checkout so the
@@ -1245,9 +1183,7 @@ def _shipbubble_quote(db: Session, owner: "models.User", payload: "StoreOrderIn"
     if owner.storefront_lat is not None and owner.storefront_lng is not None:
         seller_addr = reverse_geocode_address(owner.storefront_lat, owner.storefront_lng)
     if not seller_addr:
-        seller_addr = ", ".join(
-            p for p in [owner.storefront_city, owner.storefront_state, "Nigeria"] if p
-        )
+        seller_addr = ", ".join(p for p in [owner.storefront_city, owner.storefront_state, "Nigeria"] if p)
     sender_code = shipbubble.validate_address(
         name=shipbubble.clean_name(owner.business_name or owner.name, pad="Store"),
         email=owner.email or "store@suoops.com",
@@ -1262,10 +1198,7 @@ def _shipbubble_quote(db: Session, owner: "models.User", payload: "StoreOrderIn"
     buyer_addr = None
     if payload.customer_lat is not None and payload.customer_lng is not None:
         buyer_addr = reverse_geocode_address(payload.customer_lat, payload.customer_lng)
-    buyer_addr = (
-        ", ".join(p for p in [buyer_addr, payload.delivery_note] if p)
-        or "customer location"
-    )
+    buyer_addr = ", ".join(p for p in [buyer_addr, payload.delivery_note] if p) or "customer location"
     receiver_code = shipbubble.validate_address(
         name=shipbubble.clean_name(payload.customer_name, pad="Buyer"),
         email=f"{buyer_digits or 'buyer'}@buyer.suoops.com",
@@ -1277,12 +1210,7 @@ def _shipbubble_quote(db: Session, owner: "models.User", payload: "StoreOrderIn"
     if not (sender_code and receiver_code):
         return {"request_token": None, "options": []}
 
-    prods = {
-        p.id: p
-        for p in db.query(Product)
-        .filter(Product.id.in_([it.product_id for it in payload.items]))
-        .all()
-    }
+    prods = {p.id: p for p in db.query(Product).filter(Product.id.in_([it.product_id for it in payload.items])).all()}
     package_items = []
     for it in payload.items:
         p = prods.get(it.product_id)
@@ -1316,7 +1244,7 @@ def _shipbubble_quote(db: Session, owner: "models.User", payload: "StoreOrderIn"
     return rates
 
 
-def _quote_is_same_state(owner: "models.User", payload: "StoreOrderIn") -> bool:
+def _quote_is_same_state(owner: models.User, payload: StoreOrderIn) -> bool:
     """True when the buyer's pinned location is in the seller's storefront state."""
     seller_state = getattr(owner, "storefront_state", None)
     if not seller_state or payload.customer_lat is None or payload.customer_lng is None:
@@ -1355,9 +1283,7 @@ async def create_store_order(
         raise HTTPException(status_code=404, detail="Storefront not found")
 
     if not (owner.paystack_subaccount_active and owner.paystack_subaccount_code):
-        raise HTTPException(
-            status_code=409, detail="This store isn't accepting online orders yet."
-        )
+        raise HTTPException(status_code=409, detail="This store isn't accepting online orders yet.")
 
     ids = [i.product_id for i in payload.items]
     from sqlalchemy.orm import joinedload as _joinedload
@@ -1433,17 +1359,14 @@ async def create_store_order(
     # is a "no-delivery" order: no delivery address, no courier, and a faster
     # buyer-protection window. Any physical item makes it a normal delivery order.
     no_delivery = all(
-        getattr(pmap.get(i.product_id), "fulfilment_type", "physical") != "physical"
-        for i in payload.items
+        getattr(pmap.get(i.product_id), "fulfilment_type", "physical") != "physical" for i in payload.items
     )
 
     # Delivery address is REQUIRED for physical orders. The buyer's GPS pin may
     # not be where they want delivery (they could be ordering from elsewhere),
     # so a typed address + landmark is mandatory for the seller/courier to
     # deliver to the right place. Service/digital orders skip this entirely.
-    if not no_delivery and (
-        not payload.delivery_note or len(payload.delivery_note.strip()) < 4
-    ):
+    if not no_delivery and (not payload.delivery_note or len(payload.delivery_note.strip()) < 4):
         raise HTTPException(
             status_code=400,
             detail="Please add your delivery address and a landmark.",
@@ -1514,10 +1437,7 @@ async def create_store_order(
                 o
                 for o in quote.get("options", [])
                 if str(o.courier_id) == str(payload.delivery_courier_id)
-                and (
-                    not payload.delivery_service_code
-                    or o.service_code == payload.delivery_service_code
-                )
+                and (not payload.delivery_service_code or o.service_code == payload.delivery_service_code)
             ),
             None,
         )
@@ -1530,9 +1450,7 @@ async def create_store_order(
         station = chosen.dropoff_station or {}
         station_str = None
         if station:
-            station_str = " — ".join(
-                s for s in [station.get("name"), station.get("address")] if s
-            )
+            station_str = " — ".join(s for s in [station.get("name"), station.get("address")] if s)
             if station.get("phone"):
                 station_str = f"{station_str} ({station['phone']})"
         delivery_sel = {
@@ -1587,10 +1505,7 @@ async def create_store_order(
         address = reverse_geocode_address(payload.customer_lat, payload.customer_lng)
         if address:
             delivery_lines.append(f"📍 Deliver to: {address}")
-        delivery_lines.append(
-            f"Map: https://www.google.com/maps?q="
-            f"{payload.customer_lat},{payload.customer_lng}"
-        )
+        delivery_lines.append(f"Map: https://www.google.com/maps?q=" f"{payload.customer_lat},{payload.customer_lng}")
     note = (payload.delivery_note or "").strip()
     if note:
         delivery_lines.append(f"Landmark/note: {note}")
@@ -1600,9 +1515,7 @@ async def create_store_order(
         db.commit()
 
     try:
-        pay = await start_invoice_payment(
-            db, invoice, owner, hold=held, charge_amount_kobo=charge_kobo
-        )
+        pay = await start_invoice_payment(db, invoice, owner, hold=held, charge_amount_kobo=charge_kobo)
     except PaymentInitError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
@@ -1623,9 +1536,7 @@ async def create_store_order(
             # Velocity guard: recent settled volume / dispute rate also holds for
             # review (catches laundering spread across days).
             velocity_reason = seller_velocity_hold_reason(db, owner, total)
-            review_reason = ", ".join(
-                r for r in (review_reason, velocity_reason) if r
-            ) or None
+            review_reason = ", ".join(r for r in (review_reason, velocity_reason) if r) or None
             if review_reason:
                 review_reason = review_reason[:120]
             escrow = create_order_escrow(
@@ -1644,10 +1555,10 @@ async def create_store_order(
                 # selection so the shipment can be booked at "mark as sent".
                 escrow.delivery_fee_kobo = int(delivery_fee * 100)
                 escrow.delivery_courier = delivery_sel["courier"][:80]
-                escrow.delivery_service_type = (delivery_sel.get("service_type") or None)
-                escrow.delivery_dropoff_station = (
-                    (delivery_sel.get("station") or None) and delivery_sel["station"][:300]
-                )
+                escrow.delivery_service_type = delivery_sel.get("service_type") or None
+                escrow.delivery_dropoff_station = (delivery_sel.get("station") or None) and delivery_sel["station"][
+                    :300
+                ]
                 escrow.delivery_request_token = delivery_sel["token"][:200]
                 escrow.delivery_courier_id = delivery_sel["courier_id"][:60]
                 escrow.delivery_service_code = delivery_sel["service_code"][:60]
@@ -1660,7 +1571,10 @@ async def create_store_order(
 
     logger.info(
         "Storefront order %s created for store %s (user %s, held=%s)",
-        invoice.invoice_id, slug, owner.id, held,
+        invoice.invoice_id,
+        slug,
+        owner.id,
+        held,
     )
     resp = {"invoice_id": invoice.invoice_id, **pay}
     if delivery_code:
@@ -1728,11 +1642,7 @@ def notify_when_in_stock(
         .first()
     )
     if not exists:
-        db.add(
-            models.StorefrontStockNotification(
-                user_id=owner.id, product_id=product.id, phone=phone
-            )
-        )
+        db.add(models.StorefrontStockNotification(user_id=owner.id, product_id=product.id, phone=phone))
         db.commit()
     return {"ok": True, "message": "We'll text you when it's back in stock."}
 
@@ -2007,7 +1917,9 @@ def report_order_problem(
 
     logger.info(
         "Escrow %s disputed by buyer for store %s (seller %s)",
-        escrow.id, slug, owner.id,
+        escrow.id,
+        slug,
+        owner.id,
     )
     return {
         "ok": True,
@@ -2049,12 +1961,12 @@ def _escrow_by_code(db: Session, owner_id: int, code: str):
     )
 
 
-def _messaging_open(escrow: "models.StorefrontOrderEscrow") -> bool:
+def _messaging_open(escrow: models.StorefrontOrderEscrow) -> bool:
     # Only for a live (held) order — not before payment or after it closes.
     return escrow.status == "held"
 
 
-def _msg_out(m: "models.OrderMessage", viewer_role: str) -> dict:
+def _msg_out(m: models.OrderMessage, viewer_role: str) -> dict:
     return {
         "id": m.id,
         "sender_role": m.sender_role,
@@ -2065,7 +1977,7 @@ def _msg_out(m: "models.OrderMessage", viewer_role: str) -> dict:
     }
 
 
-def _buyer_order_view(escrow: "models.StorefrontOrderEscrow") -> dict:
+def _buyer_order_view(escrow: models.StorefrontOrderEscrow) -> dict:
     """Buyer-safe order status for the thread modal (dispatch/delivery updates).
 
     Lets the buyer see 'sent out' with the courier tracking + packaged-item
@@ -2073,9 +1985,7 @@ def _buyer_order_view(escrow: "models.StorefrontOrderEscrow") -> dict:
     """
     return {
         "status": escrow.status,
-        "dispatched_at": (
-            escrow.seller_dispatched_at.isoformat() if escrow.seller_dispatched_at else None
-        ),
+        "dispatched_at": (escrow.seller_dispatched_at.isoformat() if escrow.seller_dispatched_at else None),
         "dispatch_tracking": escrow.dispatch_tracking,
         "dispatch_carrier": escrow.dispatch_carrier,
         "dispatch_eta": escrow.dispatch_eta.isoformat() if escrow.dispatch_eta else None,
@@ -2083,15 +1993,11 @@ def _buyer_order_view(escrow: "models.StorefrontOrderEscrow") -> dict:
         "dispatch_proof_url": _presign(escrow.dispatch_proof_url),
         "delivery_status": escrow.delivery_status,
         "delivery_status_label": _delivery_status_label(escrow.delivery_status),
-        "delivered_at": (
-            escrow.seller_marked_delivered_at.isoformat()
-            if escrow.seller_marked_delivered_at
-            else None
-        ),
+        "delivered_at": (escrow.seller_marked_delivered_at.isoformat() if escrow.seller_marked_delivered_at else None),
     }
 
 
-def _thread(db: Session, escrow_id: int) -> list["models.OrderMessage"]:
+def _thread(db: Session, escrow_id: int) -> list[models.OrderMessage]:
     return (
         db.query(models.OrderMessage)
         .filter(
@@ -2335,9 +2241,7 @@ def seller_send_message(
     if not _messaging_open(escrow):
         raise HTTPException(status_code=409, detail="Messaging is closed for this order.")
 
-    m, result = _store_message(
-        db, escrow, sender_role="seller", sender_user_id=current_user_id, body=payload.body
-    )
+    m, result = _store_message(db, escrow, sender_role="seller", sender_user_id=current_user_id, body=payload.body)
     if result.flagged:
         try:
             from app.services.escrow_service import record_seller_circumvention
@@ -2352,10 +2256,15 @@ def seller_send_message(
         return {
             "ok": False,
             "blocked": True,
-            "message": "Payments and contact must stay on SuoOps. That message wasn't sent — repeated attempts flag your store.",
+            "message": (
+                "Payments and contact must stay on SuoOps. "
+                "That message wasn't sent — repeated attempts flag your store."
+            ),
         }
     return {
         "ok": True,
         "message": _msg_out(m, "seller"),
-        "warning": "Sharing contact or payment details off-platform is not allowed and was hidden." if result.flagged else None,
+        "warning": "Sharing contact or payment details off-platform is not allowed and was hidden."
+        if result.flagged
+        else None,
     }

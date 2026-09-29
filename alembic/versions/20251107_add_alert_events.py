@@ -4,15 +4,18 @@ Revision ID: 20251107_add_alert_events
 Revises: 20251107_add_monthly_tax_report
 Create Date: 2025-11-07
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20251107_add_alert_events"
 down_revision = "20251107_add_monthly_tax_report"
 branch_labels = None
 depends_on = None
+
 
 def upgrade() -> None:
     if not _table_exists("alert_events"):

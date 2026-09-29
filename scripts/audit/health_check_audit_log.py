@@ -11,11 +11,11 @@ Exits:
 Usage: python scripts/audit/health_check_audit_log.py [path]
 Default path: audit.log in project root.
 """
+
 from __future__ import annotations
 
-import sys
 import os
-import time
+import sys
 from datetime import datetime, timedelta, timezone
 
 MAX_AGE = timedelta(hours=26)

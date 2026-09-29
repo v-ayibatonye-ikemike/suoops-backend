@@ -1,4 +1,5 @@
 """Payment history endpoints."""
+
 import logging
 from typing import Annotated
 
@@ -25,12 +26,12 @@ def get_payment_history(
 ):
     """
     Get payment history for the current user.
-    
+
     **Parameters:**
     - limit: Max number of records to return (default: 50, max: 100)
     - offset: Number of records to skip for pagination (default: 0)
     - status_filter: Filter by payment status (pending, success, failed, cancelled, refunded)
-    
+
     **Returns:**
     - payments: List of payment transactions
     - total: Total count of payments matching filter
@@ -38,12 +39,10 @@ def get_payment_history(
     """
     # Validate limit
     limit = min(limit, 100)
-    
+
     # Build query
-    query = db.query(PaymentTransaction).filter(
-        PaymentTransaction.user_id == current_user_id
-    )
-    
+    query = db.query(PaymentTransaction).filter(PaymentTransaction.user_id == current_user_id)
+
     # Apply status filter if provided
     if status_filter:
         try:
@@ -51,37 +50,38 @@ def get_payment_history(
             query = query.filter(PaymentTransaction.status == status_enum)
         except ValueError:
             raise HTTPException(
-                status_code=400,
-                detail="Invalid status filter. Choose: pending, success, failed, cancelled, refunded"
+                status_code=400, detail="Invalid status filter. Choose: pending, success, failed, cancelled, refunded"
             )
-    
+
     # Get total count
     total = query.count()
-    
+
     # Get paginated results, ordered by created_at descending (newest first)
     payments = query.order_by(PaymentTransaction.created_at.desc()).offset(offset).limit(limit).all()
-    
+
     # Calculate summary stats
-    successful_payments = db.query(PaymentTransaction).filter(
-        PaymentTransaction.user_id == current_user_id,
-        PaymentTransaction.status == PaymentStatus.SUCCESS
-    ).all()
-    
+    successful_payments = (
+        db.query(PaymentTransaction)
+        .filter(PaymentTransaction.user_id == current_user_id, PaymentTransaction.status == PaymentStatus.SUCCESS)
+        .all()
+    )
+
     total_paid_kobo = sum(p.amount for p in successful_payments)
-    
+
     summary = {
         "total_paid": total_paid_kobo / 100,  # Convert to Naira
         "successful_count": len(successful_payments),
-        "pending_count": db.query(PaymentTransaction).filter(
+        "pending_count": db.query(PaymentTransaction)
+        .filter(PaymentTransaction.user_id == current_user_id, PaymentTransaction.status == PaymentStatus.PENDING)
+        .count(),
+        "failed_count": db.query(PaymentTransaction)
+        .filter(
             PaymentTransaction.user_id == current_user_id,
-            PaymentTransaction.status == PaymentStatus.PENDING
-        ).count(),
-        "failed_count": db.query(PaymentTransaction).filter(
-            PaymentTransaction.user_id == current_user_id,
-            PaymentTransaction.status.in_([PaymentStatus.FAILED, PaymentStatus.CANCELLED])
-        ).count(),
+            PaymentTransaction.status.in_([PaymentStatus.FAILED, PaymentStatus.CANCELLED]),
+        )
+        .count(),
     }
-    
+
     # Format payments for response
     payments_list = [
         {
@@ -104,7 +104,7 @@ def get_payment_history(
         }
         for p in payments
     ]
-    
+
     return {
         "payments": payments_list,
         "total": total,
@@ -122,18 +122,22 @@ def get_payment_detail(
 ):
     """
     Get detailed information about a specific payment transaction.
-    
+
     Note: Paystack internal fields (transaction_id, metadata, ip_address)
     are excluded from the response to prevent data leakage.
     """
-    payment = db.query(PaymentTransaction).filter(
-        PaymentTransaction.id == payment_id,
-        PaymentTransaction.user_id == current_user_id,  # Ensure user owns this payment
-    ).one_or_none()
-    
+    payment = (
+        db.query(PaymentTransaction)
+        .filter(
+            PaymentTransaction.id == payment_id,
+            PaymentTransaction.user_id == current_user_id,  # Ensure user owns this payment
+        )
+        .one_or_none()
+    )
+
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
-    
+
     return {
         "id": payment.id,
         "reference": payment.reference,

@@ -7,9 +7,9 @@ Create Date: 2025-10-28 12:00:00.000000
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "0011_enable_whatsapp_otp_auth"

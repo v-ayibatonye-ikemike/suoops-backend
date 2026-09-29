@@ -29,8 +29,8 @@ Composite indexes for dominant query patterns:
   - invoice(status, invoice_type, due_date) — overdue worker
   - support_tickets(status, priority) — admin "open urgent tickets"
 """
-from alembic import op
 
+from alembic import op
 
 revision = "20260219_add_missing_indexes"
 down_revision = "20260205_paystack_subscription"

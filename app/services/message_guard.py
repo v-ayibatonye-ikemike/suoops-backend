@@ -9,6 +9,7 @@ unambiguous ones — before a message is ever delivered.
 
 Pure functions only (no DB / IO) so they're cheap and heavily testable.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -29,9 +30,7 @@ _LONG_NUM_RE = re.compile(r"\+?\d(?:[\s.\-]?\d){9,13}")
 # Spelled-out phone/account numbers ("zero eight zero three …", "oh eight oh…") —
 # a common way to dodge the digit filter. A run of 6+ number-words in a row is
 # almost never innocent prose, so we treat it as a shared contact number.
-_NUM_WORDS = (
-    r"zero|one|two|three|four|five|six|seven|eight|nine|ten|oh|nought|niner|double"
-)
+_NUM_WORDS = r"zero|one|two|three|four|five|six|seven|eight|nine|ten|oh|nought|niner|double"
 _SPELLED_NUM_RE = re.compile(
     rf"(?:\b(?:{_NUM_WORDS})\b[\s,.\-]*){{6,}}",
     re.IGNORECASE,
@@ -189,9 +188,7 @@ def is_number_fragment(text: str) -> bool:
     stripped = _NUM_WORD_RUN_RE.sub("", t)
     stripped = _ROMAN_RE.sub("", stripped)
     stripped = re.sub(r"[\d\s,.\-+()#]", "", stripped)
-    return len(stripped) <= 2 and (
-        count_number_words(t) + count_digits(t) + count_roman_tokens(t)
-    ) >= 1
+    return len(stripped) <= 2 and (count_number_words(t) + count_digits(t) + count_roman_tokens(t)) >= 1
 
 
 def encoded_contact_score(text: str) -> int:

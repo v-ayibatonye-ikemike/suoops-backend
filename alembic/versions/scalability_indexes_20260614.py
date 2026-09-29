@@ -11,6 +11,7 @@ Revision ID: scalability_indexes_20260614
 Revises: influencer_program_20260614
 Create Date: 2026-06-14
 """
+
 from typing import Sequence, Union
 
 from alembic import op

@@ -5,6 +5,7 @@ This mixin provides seamless integration between invoices and inventory:
 - Expense invoices automatically add stock
 - Stock movements are recorded for audit trail
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class InventoryIntegrationMixin:
     """
     Mixin that integrates invoice creation with inventory management.
-    
+
     OOP Principles:
     - Single Responsibility: Only handles inventory-invoice integration
     - Open/Closed: Extends invoice service without modifying core logic
@@ -38,25 +39,25 @@ class InventoryIntegrationMixin:
     ) -> None:
         """
         Process inventory updates for a newly created invoice.
-        
+
         For revenue invoices: Deduct stock for sold items
         For expense invoices: Add stock for purchased items
-        
+
         Args:
             invoice: The created invoice object
             lines_data: Original line item data (with product_id if linked)
         """
         from app.services.inventory import build_inventory_service
-        
+
         # Check if any lines have product_id
         has_inventory_items = any(line.get("product_id") for line in lines_data)
         if not has_inventory_items:
             return  # No inventory items to process
-        
+
         try:
             inventory_service = build_inventory_service(self.db, invoice.issuer_id)
             is_expense = invoice.invoice_type == "expense"
-            
+
             # Prepare lines with invoice line IDs
             lines_with_ids = []
             for i, line_data in enumerate(lines_data):
@@ -70,14 +71,14 @@ class InventoryIntegrationMixin:
                     if i < len(invoice.lines):
                         line_dict["id"] = invoice.lines[i].id
                     lines_with_ids.append(line_dict)
-            
+
             movements = inventory_service.process_invoice_lines(
                 invoice_id=invoice.id,
                 invoice_ref=invoice.invoice_id,
                 lines=lines_with_ids,
                 is_expense=is_expense,
             )
-            
+
             if movements:
                 action = "restocked" if is_expense else "deducted"
                 logger.info(
@@ -86,7 +87,7 @@ class InventoryIntegrationMixin:
                     invoice.invoice_id,
                     len(movements),
                 )
-                
+
         except Exception as e:
             # Log but don't fail invoice creation
             logger.error("Inventory processing error for invoice %s: %s", invoice.invoice_id, e)
@@ -97,28 +98,32 @@ class InventoryIntegrationMixin:
     ) -> None:
         """
         Reverse inventory changes when an invoice is cancelled/deleted.
-        
+
         For cancelled sales: Add stock back
         For cancelled purchases: Remove stock
-        
+
         Args:
             invoice: The invoice being cancelled
         """
         from app.models.inventory_models import StockMovement
         from app.services.inventory import build_inventory_service
-        
+
         try:
             inventory_service = build_inventory_service(self.db, invoice.issuer_id)
-            
+
             # Find all stock movements for this invoice
-            movements = self.db.query(StockMovement).filter(
-                StockMovement.reference_id == invoice.invoice_id,
-            ).all()
-            
+            movements = (
+                self.db.query(StockMovement)
+                .filter(
+                    StockMovement.reference_id == invoice.invoice_id,
+                )
+                .all()
+            )
+
             for movement in movements:
                 # Create reversal movement
                 reversal_qty = -movement.quantity  # Opposite of original
-                
+
                 if reversal_qty > 0:
                     # Was a sale, now adding back
                     inventory_service.record_purchase(
@@ -135,8 +140,8 @@ class InventoryIntegrationMixin:
                         unit_price=movement.unit_cost or Decimal(0),
                         reference_id=f"CANCEL-{invoice.invoice_id}",
                     )
-                    
+
             logger.info("Reversed %s inventory movements for invoice %s", len(movements), invoice.invoice_id)
-            
+
         except Exception as e:
             logger.error("Error reversing inventory for invoice %s: %s", invoice.invoice_id, e)

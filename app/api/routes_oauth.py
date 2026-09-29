@@ -23,8 +23,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.api.rate_limit import RATE_LIMITS, limiter
-from app.api.routes_auth import _set_refresh_cookie
-from app.api.routes_auth import get_current_user_id
+from app.api.routes_auth import _set_refresh_cookie, get_current_user_id
 from app.core.config import settings
 from app.core.csrf import get_csrf_token, set_csrf_cookie
 from app.core.security import TokenType, decode_token
@@ -43,7 +42,7 @@ _redis_client: redis.Redis | None = None
 
 def _get_redis_client() -> redis.Redis:
     """Get or lazily create a Redis client for state management.
-    
+
     Uses centralized connection pool to avoid hitting connection limits.
     """
     global _redis_client
@@ -52,6 +51,7 @@ def _get_redis_client() -> redis.Redis:
 
     try:
         from app.db.redis_client import get_redis_client
+
         _redis_client = get_redis_client()
         logger.info("OAuth using shared Redis client")
         return _redis_client
@@ -63,7 +63,7 @@ def _get_redis_client() -> redis.Redis:
 def _generate_state() -> str:
     """
     Generate cryptographically secure state token for CSRF protection.
-    
+
     Returns:
         Random 32-character hex string
     """
@@ -73,7 +73,7 @@ def _generate_state() -> str:
 def _store_oauth_state(state: str, redirect_uri: str) -> None:
     """
     Store OAuth state token in Redis with redirect URI.
-    
+
     Args:
         state: State token to store
         redirect_uri: Frontend redirect URI to store with state
@@ -103,18 +103,18 @@ def _build_redirect_with_params(base_url: str, params: dict[str, str]) -> str:
 def _get_redirect_uri(state: str, consume: bool = True) -> str | None:
     """
     Validate OAuth state token and return redirect URI from Redis.
-    
+
     Args:
         state: State token from OAuth callback
         consume: Whether to delete the state entry after retrieval
-        
+
     Returns:
         Redirect URI if state is valid, None otherwise
     """
     try:
         redis_client = _get_redis_client()
         key = f"oauth:state:{state}"
-        
+
         redirect_uri = redis_client.get(key)
 
         if redirect_uri is None:
@@ -157,9 +157,9 @@ def _extract_access_expiry(access_token: str) -> datetime:
 def list_oauth_providers(db: Annotated[Session, Depends(get_db)]) -> dict:
     """
     List available OAuth providers.
-    
+
     Returns list of configured SSO providers with their capabilities.
-    
+
     Returns:
         {
             "providers": [
@@ -176,13 +176,15 @@ def list_oauth_providers(db: Annotated[Session, Depends(get_db)]) -> dict:
 
     # Google provider
     if settings.GOOGLE_CLIENT_ID:
-        providers.append({
-            "name": "google",
-            "display_name": "Google",
-            "enabled": True,
-            "supports_refresh": True,
-            "icon_url": "https://www.google.com/favicon.ico",
-        })
+        providers.append(
+            {
+                "name": "google",
+                "display_name": "Google",
+                "enabled": True,
+                "supports_refresh": True,
+                "icon_url": "https://www.google.com/favicon.ico",
+            }
+        )
 
     return {"providers": providers}
 
@@ -197,16 +199,16 @@ def oauth_login(
 ) -> RedirectResponse:
     """
     Initiate OAuth login flow.
-    
+
     Redirects user to OAuth provider's authorization page.
-    
+
     Args:
         provider: OAuth provider name (e.g., "google")
         redirect_uri: Optional frontend URL to redirect after successful auth
-        
+
     Returns:
         Redirect to OAuth provider's authorization page
-        
+
     Example:
         GET /auth/oauth/google/login?redirect_uri=https://app.suoops.com/dashboard
     """
@@ -238,19 +240,19 @@ async def oauth_callback(
 ) -> dict:
     """
     Handle OAuth provider callback.
-    
+
     Completes OAuth flow:
     1. Validates CSRF state
     2. Exchanges code for tokens
     3. Fetches user info
     4. Creates/updates user
     5. Returns JWT tokens
-    
+
     Args:
         provider: OAuth provider name
         code: Authorization code from provider
         state: CSRF state token
-        
+
     Returns:
         {
             "access_token": "eyJ...",
@@ -258,7 +260,7 @@ async def oauth_callback(
             "token_type": "bearer",
             "redirect_uri": "https://app.suoops.com/dashboard"
         }
-        
+
     Example:
         GET /auth/oauth/google/callback?code=4/xxx&state=abc123
     """
@@ -266,10 +268,7 @@ async def oauth_callback(
     sec_fetch_mode = (request.headers.get("sec-fetch-mode", "") or "").lower()
     referer = request.headers.get("referer", "") or ""
     origin = request.headers.get("origin", "") or ""
-    expects_json = (
-        "application/json" in accept_header
-        or (sec_fetch_mode and sec_fetch_mode != "navigate")
-    )
+    expects_json = "application/json" in accept_header or (sec_fetch_mode and sec_fetch_mode != "navigate")
 
     # For browser navigations we redirect back to the frontend with original parameters
     if not expects_json:
@@ -277,18 +276,16 @@ async def oauth_callback(
         if redirect_uri is None:
             logger.warning(
                 "Invalid OAuth state (non-JSON request): %s | headers accept=%s mode=%s origin=%s referer=%s",
-                state, accept_header, sec_fetch_mode, origin, referer
+                state,
+                accept_header,
+                sec_fetch_mode,
+                origin,
+                referer,
             )
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid or expired OAuth state (navigate phase)."
-            )
+            raise HTTPException(status_code=400, detail="Invalid or expired OAuth state (navigate phase).")
 
         redirect_with_params = _build_redirect_with_params(redirect_uri, {"code": code, "state": state})
-        logger.info(
-            "OAuth navigate phase redirect | provider=%s origin=%s referer=%s",
-            provider, origin, referer
-        )
+        logger.info("OAuth navigate phase redirect | provider=%s origin=%s referer=%s", provider, origin, referer)
         return RedirectResponse(url=redirect_with_params)
 
     # Validate CSRF state and get redirect URI (without consuming yet)
@@ -296,13 +293,14 @@ async def oauth_callback(
     if redirect_uri is None:
         logger.warning(
             "Invalid or consumed OAuth state (JSON phase): %s | headers accept=%s mode=%s origin=%s referer=%s",
-            state, accept_header, sec_fetch_mode, origin, referer
+            state,
+            accept_header,
+            sec_fetch_mode,
+            origin,
+            referer,
         )
         # Return JSON error for fetch requests to avoid CORS issues with redirects
-        raise HTTPException(
-            status_code=401,
-            detail="OAuth state expired or invalid. Please try logging in again."
-        )
+        raise HTTPException(status_code=401, detail="OAuth state expired or invalid. Please try logging in again.")
 
     try:
         oauth_service = create_oauth_service(db)
@@ -328,15 +326,15 @@ async def oauth_callback(
 
         response = JSONResponse(content=jsonable_encoder(payload_model))
         _set_refresh_cookie(response, refresh_token)
-        
+
         # Set CSRF token on successful OAuth authentication
         csrf_token = get_csrf_token(request)
         secure = settings.ENV.lower() in {"prod", "production"}
         set_csrf_cookie(response, csrf_token, secure=secure)
-        
+
         # Only consume state after successful authentication
         _get_redirect_uri(state, consume=True)
-        
+
         logger.info("OAuth callback success | provider=%s", provider)
         oauth_login_success()
         return response
@@ -353,10 +351,7 @@ async def oauth_callback(
         logger.exception("OAuth callback unexpected error | provider=%s", provider)
         _get_redirect_uri(state, consume=True)  # Consume state to prevent replay
         # Return JSON error for unexpected errors
-        raise HTTPException(
-            status_code=500,
-            detail="An error occurred during authentication. Please try again."
-        )
+        raise HTTPException(status_code=500, detail="An error occurred during authentication. Please try again.")
 
 
 @router.post("/{provider}/revoke")
@@ -367,21 +362,21 @@ def revoke_oauth_access(
 ) -> dict:
     """
     Revoke OAuth access for user.
-    
+
     Removes OAuth provider link from user account.
     User can still login with password if set.
-    
+
     Args:
         provider: OAuth provider to unlink
         current_user_id: Authenticated user ID
-        
+
     Returns:
         {"message": "OAuth access revoked"}
-        
+
     Note: Not fully implemented - requires OAuth token storage
     """
     logger.info("OAuth revocation requested for provider %s", provider)
-    
+
     # TODO: Implement OAuth token storage and revocation
     # For now, just acknowledge the request
     return {

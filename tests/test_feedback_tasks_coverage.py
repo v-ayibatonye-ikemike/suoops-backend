@@ -1,4 +1,5 @@
 """Coverage tests for app/workers/tasks/feedback_tasks.py."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

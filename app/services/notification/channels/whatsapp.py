@@ -14,11 +14,11 @@ logger = logging.getLogger(__name__)
 
 class WhatsAppChannel:
     """Encapsulates WhatsApp messaging for invoices and receipts.
-    
+
     Centralizes the WhatsApp first-time customer logic:
     - For customers who have opted-in (replied before): send full invoice with payment details
     - For new customers: send template message and mark invoice as pending follow-up
-    
+
     This ensures consistent behavior whether invoices are created from:
     - Dashboard (via NotificationService)
     - WhatsApp bot (via InvoiceIntentProcessor)
@@ -34,15 +34,15 @@ class WhatsAppChannel:
         pdf_url: str | None,
     ) -> bool:
         """Send invoice notification to customer via WhatsApp.
-        
+
         For RETURNING customers (already opted-in):
         - Send full invoice as regular message with PDF immediately
         - They're within 24-hour window since they've interacted before
-        
+
         For NEW customers (not opted-in):
         - Send template message (works outside 24-hour window)
         - Mark invoice as pending, PDF sent when they reply "OK"
-        
+
         Returns True if message was sent successfully.
         """
         logger.info(
@@ -55,10 +55,11 @@ class WhatsAppChannel:
             if not self._service.whatsapp_key or not self._service.whatsapp_phone_number_id:
                 logger.warning("WhatsApp not configured. Set WHATSAPP_API_KEY and WHATSAPP_PHONE_NUMBER_ID")
                 return False
-            
+
             from app.bot.whatsapp_client import WhatsAppClient
+
             client = WhatsAppClient(self._service.whatsapp_key)
-            
+
             # Check if customer is already opted-in (returning customer)
             customer = getattr(invoice, "customer", None)
             is_opted_in = False
@@ -68,43 +69,37 @@ class WhatsAppChannel:
                     "[WHATSAPP] Customer check: id=%s, phone=%s, whatsapp_opted_in=%s",
                     getattr(customer, "id", "?"),
                     getattr(customer, "phone", "?"),
-                    is_opted_in
+                    is_opted_in,
                 )
             else:
                 logger.warning("[WHATSAPP] No customer object on invoice %s", invoice.invoice_id)
-            
+
             if is_opted_in:
                 # Returning customer - send full invoice directly (they're in 24-hour window)
-                logger.info(
-                    "[WHATSAPP] Customer %s is opted-in, sending full invoice directly",
-                    recipient_phone
-                )
+                logger.info("[WHATSAPP] Customer %s is opted-in, sending full invoice directly", recipient_phone)
                 return await self._send_full_invoice(client, invoice, recipient_phone, pdf_url)
-            
+
             # New customer - use template (works outside 24-hour window)
-            logger.info(
-                "[WHATSAPP] Customer %s is not opted-in, using template",
-                recipient_phone
-            )
+            logger.info("[WHATSAPP] Customer %s is not opted-in, using template", recipient_phone)
 
             # Preferred: the invoice_with_payment template carries the PDF in a
             # DOCUMENT header — a first-time customer gets it without replying,
             # and the body carries no bank number (they pay via the link).
             payment_template = getattr(settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", None)
             doc_pdf = pdf_url if (pdf_url or "").startswith("http") else None
-            if payment_template and doc_pdf and self._send_doc_template(
-                client, invoice, recipient_phone, doc_pdf, payment_template
+            if (
+                payment_template
+                and doc_pdf
+                and self._send_doc_template(client, invoice, recipient_phone, doc_pdf, payment_template)
             ):
-                logger.info(
-                    "[WHATSAPP] invoice_with_payment (PDF attached) sent to %s", recipient_phone
-                )
+                logger.info("[WHATSAPP] invoice_with_payment (PDF attached) sent to %s", recipient_phone)
                 return True
 
             template_sent = await self._send_template_only(client, invoice, recipient_phone)
-            
+
             if not template_sent:
                 return False
-            
+
             # Don't send PDF here — wait for customer to reply (opt-in).
             # Sending PDF immediately wastes an API call because
             # send_document() silently fails (returns False, no exception)
@@ -112,25 +107,25 @@ class WhatsAppChannel:
             # The PDF will be delivered via handle_customer_optin() when
             # they reply to the template.
             return True
-                
+
         except Exception as e:  # pragma: no cover - network failures
             logger.error("Failed to send invoice via WhatsApp: %s", e)
             return False
-    
+
     def _is_registered_user(self, phone: str, invoice: models.Invoice) -> bool:
         """Check if a phone number belongs to a registered business user."""
         from sqlalchemy.orm import object_session
 
         from app.models import models
         from app.utils.phone import normalize_phone
-        
+
         normalized = normalize_phone(phone)
-        
+
         # Get db session from invoice object
         db = object_session(invoice)
         if not db:
             return False
-            
+
         # Check if phone exists in users table
         user = db.query(models.User).filter(models.User.phone == normalized).first()
         if user:
@@ -149,12 +144,12 @@ class WhatsAppChannel:
         business_name = "Business"
         if hasattr(invoice, "issuer") and invoice.issuer:
             business_name = getattr(invoice.issuer, "business_name", None) or business_name
-        
+
         # Build payment message with bank details if available
         message = self._build_payment_message(invoice, business_name)
-        
+
         client.send_text(recipient_phone, message)
-        
+
         # Send PDF if available
         if pdf_url and pdf_url.startswith("http"):
             client.send_document(
@@ -163,12 +158,12 @@ class WhatsAppChannel:
                 f"Invoice_{invoice.invoice_id}.pdf",
                 f"Invoice {invoice.invoice_id} - ₦{invoice.amount:,.2f}",
             )
-        
+
         # Clear pending flag if it was set
         if getattr(invoice, "whatsapp_delivery_pending", False):
             invoice.whatsapp_delivery_pending = False
             # Note: Caller should commit the session
-            
+
         logger.info("[WHATSAPP] Full invoice sent to opted-in customer %s", recipient_phone)
         return True
 
@@ -195,7 +190,7 @@ class WhatsAppChannel:
         # Build items text
         items_text = self._build_items_text(invoice)
         items_with_cta = f"{items_text}. Reply 'OK' to receive invoice PDF & payment details"
-        
+
         components = [
             {
                 "type": "body",
@@ -207,14 +202,14 @@ class WhatsAppChannel:
                 ],
             }
         ]
-        
+
         template_sent = client.send_template(
             recipient_phone,
             template_name=template_name,
             language=getattr(settings, "WHATSAPP_TEMPLATE_LANGUAGE", "en"),
             components=components,
         )
-        
+
         if template_sent:
             # Mark invoice as pending follow-up delivery
             invoice.whatsapp_delivery_pending = True
@@ -222,7 +217,7 @@ class WhatsAppChannel:
             logger.info("[WHATSAPP] Template sent to customer %s, invoice marked pending", recipient_phone)
         else:
             logger.warning("[WHATSAPP] Failed to send template to %s", recipient_phone)
-        
+
         return template_sent
 
     def _send_doc_template(
@@ -242,11 +237,7 @@ class WhatsAppChannel:
         amount_text = f"₦{invoice.amount:,.2f}"
         items_text = self._build_items_text(invoice)
         issuer = getattr(invoice, "issuer", None)
-        business_name = (
-            getattr(issuer, "business_name", None)
-            or getattr(issuer, "name", None)
-            or "your business"
-        )
+        business_name = getattr(issuer, "business_name", None) or getattr(issuer, "name", None) or "your business"
         frontend_url = getattr(settings, "FRONTEND_URL", "https://suoops.com")
         payment_link = f"{frontend_url.rstrip('/')}/pay/{invoice.invoice_id}"
 
@@ -290,10 +281,10 @@ class WhatsAppChannel:
             f"Amount: ₦{invoice.amount:,.2f}\n"
             f"Status: {invoice.status.upper()}\n"
         )
-        
+
         if invoice.due_date:
             message += f"Due: {invoice.due_date.strftime('%B %d, %Y')}\n"
-        
+
         # Add bank details if available
         issuer = getattr(invoice, "issuer", None)
         if issuer and getattr(issuer, "bank_name", None) and getattr(issuer, "account_number", None):
@@ -304,19 +295,19 @@ class WhatsAppChannel:
             )
             if getattr(issuer, "account_name", None):
                 message += f"Name: {issuer.account_name}\n"
-        
+
         # Add payment link
         frontend_url = getattr(settings, "FRONTEND_URL", "https://suoops.com")
         payment_link = f"{frontend_url.rstrip('/')}/pay/{invoice.invoice_id}"
         message += f"\n🔗 View & Pay: {payment_link}"
-        
+
         return message
 
     def _build_items_text(self, invoice: models.Invoice) -> str:
         """Build a text representation of invoice line items."""
         if not invoice.lines or len(invoice.lines) == 0:
             return "Invoice items"
-        
+
         # Limit to first 3 items to keep message short
         lines = invoice.lines[:3]
         parts = []
@@ -324,11 +315,11 @@ class WhatsAppChannel:
             desc = getattr(line, "description", "Item")
             qty = getattr(line, "quantity", 1)
             parts.append(f"{desc} x{qty}")
-        
+
         text = ", ".join(parts)
         if len(invoice.lines) > 3:
             text += f" +{len(invoice.lines) - 3} more"
-        
+
         return text
 
     async def send_receipt(
@@ -348,13 +339,13 @@ class WhatsAppChannel:
             if not self._service.whatsapp_key or not self._service.whatsapp_phone_number_id:
                 logger.warning("WhatsApp not configured for receipt")
                 return False
-            
+
             import datetime as dt
 
             from app.bot.whatsapp_client import WhatsAppClient
-            
+
             client = WhatsAppClient(self._service.whatsapp_key)
-            
+
             # Try to use receipt template first (works outside 24-hour window)
             template_name = getattr(settings, "WHATSAPP_TEMPLATE_RECEIPT", None)
             has_pdf = bool(pdf_url and pdf_url.startswith("http"))
@@ -368,7 +359,8 @@ class WhatsAppChannel:
                 logger.warning(
                     "[WHATSAPP] Receipt PDF missing for %s — skipping the %s template "
                     "(it needs a document header); trying a text message instead.",
-                    recipient_phone, template_name,
+                    recipient_phone,
+                    template_name,
                 )
 
             if template_name and has_pdf:
@@ -380,27 +372,31 @@ class WhatsAppChannel:
                 components: list[dict] = []
                 # DOCUMENT header carries the receipt PDF (delivered outside 24h).
                 if has_pdf:
-                    components.append({
-                        "type": "header",
+                    components.append(
+                        {
+                            "type": "header",
+                            "parameters": [
+                                {
+                                    "type": "document",
+                                    "document": {
+                                        "link": pdf_url,
+                                        "filename": f"Receipt_{invoice.invoice_id}.pdf",
+                                    },
+                                }
+                            ],
+                        }
+                    )
+                components.append(
+                    {
+                        "type": "body",
                         "parameters": [
-                            {
-                                "type": "document",
-                                "document": {
-                                    "link": pdf_url,
-                                    "filename": f"Receipt_{invoice.invoice_id}.pdf",
-                                },
-                            }
+                            {"type": "text", "text": customer_name},
+                            {"type": "text", "text": invoice.invoice_id},
+                            {"type": "text", "text": amount_text},
+                            {"type": "text", "text": date_text},
                         ],
-                    })
-                components.append({
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": customer_name},
-                        {"type": "text", "text": invoice.invoice_id},
-                        {"type": "text", "text": amount_text},
-                        {"type": "text", "text": date_text},
-                    ],
-                })
+                    }
+                )
 
                 template_sent = client.send_template(
                     recipient_phone,
@@ -408,7 +404,7 @@ class WhatsAppChannel:
                     language=getattr(settings, "WHATSAPP_TEMPLATE_LANGUAGE", "en"),
                     components=components,
                 )
-                
+
                 if template_sent:
                     logger.info("[WHATSAPP] Receipt template sent to %s", recipient_phone)
                     # If the template didn't carry the PDF in a header (no pdf at
@@ -423,7 +419,7 @@ class WhatsAppChannel:
                     return True
                 else:
                     logger.warning("[WHATSAPP] Receipt template failed for %s, trying regular message", recipient_phone)
-            
+
             # Fallback to regular message (may fail if outside 24-hour window)
             receipt_message = (
                 "🎉 Payment Received!\n\n"
@@ -433,9 +429,9 @@ class WhatsAppChannel:
                 "✅ Status: PAID\n\n"
                 "Your receipt is attached below."
             )
-            
+
             client.send_text(recipient_phone, receipt_message)
-            
+
             if pdf_url and pdf_url.startswith("http"):
                 client.send_document(
                     recipient_phone,
@@ -443,7 +439,7 @@ class WhatsAppChannel:
                     f"Receipt_{invoice.invoice_id}.pdf",
                     f"Payment Receipt - ₦{invoice.amount:,.2f}",
                 )
-            
+
             return True
         except Exception as e:  # pragma: no cover - network failures
             logger.error("Failed to send receipt via WhatsApp: %s", e)

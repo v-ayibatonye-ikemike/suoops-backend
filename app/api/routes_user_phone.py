@@ -8,6 +8,7 @@ Endpoints:
 1. POST /users/me/phone   - Save phone number (auto-verified)
 2. DELETE /users/me/phone  - Remove phone from account
 """
+
 import logging
 from typing import Annotated
 
@@ -45,9 +46,7 @@ def request_phone_change_otp(
         OTPService().send_code(identifier, purpose="phone_change")
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to send phone-change OTP for user %s", current_user_id)
-        raise HTTPException(
-            status_code=502, detail="Could not send your confirmation code. Please try again."
-        ) from exc
+        raise HTTPException(status_code=502, detail="Could not send your confirmation code. Please try again.") from exc
     channel = "email" if (user.email and not user.phone) else "WhatsApp"
     return schemas.MessageOut(detail=f"Confirmation code sent to your {channel}.")
 
@@ -76,10 +75,14 @@ def save_phone_number(
         raise HTTPException(status_code=400, detail="Phone number is required")
 
     # Check if phone is already used by another user
-    existing = db.query(models.User).filter(
-        models.User.phone == normalized_phone,
-        models.User.id != current_user_id,
-    ).first()
+    existing = (
+        db.query(models.User)
+        .filter(
+            models.User.phone == normalized_phone,
+            models.User.id != current_user_id,
+        )
+        .first()
+    )
     if existing:
         raise HTTPException(
             status_code=400,
@@ -95,8 +98,10 @@ def save_phone_number(
         from app.services.otp_service import OTPService
 
         identifier = old_phone or user.email
-        if not payload.otp or not identifier or not OTPService().verify_otp(
-            identifier, payload.otp, purpose="phone_change"
+        if (
+            not payload.otp
+            or not identifier
+            or not OTPService().verify_otp(identifier, payload.otp, purpose="phone_change")
         ):
             raise HTTPException(
                 status_code=401,
@@ -124,7 +129,9 @@ def save_phone_number(
 
     logger.info(
         "Phone saved (change=%s, pending verification) for user %s: %s",
-        is_change, current_user_id, normalized_phone,
+        is_change,
+        current_user_id,
+        normalized_phone,
     )
     return schemas.PhoneVerificationResponse(
         detail="Phone number saved! Now message our WhatsApp bot to activate it.",
@@ -134,6 +141,7 @@ def save_phone_number(
 
 # ── Legacy endpoints (backward compatibility) ────────────────────────
 # Keep these so old frontend versions don't break during rollout.
+
 
 @router.post("/me/phone/request", response_model=schemas.MessageOut, include_in_schema=False)
 def request_phone_otp_legacy(
@@ -191,8 +199,5 @@ def remove_phone_number(
         raise HTTPException(status_code=404, detail="No phone number configured")
     raise HTTPException(
         status_code=400,
-        detail=(
-            "Phone numbers can't be removed — only replaced. "
-            "Save a new phone number to change it."
-        ),
+        detail=("Phone numbers can't be removed — only replaced. " "Save a new phone number to change it."),
     )

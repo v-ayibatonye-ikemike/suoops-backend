@@ -41,9 +41,7 @@ class NotificationService:
 
         host, port, user, password, from_email = get_smtp_config()
         if not user or not password:
-            logger.warning(
-                "Email not configured. Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or legacy Brevo vars)."
-            )
+            logger.warning("Email not configured. Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or legacy Brevo vars).")
             return None
         return {
             "host": host,

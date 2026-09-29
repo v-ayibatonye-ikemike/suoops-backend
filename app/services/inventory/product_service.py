@@ -3,6 +3,7 @@ Product Service - CRUD operations for products.
 
 Follows SRP: Only handles product-related operations.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ProductService(BaseInventoryService):
     """
     Service for product operations.
-    
+
     Handles CRUD operations for products in the catalog.
     Each user has their own product catalog with independent SKUs.
     """
@@ -38,10 +39,14 @@ class ProductService(BaseInventoryService):
         base = re.sub(r"[^A-Z0-9]+", "-", (name or "ITEM").upper()).strip("-")[:16] or "ITEM"
         for _ in range(12):
             candidate = f"{base}-{secrets.token_hex(2).upper()}"
-            exists = self._db.query(Product.id).filter(
-                Product.user_id == self._user_id,
-                Product.sku == candidate,
-            ).first()
+            exists = (
+                self._db.query(Product.id)
+                .filter(
+                    Product.user_id == self._user_id,
+                    Product.sku == candidate,
+                )
+                .first()
+            )
             if not exists:
                 return candidate
         return f"{base}-{secrets.token_hex(4).upper()}"
@@ -49,17 +54,21 @@ class ProductService(BaseInventoryService):
     def create_product(self, data: ProductCreate) -> Product:
         """
         Create a new product.
-        
+
         If initial stock is provided, also creates an opening stock movement.
         """
         # SKU is optional for the user. When provided it must be unique; when
         # blank, auto-generate a unique one from the product name.
         sku = (data.sku or "").strip()
         if sku:
-            existing = self._db.query(Product).filter(
-                Product.user_id == self._user_id,
-                Product.sku == sku,
-            ).first()
+            existing = (
+                self._db.query(Product)
+                .filter(
+                    Product.user_id == self._user_id,
+                    Product.sku == sku,
+                )
+                .first()
+            )
             if existing:
                 raise ValueError(f"Product with SKU '{sku}' already exists")
         else:
@@ -67,10 +76,14 @@ class ProductService(BaseInventoryService):
 
         # Validate category if provided
         if data.category_id:
-            category = self._db.query(ProductCategory).filter(
-                ProductCategory.id == data.category_id,
-                ProductCategory.user_id == self._user_id,
-            ).first()
+            category = (
+                self._db.query(ProductCategory)
+                .filter(
+                    ProductCategory.id == data.category_id,
+                    ProductCategory.user_id == self._user_id,
+                )
+                .first()
+            )
             if not category:
                 raise ValueError(f"Category with ID {data.category_id} not found")
 
@@ -117,26 +130,37 @@ class ProductService(BaseInventoryService):
 
     def get_product(self, product_id: int) -> Product | None:
         """Get a product by ID with category loaded."""
-        return self._db.query(Product).options(
-            joinedload(Product.category)
-        ).filter(
-            Product.id == product_id,
-            Product.user_id == self._user_id,
-        ).first()
+        return (
+            self._db.query(Product)
+            .options(joinedload(Product.category))
+            .filter(
+                Product.id == product_id,
+                Product.user_id == self._user_id,
+            )
+            .first()
+        )
 
     def get_product_by_sku(self, sku: str) -> Product | None:
         """Get a product by SKU."""
-        return self._db.query(Product).filter(
-            Product.user_id == self._user_id,
-            Product.sku == sku,
-        ).first()
+        return (
+            self._db.query(Product)
+            .filter(
+                Product.user_id == self._user_id,
+                Product.sku == sku,
+            )
+            .first()
+        )
 
     def get_product_by_barcode(self, barcode: str) -> Product | None:
         """Get a product by barcode."""
-        return self._db.query(Product).filter(
-            Product.user_id == self._user_id,
-            Product.barcode == barcode,
-        ).first()
+        return (
+            self._db.query(Product)
+            .filter(
+                Product.user_id == self._user_id,
+                Product.barcode == barcode,
+            )
+            .first()
+        )
 
     def list_products(
         self,
@@ -150,12 +174,10 @@ class ProductService(BaseInventoryService):
     ) -> tuple[Sequence[Product], int]:
         """
         List products with filtering and pagination.
-        
+
         Returns a tuple of (products, total_count).
         """
-        query = self._db.query(Product).options(
-            joinedload(Product.category)
-        ).filter(Product.user_id == self._user_id)
+        query = self._db.query(Product).options(joinedload(Product.category)).filter(Product.user_id == self._user_id)
 
         if not include_inactive:
             query = query.filter(Product.is_active.is_(True))
@@ -203,23 +225,31 @@ class ProductService(BaseInventoryService):
             return None
 
         update_data = data.model_dump(exclude_unset=True)
-        
+
         # Validate unique SKU if changing
         if "sku" in update_data and update_data["sku"] != product.sku:
-            existing = self._db.query(Product).filter(
-                Product.user_id == self._user_id,
-                Product.sku == update_data["sku"],
-                Product.id != product_id,
-            ).first()
+            existing = (
+                self._db.query(Product)
+                .filter(
+                    Product.user_id == self._user_id,
+                    Product.sku == update_data["sku"],
+                    Product.id != product_id,
+                )
+                .first()
+            )
             if existing:
                 raise ValueError(f"Product with SKU '{update_data['sku']}' already exists")
 
         # Validate category if changing
         if "category_id" in update_data and update_data["category_id"]:
-            category = self._db.query(ProductCategory).filter(
-                ProductCategory.id == update_data["category_id"],
-                ProductCategory.user_id == self._user_id,
-            ).first()
+            category = (
+                self._db.query(ProductCategory)
+                .filter(
+                    ProductCategory.id == update_data["category_id"],
+                    ProductCategory.user_id == self._user_id,
+                )
+                .first()
+            )
             if not category:
                 raise ValueError(f"Category with ID {update_data['category_id']} not found")
 
@@ -227,9 +257,7 @@ class ProductService(BaseInventoryService):
         # for PHYSICAL products, so it isn't editable inline. Services/digital have
         # no such audit need — allow setting their available quantity directly.
         if "quantity_in_stock" in update_data:
-            resulting_type = update_data.get(
-                "fulfilment_type", getattr(product, "fulfilment_type", "physical")
-            )
+            resulting_type = update_data.get("fulfilment_type", getattr(product, "fulfilment_type", "physical"))
             if resulting_type == "physical":
                 update_data.pop("quantity_in_stock")
 

@@ -9,6 +9,7 @@ land as ~40–150 KB instead of megabytes. Falls back to returning the original
 bytes if Pillow can't open the file (e.g. SVG logos) — nothing is worse than a
 missing image.
 """
+
 from __future__ import annotations
 
 import io

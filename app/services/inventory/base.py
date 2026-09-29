@@ -7,6 +7,7 @@ Follows OOP principles:
 - Dependency Injection: Database session injected via constructor
 - Encapsulation: Protected attributes with underscore prefix
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 class BaseInventoryService:
     """
     Base service class with shared inventory functionality.
-    
+
     All inventory-related services inherit from this class
     to share database session and user context.
     """
@@ -31,7 +32,7 @@ class BaseInventoryService:
     def __init__(self, db: Session, user_id: int):
         """
         Initialize the base inventory service.
-        
+
         Args:
             db: SQLAlchemy database session
             user_id: ID of the authenticated user (business owner)

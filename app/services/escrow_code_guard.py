@@ -8,6 +8,7 @@ rolling window — IP-independent — which makes distributed guessing infeasibl
 Redis-backed and fail-open: if Redis is unreachable the per-IP limiter still
 applies, so a cache blip can never lock out a store or crash a request.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,8 @@ def register_code_failure(seller_id: int) -> None:
             logger.warning(
                 "Delivery-code brute-force suspected on store seller_id=%s "
                 "(%s failed attempts in window) — code entry locked.",
-                seller_id, n,
+                seller_id,
+                n,
             )
     except Exception:  # noqa: BLE001 — never let counting break the request
         logger.debug("Skipped code-failure count (redis unavailable)")

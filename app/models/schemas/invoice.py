@@ -1,4 +1,5 @@
 """Invoice-related schemas."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -26,15 +27,15 @@ class InvoiceCreate(BaseModel):
     due_date: dt.datetime | None = None
     lines: list[InvoiceLineIn] | None = None
     discount_amount: Decimal | None = Field(default=None, ge=0)
-    
+
     # Invoice type
     invoice_type: Literal["revenue", "expense"] = "revenue"
-    
+
     # Revenue invoice fields (when invoice_type="revenue")
     customer_name: str | None = None
     customer_phone: str | None = None
     customer_email: str | None = None
-    
+
     # Expense invoice fields (when invoice_type="expense")
     vendor_name: str | None = None
     category: str | None = None  # rent, utilities, supplies, etc.
@@ -43,7 +44,7 @@ class InvoiceCreate(BaseModel):
     notes: str | None = None
 
     @model_validator(mode="after")
-    def _validate_amounts(self) -> "InvoiceCreate":
+    def _validate_amounts(self) -> InvoiceCreate:
         # A discount can never exceed the amount (that would make the payable
         # total negative). amount>0 and discount>=0 are enforced by Field above.
         if self.discount_amount is not None and self.discount_amount > self.amount:
@@ -90,7 +91,7 @@ class InvoiceOut(BaseModel):
     paid_at: dt.datetime | None = None
     created_at: dt.datetime | None = None
     due_date: dt.datetime | None = None
-    
+
     # Unified invoice/expense fields
     invoice_type: str = "revenue"
     category: str | None = None
@@ -104,19 +105,19 @@ class InvoiceOut(BaseModel):
     # How the sale was collected (cash/transfer/card/other) — set for
     # quick-sale (walk-in) invoices.
     payment_method: str | None = None
-    
+
     # Creator tracking for team scenarios
     created_by_user_id: int | None = None
     created_by_name: str | None = None
-    
+
     # Customer info for display/search
     customer_name: str | None = None
-    
+
     # Status updater tracking (who marked as paid/cancelled)
     status_updated_by_user_id: int | None = None
     status_updated_by_name: str | None = None
     status_updated_at: dt.datetime | None = None
-    
+
     @model_validator(mode="before")
     @classmethod
     def populate_user_names(cls, data: Any) -> Any:
@@ -131,14 +132,17 @@ class InvoiceOut(BaseModel):
                     if data.get(_f):
                         data[_f] = s3_client.refresh_presigned_url(data[_f])
             return data
-        
-        result = {k: getattr(data, k, None) for k in cls.model_fields.keys() 
-                  if k not in {"created_by_name", "status_updated_by_name", "customer_name"}}
-        
+
+        result = {
+            k: getattr(data, k, None)
+            for k in cls.model_fields.keys()
+            if k not in {"created_by_name", "status_updated_by_name", "customer_name"}
+        }
+
         # Populate created_by_name
         if hasattr(data, "created_by") and data.created_by is not None:
             result["created_by_name"] = data.created_by.name
-        
+
         # Populate status_updated_by_name
         if hasattr(data, "status_updated_by") and data.status_updated_by is not None:
             result["status_updated_by_name"] = data.status_updated_by.name
@@ -153,7 +157,7 @@ class InvoiceOut(BaseModel):
         for _f in ("pdf_url", "receipt_pdf_url"):
             if result.get(_f):
                 result[_f] = s3_client.refresh_presigned_url(result[_f])
-        
+
         return result
 
 
@@ -181,6 +185,7 @@ class InvoiceStatusUpdate(BaseModel):
 
 class InvoiceLinePublicOut(BaseModel):
     """Minimal line-item data for the public payment page."""
+
     model_config = ConfigDict(from_attributes=True)
     description: str
     quantity: int
@@ -228,12 +233,14 @@ class InvoicePublicOut(BaseModel):
 
 class InvoiceVerificationItem(BaseModel):
     """A single line on a verified invoice (what was bought)."""
+
     description: str
     quantity: int = 1
 
 
 class InvoiceVerificationOut(BaseModel):
     """Public invoice verification response (for QR code scanning)."""
+
     invoice_id: str
     status: str
     amount: Decimal
@@ -256,11 +263,14 @@ class InvoiceVerificationOut(BaseModel):
 
 class InvoiceQuotaOut(BaseModel):
     """Invoice quota information for the authenticated user.
-    
+
     NEW BILLING MODEL: Uses invoice_balance (purchased invoices) instead of monthly limits.
     """
+
     invoice_balance: int = Field(description="Remaining invoices available to create")
-    total_invoices: int = Field(default=0, description="Total revenue invoices the user has created (drives onboarding activation)")
+    total_invoices: int = Field(
+        default=0, description="Total revenue invoices the user has created (drives onboarding activation)"
+    )
     current_plan: str = Field(description="Current subscription plan code")
     can_create: bool = Field(description="Whether user has invoice balance to create invoices")
     pack_price: int = Field(default=2500, description="Price for an invoice pack in Naira")
@@ -270,20 +280,24 @@ class InvoiceQuotaOut(BaseModel):
 
 class ReceiptUploadOut(BaseModel):
     """Response after successfully uploading an expense receipt."""
+
     receipt_url: str = Field(description="S3 URL of the uploaded receipt")
     filename: str = Field(description="Original filename of the uploaded receipt")
 
 
 class InvoicePackPurchaseInitOut(BaseModel):
     """Response after initializing invoice pack purchase payment."""
+
     authorization_url: str = Field(description="Paystack checkout URL for payment")
     reference: str = Field(description="Payment reference for tracking")
     amount: int = Field(description="Total amount in Naira")
     invoices_to_add: int = Field(default=0, description="Legacy: invoices added (0 under wallet model)")
     wallet_credit_naira: int = Field(default=0, description="Amount credited to the prepaid wallet")
 
+
 class PaginatedResponse(BaseModel, Generic[T]):
     """Generic paginated API response."""
+
     items: list[T]
     total: int = Field(description="Total number of matching records")
     skip: int = Field(description="Number of records skipped")

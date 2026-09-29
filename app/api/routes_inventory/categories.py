@@ -1,4 +1,5 @@
 """Product category endpoints."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException, Query

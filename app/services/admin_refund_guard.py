@@ -10,6 +10,7 @@ requires a fresh step-up OTP.
 Redis-backed and fail-open: if Redis is unreachable the per-transaction step-up
 and rate limiter still apply, so a cache blip can never wrongly block a refund.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,8 +45,6 @@ def record_refund(admin_id: int, amount_naira: float) -> None:
         new_total = r.incrbyfloat(k, max(0.0, float(amount_naira)))
         # (Re)set the TTL so the window rolls forward with activity.
         r.expire(k, _WINDOW_SECONDS)
-        logger.info(
-            "Admin %s cumulative 24h refunds now ₦%.0f", admin_id, float(new_total)
-        )
+        logger.info("Admin %s cumulative 24h refunds now ₦%.0f", admin_id, float(new_total))
     except Exception:  # noqa: BLE001 — never let counting break the refund
         logger.debug("Skipped admin refund-total count (redis unavailable)")

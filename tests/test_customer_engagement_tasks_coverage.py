@@ -3,6 +3,7 @@
 Covers the dormant-customer nudge and post-payment referral Celery tasks plus
 their helper functions. WhatsApp I/O is mocked; email is disabled in the module.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -83,20 +84,15 @@ class _FakeClient:
 
 
 def _patch_wa(monkeypatch, ok=True, can_send=True, raise_exc=False):
-    monkeypatch.setattr(
-        "app.core.whatsapp.get_whatsapp_client", lambda: _FakeClient(ok, raise_exc)
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.can_send_whatsapp", lambda *a, **k: can_send
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.record_whatsapp_send", lambda *a, **k: 1
-    )
+    monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: _FakeClient(ok, raise_exc))
+    monkeypatch.setattr("app.utils.whatsapp_budget.can_send_whatsapp", lambda *a, **k: can_send)
+    monkeypatch.setattr("app.utils.whatsapp_budget.record_whatsapp_send", lambda *a, **k: 1)
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize(
     "phone,expected",
@@ -127,6 +123,7 @@ def test_already_sent_and_record_send(db_session):
 # send_dormant_customer_nudges
 # ─────────────────────────────────────────────────────────────────────
 
+
 def test_dormant_empty(db_session):
     result = ce.send_dormant_customer_nudges()
     assert result == {
@@ -142,7 +139,9 @@ def test_dormant_whatsapp_sent(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         created_at=_now() - dt.timedelta(days=40),
     )
@@ -158,7 +157,9 @@ def test_dormant_skips_already_sent(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     inv = _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         created_at=_now() - dt.timedelta(days=40),
     )
@@ -184,7 +185,9 @@ def test_dormant_skips_no_contact(db_session, monkeypatch):
     # No email, invalid phone -> skipped
     cust = _make_customer(db_session, email=None, phone="123", whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         created_at=_now() - dt.timedelta(days=40),
     )
@@ -199,7 +202,9 @@ def test_dormant_failed_when_not_opted_in(db_session, monkeypatch):
     # Valid phone but not opted in, no email -> no channel -> failed
     cust = _make_customer(db_session, email=None, whatsapp_opted_in=False)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         created_at=_now() - dt.timedelta(days=40),
     )
@@ -214,7 +219,9 @@ def test_dormant_wa_exception(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         created_at=_now() - dt.timedelta(days=40),
     )
@@ -229,6 +236,7 @@ def test_dormant_wa_exception(db_session, monkeypatch):
 # ─────────────────────────────────────────────────────────────────────
 # send_post_payment_referrals
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_referral_empty(db_session):
     result = ce.send_post_payment_referrals()
@@ -245,7 +253,9 @@ def test_referral_whatsapp_sent(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )
@@ -261,7 +271,9 @@ def test_referral_skips_already_sent(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     inv = _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )
@@ -286,7 +298,9 @@ def test_referral_skips_no_customer(db_session, monkeypatch):
     user = _make_user(db_session)
     # customer_id points to a non-existent customer -> joinedload gives None
     _make_invoice(
-        db_session, user, 999999,
+        db_session,
+        user,
+        999999,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )
@@ -300,7 +314,9 @@ def test_referral_skips_no_contact(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, email=None, phone="123", whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )
@@ -314,7 +330,9 @@ def test_referral_failed_when_not_opted_in(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, email=None, whatsapp_opted_in=False)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )
@@ -329,7 +347,9 @@ def test_referral_wa_exception(db_session, monkeypatch):
     user = _make_user(db_session)
     cust = _make_customer(db_session, whatsapp_opted_in=True)
     _make_invoice(
-        db_session, user, cust.id,
+        db_session,
+        user,
+        cust.id,
         status="paid",
         paid_at=_now() - dt.timedelta(hours=2),
     )

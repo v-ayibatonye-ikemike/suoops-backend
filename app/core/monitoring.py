@@ -4,6 +4,7 @@ from app.core.config import settings
 
 _initialized = False
 
+
 def init_monitoring() -> None:
     global _initialized
     if _initialized:
@@ -16,6 +17,7 @@ def init_monitoring() -> None:
             from sentry_sdk.integrations.redis import RedisIntegration
             from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
             from sentry_sdk.integrations.starlette import StarletteIntegration
+
             # IMPORTANT: this is the ONLY place Sentry is initialized. Calling
             # sentry_sdk.init() twice re-applies integrations and double-wraps
             # RedisIntegration's command hook, causing a RecursionError

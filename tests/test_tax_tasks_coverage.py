@@ -10,6 +10,7 @@ These tests document the current (buggy) behavior for the unpatched path and, to
 exercise the remaining logic for coverage, inject the missing names as module
 attributes at test time (this does NOT modify any file under app/).
 """
+
 from __future__ import annotations
 
 import os as _os
@@ -25,8 +26,19 @@ from app.models.tax_models import FiscalInvoice
 from app.workers.tasks import tax_tasks
 
 MONTHS = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
@@ -133,7 +145,8 @@ def test_generate_reports_whatsapp_notify_path(monkeypatch, db_session):
     monkeypatch.setattr(tax_tasks, "_notify_tax_report_whatsapp", lambda *a, **k: True)
     called = {"email": 0}
     monkeypatch.setattr(
-        tax_tasks, "_send_tax_report_email",
+        tax_tasks,
+        "_send_tax_report_email",
         lambda **k: called.__setitem__("email", called["email"] + 1) or True,
     )
 
@@ -151,7 +164,8 @@ def test_generate_reports_email_fallback_path(monkeypatch, db_session):
     monkeypatch.setattr(tax_tasks, "_notify_tax_report_whatsapp", lambda *a, **k: False)
     sent = {"count": 0}
     monkeypatch.setattr(
-        tax_tasks, "_send_tax_report_email",
+        tax_tasks,
+        "_send_tax_report_email",
         lambda **k: sent.__setitem__("count", sent["count"] + 1) or True,
     )
 
@@ -169,7 +183,8 @@ def test_generate_reports_notifies_once_per_period(monkeypatch, db_session):
     monkeypatch.setattr(tax_tasks, "_notify_tax_report_whatsapp", lambda *a, **k: False)
     sent = {"count": 0}
     monkeypatch.setattr(
-        tax_tasks, "_send_tax_report_email",
+        tax_tasks,
+        "_send_tax_report_email",
         lambda **k: sent.__setitem__("count", sent["count"] + 1) or True,
     )
 
@@ -193,8 +208,8 @@ def test_generate_reports_failure_records_alerts(monkeypatch, db_session):
     assert result is None
     alerts = _FakeTaxProfile.last.alerts
     categories = {a["category"] for a in alerts}
-    assert "tax.report" in categories          # per-user failure alert
-    assert "tax.report.summary" in categories   # summary alert
+    assert "tax.report" in categories  # per-user failure alert
+    assert "tax.report.summary" in categories  # summary alert
 
 
 # ═══════════════════════════ transmit_invoice ═══════════════════════════
@@ -227,9 +242,7 @@ def _seed_fiscal(db, fiscal_code="FC-1", invoice_id=None):
 
 
 def test_transmit_invoice_success(monkeypatch, db_session):
-    monkeypatch.setattr(
-        "app.services.fiscalization_service.FiscalTransmitter", _FakeTransmitter
-    )
+    monkeypatch.setattr("app.services.fiscalization_service.FiscalTransmitter", _FakeTransmitter)
     user = _make_user(db_session, 1)
     cust = _make_customer(db_session)
     inv = _make_invoice(db_session, user.id, cust.id)
@@ -257,9 +270,7 @@ def test_transmit_invoice_missing_invoice(db_session):
 def test_transmit_invoice_failure_records_alert(monkeypatch, db_session):
     _FakeTransmitter.raise_error = True
     try:
-        monkeypatch.setattr(
-            "app.services.fiscalization_service.FiscalTransmitter", _FakeTransmitter
-        )
+        monkeypatch.setattr("app.services.fiscalization_service.FiscalTransmitter", _FakeTransmitter)
         user = _make_user(db_session, 1)
         cust = _make_customer(db_session)
         inv = _make_invoice(db_session, user.id, cust.id)
@@ -279,9 +290,7 @@ def test_update_fiscal_invoice_validated(db_session):
     inv = _make_invoice(db_session, user.id, cust.id)
     fi = _seed_fiscal(db_session, "FC-U1", invoice_id=inv.id)
 
-    tax_tasks._update_fiscal_invoice(
-        db_session, fi, {"status": "validated", "transaction_id": "T9"}
-    )
+    tax_tasks._update_fiscal_invoice(db_session, fi, {"status": "validated", "transaction_id": "T9"})
     assert fi.firs_validation_status == "validated"
     assert fi.firs_transaction_id == "T9"
     assert fi.transmitted_at is not None
@@ -313,7 +322,7 @@ def test_record_transmission_failure_adds_alert(db_session):
         (None, False),
         ("", False),
         ("abc", False),
-        ("+123", False),          # too short
+        ("+123", False),  # too short
         ("+2348012345678", True),
         ("08012345678", True),
     ],
@@ -435,9 +444,7 @@ def _inject_email_globals(monkeypatch, settings_obj):
 def test_send_tax_email_not_configured(monkeypatch):
     fake_settings = SimpleNamespace(SMTP_USER=None, SMTP_PASSWORD=None)
     _inject_email_globals(monkeypatch, fake_settings)
-    ok = tax_tasks._send_tax_report_email(
-        to_email="a@b.com", name="Ada Lovelace", period="July 2025", pdf_url=None
-    )
+    ok = tax_tasks._send_tax_report_email(to_email="a@b.com", name="Ada Lovelace", period="July 2025", pdf_url=None)
     assert ok is False
 
 
@@ -454,7 +461,9 @@ def test_send_tax_email_success(monkeypatch):
     monkeypatch.setattr("smtplib.SMTP", _FakeSMTP)
 
     ok = tax_tasks._send_tax_report_email(
-        to_email="a@b.com", name="Ada Lovelace", period="July 2025",
+        to_email="a@b.com",
+        name="Ada Lovelace",
+        period="July 2025",
         pdf_url="http://pdf/x.pdf",
     )
     assert ok is True
@@ -483,7 +492,10 @@ def test_tax_email_links_dashboard_and_omits_presigned_url(monkeypatch):
         "?X-Amz-Signature=EXPIRESOON&X-Amz-Expires=3600"
     )
     ok = tax_tasks._send_tax_report_email(
-        to_email="a@b.com", name="Ada", period="July 2026", pdf_url=presigned,
+        to_email="a@b.com",
+        name="Ada",
+        period="July 2026",
+        pdf_url=presigned,
     )
     assert ok is True
 
@@ -518,7 +530,5 @@ def test_send_tax_email_smtp_raises(monkeypatch):
             raise RuntimeError("smtp down")
 
     monkeypatch.setattr("smtplib.SMTP", _BoomSMTP)
-    ok = tax_tasks._send_tax_report_email(
-        to_email="a@b.com", name=None, period="July 2025", pdf_url=None
-    )
+    ok = tax_tasks._send_tax_report_email(to_email="a@b.com", name=None, period="July 2025", pdf_url=None)
     assert ok is False

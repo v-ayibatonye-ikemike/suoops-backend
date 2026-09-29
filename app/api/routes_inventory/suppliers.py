@@ -1,4 +1,5 @@
 """Supplier endpoints."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException, Query

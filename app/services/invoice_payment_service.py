@@ -5,6 +5,7 @@ Single source of truth for starting a Paystack payment for an invoice through
 the issuer's subaccount. Reused by the public pay endpoint, the storefront
 checkout, and the WhatsApp bot so there is no duplicated payment logic.
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,10 +61,7 @@ async def start_invoice_payment(
     if invoice.status in {"paid", "cancelled"}:
         raise PaymentInitError(f"Invoice is already {invoice.status}", 400)
 
-    if not (
-        getattr(issuer, "paystack_subaccount_active", False)
-        and getattr(issuer, "paystack_subaccount_code", None)
-    ):
+    if not (getattr(issuer, "paystack_subaccount_active", False) and getattr(issuer, "paystack_subaccount_code", None)):
         raise PaymentInitError("This business has not enabled online payments yet.", 409)
 
     amount = invoice.amount
@@ -75,9 +73,7 @@ async def start_invoice_payment(
     # invoice.amount stays the seller's goods value so revenue/tax reporting is
     # never inflated. Ordinary payments charge exactly invoice.amount.
     charge_kobo = (
-        int(charge_amount_kobo)
-        if charge_amount_kobo is not None and int(charge_amount_kobo) > 0
-        else int(amount * 100)
+        int(charge_amount_kobo) if charge_amount_kobo is not None and int(charge_amount_kobo) > 0 else int(amount * 100)
     )
 
     if not settings.PAYSTACK_SECRET:
@@ -90,9 +86,7 @@ async def start_invoice_payment(
     from app.utils.feature_gate import platform_fee_kobo
 
     is_storefront = getattr(invoice, "channel", None) == "storefront"
-    commission_kobo = (
-        min(platform_fee_kobo(amount), int(amount * 100)) if is_storefront else 0
-    )
+    commission_kobo = min(platform_fee_kobo(amount), int(amount * 100)) if is_storefront else 0
 
     customer = getattr(invoice, "customer", None)
     customer_email = (

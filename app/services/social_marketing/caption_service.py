@@ -5,6 +5,7 @@ text-only model since this is short marketing copy, not vision. If the LLM
 call fails or OPENAI_API_KEY isn't set, falls back to a simple template so a
 caption is always available — posting should never block on an LLM outage.
 """
+
 from __future__ import annotations
 
 import logging
@@ -62,7 +63,7 @@ def generate_caption(product: Product, business_name: str, link: str) -> str:
             resp = client.post(
                 _OPENAI_URL,
                 headers={
-                    "Authorization": f"******",
+                    "Authorization": "******",
                     "Content-Type": "application/json",
                 },
                 json={

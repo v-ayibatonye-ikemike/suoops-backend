@@ -5,6 +5,7 @@ Recipient onboarding. It does NOT move money — the actual hold/release/refund
 flow (payment webhook, auto-release worker, refunds) lands in later steps and
 uses these helpers.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -26,6 +27,7 @@ class EscrowError(Exception):
 
 
 # ── Trust rules ────────────────────────────────────────────────────────
+
 
 def is_trusted_seller(db: Session, user: models.User) -> bool:
     """Whether a seller may skip the escrow hold (normal/instant settlement).
@@ -105,7 +107,7 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def detect_order_collusion(
-    seller: "models.User",
+    seller: models.User,
     *,
     buyer_ip: str | None,
     customer_lat: float | None,
@@ -144,9 +146,7 @@ def detect_order_collusion(
     return ", ".join(reasons) or None
 
 
-def seller_velocity_hold_reason(
-    db: Session, seller: "models.User", order_naira
-) -> str | None:
+def seller_velocity_hold_reason(db: Session, seller: models.User, order_naira) -> str | None:
     """Hold-for-review reasons from a seller's recent money velocity.
 
     The in-flight cap resets the moment an order releases, so a bad actor could
@@ -156,9 +156,7 @@ def seller_velocity_hold_reason(
     review instead of letting them auto-release.
     """
     reasons: list[str] = []
-    window_start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
-        days=settings.ESCROW_SELLER_VELOCITY_WINDOW_DAYS
-    )
+    window_start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=settings.ESCROW_SELLER_VELOCITY_WINDOW_DAYS)
     try:
         from decimal import Decimal
 
@@ -212,9 +210,7 @@ def add_business_days(start: dt.datetime, days: int) -> dt.datetime:
     return cur
 
 
-def release_due_after(
-    paid_at: dt.datetime, same_state: bool, cross_state_days: int | None = None
-) -> dt.datetime:
+def release_due_after(paid_at: dt.datetime, same_state: bool, cross_state_days: int | None = None) -> dt.datetime:
     """When the dispute/hold window closes for a payment at ``paid_at``.
 
     Same-state orders get a short 12h window (hours-based). Cross-state orders get
@@ -257,7 +253,6 @@ def next_settlement_after(paid_at: dt.datetime) -> dt.datetime:
     return max(run_utc, paid_at + dt.timedelta(hours=1))
 
 
-
 def _norm_state(value: str | None) -> str | None:
     """Normalize a state name for comparison (lowercase, strip a trailing
     'state', drop non-alphanumerics). e.g. 'Lagos State' == 'lagos'."""
@@ -295,14 +290,14 @@ def _unique_confirmation_code(db: Session, seller_id: int) -> str:
 def create_order_escrow(
     db: Session,
     *,
-    invoice: "models.Invoice",
-    seller: "models.User",
+    invoice: models.Invoice,
+    seller: models.User,
     gross_naira,
     customer_lat: float | None,
     customer_lng: float | None,
     review_reason: str | None = None,
     no_delivery: bool = False,
-) -> "models.StorefrontOrderEscrow":
+) -> models.StorefrontOrderEscrow:
     """Create the PENDING escrow hold for a fresh storefront order.
 
     Captures the customer's GPS-derived state (server-side) and whether it
@@ -361,14 +356,16 @@ def create_order_escrow(
     if review_reason:
         logger.warning(
             "Storefront order %s flagged for review (seller %s): %s",
-            invoice.id, seller.id, review_reason,
+            invoice.id,
+            seller.id,
+            review_reason,
         )
     return escrow
 
 
 def activate_escrow_on_payment(
     db: Session,
-    invoice: "models.Invoice",
+    invoice: models.Invoice,
     *,
     charge_reference: str | None = None,
     card_fingerprint: str | None = None,
@@ -423,7 +420,10 @@ def activate_escrow_on_payment(
     db.commit()
     logger.info(
         "Escrow held for order invoice=%s (same_state=%s, release_due_at=%s, settle_at=%s)",
-        invoice.id, escrow.same_state, escrow.release_due_at, escrow.settle_at,
+        invoice.id,
+        escrow.same_state,
+        escrow.release_due_at,
+        escrow.settle_at,
     )
 
     # Best-effort: send the buyer their delivery code so they can release the
@@ -442,7 +442,8 @@ def activate_escrow_on_payment(
 
 # ── Release (pay the seller) ───────────────────────────────────────────
 
-def release_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reason: str = "auto") -> bool:
+
+def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: str = "auto") -> bool:
     """Pay held funds out to the seller (gross − commission) via the configured
     payout provider.
 
@@ -504,9 +505,7 @@ def release_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reaso
         if frozen.tzinfo is None:
             frozen = frozen.replace(tzinfo=dt.timezone.utc)
         if frozen > dt.datetime.now(dt.timezone.utc):
-            raise EscrowError(
-                f"Payouts frozen for seller {seller.id} until {frozen.isoformat()}"
-            )
+            raise EscrowError(f"Payouts frozen for seller {seller.id} until {frozen.isoformat()}")
 
     from app.services.payouts import (
         PayoutError,
@@ -528,7 +527,11 @@ def release_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reaso
         db.commit()
         logger.info(
             "Escrow %s released via %s — %s kobo to seller %s (ref=%s)",
-            escrow.id, provider.name, escrow.payout_kobo, seller.id, ref,
+            escrow.id,
+            provider.name,
+            escrow.payout_kobo,
+            seller.id,
+            ref,
         )
         return True
 
@@ -538,9 +541,7 @@ def release_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reaso
     # provider — querying it returns 'unknown', which must NOT be read as
     # "in flight". Detect that and start a fresh transfer on the current rail.
     rail_changed = bool(
-        escrow.transfer_reference
-        and escrow.transfer_provider
-        and escrow.transfer_provider != provider.name
+        escrow.transfer_reference and escrow.transfer_provider and escrow.transfer_provider != provider.name
     )
 
     # Reconcile an already-initiated transfer (on the SAME rail) before sending new.
@@ -602,7 +603,7 @@ def release_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reaso
     raise EscrowError(f"Transfer failed for escrow {escrow.id}: {result.message}")
 
 
-def payout_rail_for(db: Session, escrow: "models.StorefrontOrderEscrow") -> str:
+def payout_rail_for(db: Session, escrow: models.StorefrontOrderEscrow) -> str:
     """The payout provider name :func:`release_escrow` would use for this order —
     the rail that COLLECTED it (funds sit there), else the configured default.
 
@@ -618,7 +619,7 @@ def payout_rail_for(db: Session, escrow: "models.StorefrontOrderEscrow") -> str:
 
 def release_seller_batch(
     db: Session,
-    escrows: list["models.StorefrontOrderEscrow"],
+    escrows: list[models.StorefrontOrderEscrow],
     *,
     provider_name: str,
     reason: str = "auto",
@@ -653,19 +654,12 @@ def release_seller_batch(
 
     # Serialize against the per-order worker / admin actions / retries.
     locked = (
-        db.query(models.StorefrontOrderEscrow)
-        .filter(models.StorefrontOrderEscrow.id.in_(ids))
-        .with_for_update()
-        .all()
+        db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id.in_(ids)).with_for_update().all()
     )
     now = dt.datetime.now(dt.timezone.utc)
 
     # Only genuinely releasable rows: still held, not flagged, something to pay.
-    eligible = [
-        e
-        for e in locked
-        if e.status == "held" and not e.held_for_review and (e.payout_kobo or 0) > 0
-    ]
+    eligible = [e for e in locked if e.status == "held" and not e.held_for_review and (e.payout_kobo or 0) > 0]
     if not eligible:
         return 0
 
@@ -678,13 +672,11 @@ def release_seller_batch(
         if frozen.tzinfo is None:
             frozen = frozen.replace(tzinfo=dt.timezone.utc)
         if frozen > now:
-            raise EscrowError(
-                f"Payouts frozen for seller {seller.id} until {frozen.isoformat()}"
-            )
+            raise EscrowError(f"Payouts frozen for seller {seller.id} until {frozen.isoformat()}")
 
     provider = get_payout_provider_named(provider_name)
 
-    def _finalize(group: list["models.StorefrontOrderEscrow"], ref: str) -> None:
+    def _finalize(group: list[models.StorefrontOrderEscrow], ref: str) -> None:
         for e in group:
             e.status = "released"
             e.released_at = dt.datetime.now(dt.timezone.utc)
@@ -705,8 +697,8 @@ def release_seller_batch(
     # (or a leftover per-order ESCROWREL ref) is confirmed/cleared before we send
     # anything new, so an in-flight transfer is never double-paid. A rail change
     # voids the old reference (unknown on the new provider) → treat as fresh.
-    stamped: dict[str, list["models.StorefrontOrderEscrow"]] = {}
-    fresh: list["models.StorefrontOrderEscrow"] = []
+    stamped: dict[str, list[models.StorefrontOrderEscrow]] = {}
+    fresh: list[models.StorefrontOrderEscrow] = []
     for e in eligible:
         ref = e.transfer_reference
         rail_changed = bool(ref and e.transfer_provider and e.transfer_provider != provider.name)
@@ -734,7 +726,7 @@ def release_seller_batch(
         return released
 
     # ── 2. Settlement gate — only pay orders whose collection has settled ──
-    payable: list["models.StorefrontOrderEscrow"] = []
+    payable: list[models.StorefrontOrderEscrow] = []
     for e in fresh:
         settle_at = getattr(e, "settle_at", None)
         if settle_at is not None:
@@ -751,8 +743,7 @@ def release_seller_batch(
     # ── 3. One transfer for the summed payout, stamped on every order ─────
     total_kobo = sum(int(e.payout_kobo) for e in payable)
     batch_ref = (
-        f"ESCROWBATCH-{seller.id}-{min(e.id for e in payable)}-"
-        f"{int(now.timestamp())}-{secrets.token_hex(3)}"
+        f"ESCROWBATCH-{seller.id}-{min(e.id for e in payable)}-" f"{int(now.timestamp())}-{secrets.token_hex(3)}"
     )
     payout_reason = f"Storefront payout ({reason}) — {len(payable)} orders for seller {seller.id}"
 
@@ -789,22 +780,19 @@ def release_seller_batch(
 
 # ── Refund (return money to the buyer) ─────────────────────────────────
 
+
 def _collector_for_charge(db: Session, charge_reference: str) -> str:
     """Which provider collected this charge (recorded in the payment metadata).
     Refunds MUST go back through the collecting rail. Defaults to Paystack."""
     from app.models.payment_models import PaymentTransaction
 
-    txn = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == charge_reference)
-        .one_or_none()
-    )
+    txn = db.query(PaymentTransaction).filter(PaymentTransaction.reference == charge_reference).one_or_none()
     if txn and txn.payment_metadata:
         return txn.payment_metadata.get("collector") or "paystack"
     return "paystack"
 
 
-def refund_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reason: str = "dispute") -> bool:
+def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: str = "dispute") -> bool:
     """Refund the buyer for a held/disputed order via the COLLECTING provider.
 
     A refund reverses the exact original charge, so it routes back through the
@@ -872,12 +860,15 @@ def refund_escrow(db: Session, escrow: "models.StorefrontOrderEscrow", *, reason
     )
     logger.info(
         "Escrow %s refunded via %s — %s kobo returned to buyer (charge=%s)",
-        escrow.id, collector.name, refunded_kobo, escrow.charge_reference,
+        escrow.id,
+        collector.name,
+        refunded_kobo,
+        escrow.charge_reference,
     )
     return True
 
 
-def _settle_refunded_delivery_fee(db: Session, escrow: "models.StorefrontOrderEscrow") -> None:
+def _settle_refunded_delivery_fee(db: Session, escrow: models.StorefrontOrderEscrow) -> None:
     """Recover the refunded delivery fee. Delivered → the seller absorbs it (debit
     their wallet). Not yet delivered → cancel the Shipbubble shipment to reclaim
     the fee. If neither is possible, log for manual review."""
@@ -887,19 +878,15 @@ def _settle_refunded_delivery_fee(db: Session, escrow: "models.StorefrontOrderEs
     delivered = getattr(escrow, "courier_delivered_at", None) is not None
     order_id = getattr(escrow, "shipbubble_order_id", None)
     if delivered:
-        seller = (
-            db.query(models.User)
-            .filter(models.User.id == escrow.seller_id)
-            .first()
-        )
+        seller = db.query(models.User).filter(models.User.id == escrow.seller_id).first()
         if seller is not None:
-            seller.wallet_balance_kobo = (
-                int(getattr(seller, "wallet_balance_kobo", 0) or 0) - fee
-            )
+            seller.wallet_balance_kobo = int(getattr(seller, "wallet_balance_kobo", 0) or 0) - fee
             db.commit()
             logger.info(
                 "Seller %s absorbed delivery fee %s kobo (delivered order refunded, escrow %s)",
-                seller.id, fee, getattr(escrow, "id", None),
+                seller.id,
+                fee,
+                getattr(escrow, "id", None),
             )
             return
         # Seller record is gone (deleted account) — can't debit the wallet, so
@@ -912,33 +899,32 @@ def _settle_refunded_delivery_fee(db: Session, escrow: "models.StorefrontOrderEs
         if shipbubble.cancel_shipment(order_id):
             logger.info(
                 "Reclaimed delivery fee via Shipbubble cancel (order %s, escrow %s)",
-                order_id, getattr(escrow, "id", None),
+                order_id,
+                getattr(escrow, "id", None),
             )
             return
     _flag_unrecovered_delivery_fee(db, escrow, fee)
 
 
-def _flag_unrecovered_delivery_fee(
-    db: Session, escrow: "models.StorefrontOrderEscrow", fee: int
-) -> None:
+def _flag_unrecovered_delivery_fee(db: Session, escrow: models.StorefrontOrderEscrow, fee: int) -> None:
     """Record an unreclaimed delivery fee on the escrow so it's queryable for
     manual recovery (not just buried in logs)."""
     try:
-        escrow.review_reason = (
-            f"delivery fee {fee} kobo not reclaimed — manual recovery"
-        )[:120]
+        escrow.review_reason = (f"delivery fee {fee} kobo not reclaimed — manual recovery")[:120]
         db.commit()
     except Exception:  # noqa: BLE001
         db.rollback()
     logger.error(
         "Delivery fee %s kobo NOT reclaimed for escrow %s — needs manual recovery",
-        fee, getattr(escrow, "id", None),
+        fee,
+        getattr(escrow, "id", None),
     )
 
 
 # ── Payout security (account-takeover protection) ──────────────────────
 
-def on_payout_details_changed(db: Session, user: "models.User") -> None:
+
+def on_payout_details_changed(db: Session, user: models.User) -> None:
     """Handle a change to a seller's payout/bank details defensively.
 
     A hijacked account's first move is to reroute payouts, so on any change we:
@@ -953,7 +939,8 @@ def on_payout_details_changed(db: Session, user: "models.User") -> None:
     db.commit()
     logger.info(
         "Payout details changed for user %s — payouts frozen until %s",
-        user.id, user.payout_frozen_until,
+        user.id,
+        user.payout_frozen_until,
     )
 
     # Best-effort owner alert on WhatsApp — never let a messaging hiccup break the flow.
@@ -995,6 +982,7 @@ def send_delivery_code(user_phone: str | None, code: str, business_name: str | N
 
 # ── Buyer reputation (deter false "not delivered" claims) ──────────────
 
+
 def _norm_phone(phone: str | None) -> str | None:
     if not phone:
         return None
@@ -1006,12 +994,8 @@ def _norm_phone(phone: str | None) -> str | None:
         return phone.strip()
 
 
-def _buyer_rep_row(db: Session, phone: str) -> "models.BuyerReputation":
-    rep = (
-        db.query(models.BuyerReputation)
-        .filter(models.BuyerReputation.phone == phone)
-        .first()
-    )
+def _buyer_rep_row(db: Session, phone: str) -> models.BuyerReputation:
+    rep = db.query(models.BuyerReputation).filter(models.BuyerReputation.phone == phone).first()
     if not rep:
         rep = models.BuyerReputation(phone=phone)
         db.add(rep)
@@ -1044,7 +1028,7 @@ def record_buyer_false_dispute(db: Session, phone: str | None) -> None:
     db.commit()
 
 
-def _decay_buyer_flag(db: Session, rep: "models.BuyerReputation") -> None:
+def _decay_buyer_flag(db: Session, rep: models.BuyerReputation) -> None:
     """Clear a stale abuse flag: an honest buyer with no false dispute in the
     decay window is un-flagged (their old losses stop haunting them)."""
     if not rep or not rep.flagged:
@@ -1060,20 +1044,16 @@ def _decay_buyer_flag(db: Session, rep: "models.BuyerReputation") -> None:
         db.commit()
 
 
-def get_buyer_reputation(db: Session, phone: str | None) -> "models.BuyerReputation | None":
+def get_buyer_reputation(db: Session, phone: str | None) -> models.BuyerReputation | None:
     p = _norm_phone(phone)
     if not p:
         return None
-    rep = (
-        db.query(models.BuyerReputation)
-        .filter(models.BuyerReputation.phone == p)
-        .first()
-    )
+    rep = db.query(models.BuyerReputation).filter(models.BuyerReputation.phone == p).first()
     _decay_buyer_flag(db, rep)
     return rep
 
 
-def get_buyer_reputations_bulk(db: Session, phones) -> dict[str, "models.BuyerReputation"]:
+def get_buyer_reputations_bulk(db: Session, phones) -> dict[str, models.BuyerReputation]:
     """Map normalized phone -> BuyerReputation for many phones in ONE query.
 
     Read-only (no flag decay) — for admin list/queue views, so rendering N rows
@@ -1082,15 +1062,11 @@ def get_buyer_reputations_bulk(db: Session, phones) -> dict[str, "models.BuyerRe
     norm = {p for p in (_norm_phone(x) for x in phones) if p}
     if not norm:
         return {}
-    rows = (
-        db.query(models.BuyerReputation)
-        .filter(models.BuyerReputation.phone.in_(norm))
-        .all()
-    )
+    rows = db.query(models.BuyerReputation).filter(models.BuyerReputation.phone.in_(norm)).all()
     return {r.phone: r for r in rows}
 
 
-def record_seller_circumvention(db: Session, seller: "models.User") -> None:
+def record_seller_circumvention(db: Session, seller: models.User) -> None:
     """Count a seller order-message that tried to move the deal off-platform
     (masked contact/account, or an off-platform payment push). Enough of them
     flags the seller for review, which also revokes trusted status (is_trusted_seller

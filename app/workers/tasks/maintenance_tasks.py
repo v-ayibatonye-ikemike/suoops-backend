@@ -1,4 +1,5 @@
 """Periodic maintenance tasks — subscription expiry, data cleanup, inactive account purge."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -31,11 +32,15 @@ def downgrade_expired_subscriptions() -> dict[str, Any]:
 
     try:
         with session_scope() as db:
-            expired_users = db.query(User).filter(
-                User.plan == SubscriptionPlan.PRO,
-                User.subscription_expires_at.isnot(None),
-                User.subscription_expires_at < now,
-            ).all()
+            expired_users = (
+                db.query(User)
+                .filter(
+                    User.plan == SubscriptionPlan.PRO,
+                    User.subscription_expires_at.isnot(None),
+                    User.subscription_expires_at < now,
+                )
+                .all()
+            )
 
             for user in expired_users:
                 old_plan = user.plan.value
@@ -43,7 +48,9 @@ def downgrade_expired_subscriptions() -> dict[str, Any]:
                 downgraded += 1
                 logger.info(
                     "Downgraded user %s from %s to FREE (expired %s)",
-                    user.id, old_plan, user.subscription_expires_at,
+                    user.id,
+                    old_plan,
+                    user.subscription_expires_at,
                 )
 
             db.commit()
@@ -74,9 +81,13 @@ def cleanup_stale_webhooks() -> dict[str, Any]:
         with session_scope() as db:
             from app.models.models import WebhookEvent
 
-            deleted = db.query(WebhookEvent).filter(
-                WebhookEvent.created_at < cutoff,
-            ).delete(synchronize_session=False)
+            deleted = (
+                db.query(WebhookEvent)
+                .filter(
+                    WebhookEvent.created_at < cutoff,
+                )
+                .delete(synchronize_session=False)
+            )
             db.commit()
 
         logger.info("Webhook cleanup: deleted %d events older than 90 days", deleted)
@@ -90,6 +101,7 @@ def cleanup_stale_webhooks() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # LOG TABLE CLEANUP  (prevents bloat at scale)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="maintenance.cleanup_old_logs",
@@ -119,16 +131,24 @@ def cleanup_old_logs() -> dict[str, Any]:
 
             # Reminder logs older than 90 days
             cutoff_90 = now - dt.timedelta(days=90)
-            reminder_deleted = db.query(InvoiceReminderLog).filter(
-                InvoiceReminderLog.sent_at < cutoff_90,
-            ).delete(synchronize_session=False)
+            reminder_deleted = (
+                db.query(InvoiceReminderLog)
+                .filter(
+                    InvoiceReminderLog.sent_at < cutoff_90,
+                )
+                .delete(synchronize_session=False)
+            )
             results["reminder_logs_deleted"] = reminder_deleted
 
             # Email logs older than 180 days
             cutoff_180 = now - dt.timedelta(days=180)
-            email_deleted = db.query(UserEmailLog).filter(
-                UserEmailLog.sent_at < cutoff_180,
-            ).delete(synchronize_session=False)
+            email_deleted = (
+                db.query(UserEmailLog)
+                .filter(
+                    UserEmailLog.sent_at < cutoff_180,
+                )
+                .delete(synchronize_session=False)
+            )
             results["email_logs_deleted"] = email_deleted
 
             db.commit()
@@ -194,10 +214,12 @@ def warn_inactive_accounts() -> dict[str, Any]:
                 .filter(
                     User.plan == SubscriptionPlan.FREE,
                     # Inactive: last_login before cutoff, or never logged in and created before cutoff
-                    db.query(func.literal(True)).filter(
+                    db.query(func.literal(True))
+                    .filter(
                         ((User.last_login != None) & (User.last_login < cutoff))  # noqa: E711
                         | ((User.last_login == None) & (User.created_at < cutoff))  # noqa: E711
-                    ).exists(),
+                    )
+                    .exists(),
                 )
                 .group_by(User.id)
                 .having(func.count(Invoice.id) == 0)
@@ -234,9 +256,11 @@ def warn_inactive_accounts() -> dict[str, Any]:
 
                 name = (user.name or "").split()[0] or "there"
                 last_active = user.last_login or user.created_at
-                days_inactive = (now - last_active.replace(tzinfo=dt.timezone.utc)
-                                 if last_active.tzinfo is None
-                                 else now - last_active).days
+                days_inactive = (
+                    now - last_active.replace(tzinfo=dt.timezone.utc)
+                    if last_active.tzinfo is None
+                    else now - last_active
+                ).days
 
                 subject = "Your SuoOps account will be deleted in 7 days"
                 plain = (
@@ -256,6 +280,7 @@ def warn_inactive_accounts() -> dict[str, Any]:
             # Batch send all warning emails over a single SMTP connection
             if pending_warns:
                 from app.utils.smtp import send_smtp_batch
+
                 batch = [(u.email, subj, None, body) for u, _, subj, body in pending_warns]
                 results = send_smtp_batch(batch)
                 for (user, etype, _, _), ok in zip(pending_warns, results):
@@ -420,9 +445,7 @@ def reconcile_brevo_contacts(dry_run: bool = False) -> dict[str, Any]:
     }
 
     # Pull all contacts (with blocklist flag) from Brevo's master list.
-    brevo_contacts = brevo_service.get_all_contacts_sync(
-        brevo_service.BREVO_LIST_ALL_USERS
-    )
+    brevo_contacts = brevo_service.get_all_contacts_sync(brevo_service.BREVO_LIST_ALL_USERS)
     if brevo_contacts is None:
         logger.warning("Brevo reconcile skipped: could not fetch contacts (missing key or API error)")
         return {"success": False, "reason": "brevo_fetch_failed", **stats}
@@ -445,14 +468,18 @@ def reconcile_brevo_contacts(dry_run: bool = False) -> dict[str, Any]:
     if not removable:
         logger.info(
             "Brevo reconcile: nothing to remove (%d contacts, %d users, %d suppressed kept)",
-            stats["brevo_contacts"], stats["db_users"], stats["kept_suppressed"],
+            stats["brevo_contacts"],
+            stats["db_users"],
+            stats["kept_suppressed"],
         )
         return {"success": True, **stats}
 
     if dry_run:
         logger.info(
             "Brevo reconcile DRY RUN: %d removable stale contacts, %d suppressed kept (sample: %s)",
-            len(removable), stats["kept_suppressed"], removable[:20],
+            len(removable),
+            stats["kept_suppressed"],
+            removable[:20],
         )
         return {"success": True, **stats}
 
@@ -460,7 +487,9 @@ def reconcile_brevo_contacts(dry_run: bool = False) -> dict[str, Any]:
     if len(removable) > BREVO_RECONCILE_MAX_DELETES:
         logger.warning(
             "Brevo reconcile: %d removable contacts exceed cap %d; removing first %d this run",
-            len(removable), BREVO_RECONCILE_MAX_DELETES, len(to_remove),
+            len(removable),
+            BREVO_RECONCILE_MAX_DELETES,
+            len(to_remove),
         )
 
     for email in to_remove:
@@ -469,7 +498,8 @@ def reconcile_brevo_contacts(dry_run: bool = False) -> dict[str, Any]:
 
     logger.info(
         "Brevo reconcile: removed %d stale contacts (%d suppressed kept)",
-        stats["removed"], stats["kept_suppressed"],
+        stats["removed"],
+        stats["kept_suppressed"],
     )
     return {"success": True, **stats}
 
@@ -554,11 +584,8 @@ def winback_churned_businesses() -> dict[str, Any]:
                 .join(invoice_counts, User.id == invoice_counts.c.issuer_id)
                 .filter(
                     # Inactive for 30+ days
-                    (
-                        (User.last_login.isnot(None)) & (User.last_login < now - dt.timedelta(days=CHURN_INACTIVE_DAYS))
-                    ) | (
-                        (User.last_login.is_(None)) & (User.created_at < now - dt.timedelta(days=CHURN_INACTIVE_DAYS))
-                    ),
+                    ((User.last_login.isnot(None)) & (User.last_login < now - dt.timedelta(days=CHURN_INACTIVE_DAYS)))
+                    | ((User.last_login.is_(None)) & (User.created_at < now - dt.timedelta(days=CHURN_INACTIVE_DAYS))),
                 )
                 .all()
             )
@@ -653,48 +680,17 @@ def winback_churned_businesses() -> dict[str, Any]:
                 if user.email:
                     sent = _send_smtp_email(user.email, subject, None, plain)
 
-                # WhatsApp only if no email and within budget (winback = low priority)
-                if not sent and user.phone and user.phone_verified:
-                    from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
-                    if can_send_whatsapp():
-                        try:
-                            from app.core.whatsapp import get_whatsapp_client
-                            client = get_whatsapp_client()
-                            wa_msg = (
-                                f"Hi {name} 👋\n\n"
-                                f"It's been {days_inactive} days since you used SuoOps.\n\n"
-                            )
-                            if tier == 30:
-                                wa_msg += (
-                                    f"You have {pending_count} pending invoices ({revenue_str} tracked). "
-                                    f"Your customers might be ready to pay — send a quick reminder?\n\n"
-                                    f"Tap to log in: https://suoops.com/login"
-                                )
-                            elif tier == 60:
-                                wa_msg += (
-                                    f"You still have {pending_count} unpaid invoices. "
-                                    f"A quick reminder could help you collect.\n\n"
-                                    f"Log in: https://suoops.com/login"
-                                )
-                            else:
-                                wa_msg += (
-                                    f"Your {total_invoices} invoices and {revenue_str} in records "
-                                    f"are still safe. Pick up where you left off anytime.\n\n"
-                                    f"https://suoops.com/login"
-                                )
-                            if client.send_text(user.phone, wa_msg):
-                                record_whatsapp_send()
-                                sent = True
-                        except Exception as e:
-                            logger.warning("WhatsApp winback failed for user %s: %s", user.id, e)
-
                 if sent:
                     db.add(UserEmailLog(user_id=user.id, email_type=email_type))
                     db.commit()
                     stats[f"sent_{tier}d"] += 1
                     logger.info(
                         "Sent %s winback to user %s (%s) — %d invoices, %s revenue",
-                        email_type, user.id, biz, total_invoices, revenue_str,
+                        email_type,
+                        user.id,
+                        biz,
+                        total_invoices,
+                        revenue_str,
                     )
                 else:
                     stats["failed"] += 1
@@ -741,6 +737,17 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
     Skips users who already received a nudge for the given tier.
     Runs daily at 10:00 WAT (09:00 UTC).
     """
+    # Guided activation is now surfaced in-app. Keep the registered task as a
+    # harmless no-op so already-published Beat schedules cannot send marketing.
+    return {
+        "success": True,
+        "sent_1d": 0,
+        "sent_3d": 0,
+        "sent_7d": 0,
+        "skipped": 0,
+        "failed": 0,
+    }
+
     from sqlalchemy import func
 
     from app.models.models import Invoice, User, UserEmailLog
@@ -762,7 +769,8 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
                     User.phone_verified.is_(True),
                     ~User.id.in_(db.query(users_with_invoices)),
                     User.created_at >= now - dt.timedelta(days=14),
-                    User.created_at < now - dt.timedelta(hours=4),  # At least 4 hours old (gives 1-hour follow-up time first)
+                    User.created_at
+                    < now - dt.timedelta(hours=4),  # At least 4 hours old (gives 1-hour follow-up time first)
                 )
                 .all()
             )
@@ -813,7 +821,7 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
                         f"It takes less than 30 seconds — just type what you sold "
                         f"and we'll generate a professional PDF invoice.\n\n"
                         f"💡 *Try it now:* Send a message like:\n"
-                        f"_\"Invoice Chidi 08012345678, 5000 hair, 3000 nails\"_\n\n"
+                        f'_"Invoice Chidi 08012345678, 5000 hair, 3000 nails"_\n\n'
                         f"That's it! We'll create and send the invoice for you.\n\n"
                         f"Need help? Just reply *help* 🙂"
                     )
@@ -828,7 +836,7 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
                         f"✅ Inventory management — track your stock\n\n"
                         f"🎁 You have *2 free invoices* waiting. "
                         f"Create your first one now — just send us what you sold!\n\n"
-                        f"Example: _\"Invoice Amaka 08098765432, 10000 shoes\"_"
+                        f'Example: _"Invoice Amaka 08098765432, 10000 shoes"_'
                     )
                 else:  # 7 days
                     msg = (
@@ -840,7 +848,7 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
                         f"📱 Creating invoices straight from WhatsApp\n"
                         f"💰 Getting paid faster with payment reminders\n\n"
                         f"Don't miss out — create your first invoice in seconds.\n\n"
-                        f"Just send: _\"Invoice [customer name] [phone], [amount] [item]\"_\n\n"
+                        f'Just send: _"Invoice [customer name] [phone], [amount] [item]"_\n\n'
                         f"Or visit: https://suoops.com/login"
                     )
 
@@ -885,7 +893,9 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
                         stats[f"sent_{tier}d"] += 1
                         logger.info(
                             "Sent %s nudge to user %s (%s)",
-                            email_type, user.id, user.name,
+                            email_type,
+                            user.id,
+                            user.name,
                         )
                     else:
                         stats["failed"] += 1

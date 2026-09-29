@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from decimal import Decimal, ROUND_UP
+from decimal import ROUND_UP, Decimal
 
 from app.core.config import settings
 from app.services.paystack_http import paystack_async_client
@@ -14,14 +14,14 @@ logger = logging.getLogger(__name__)
 def calculate_amount_with_paystack_fee(target_amount: Decimal) -> Decimal:
     """
     Calculate the gross amount to charge so you receive exactly target_amount after Paystack fees.
-    
+
     Paystack fee structure (Nigeria):
     - Local cards: 1.5% + ₦100 (capped at ₦2,000)
     - Bank transfer: ₦50 flat (but we calculate for worst case - card)
-    
+
     Formula: gross = (target + 100) / (1 - 0.015)
     This ensures after Paystack deducts 1.5% + ₦100, you receive target_amount.
-    
+
     Examples:
     - Pro Pack ₦2,000 → Customer pays ~₦2,150 (you receive ₦2,000)
     - Invoice Pack ₦1,250 → Customer pays ~₦1,370 (you receive ₦1,250)
@@ -30,19 +30,19 @@ def calculate_amount_with_paystack_fee(target_amount: Decimal) -> Decimal:
     fee_percentage = Decimal("0.015")  # 1.5%
     flat_fee = Decimal("100")  # ₦100
     fee_cap = Decimal("2000")  # ₦2,000 max fee
-    
+
     # Calculate gross amount needed
     # gross - (gross * 0.015 + 100) = target
     # gross * (1 - 0.015) = target + 100
     # gross = (target + 100) / 0.985
     gross = (target + flat_fee) / (Decimal("1") - fee_percentage)
-    
+
     # Check if fee would exceed cap
     calculated_fee = gross * fee_percentage + flat_fee
     if calculated_fee > fee_cap:
         # Fee is capped, so just add ₦2,000 to target
         gross = target + fee_cap
-    
+
     # Round up to nearest Naira
     return gross.quantize(Decimal("1"), rounding=ROUND_UP)
 
@@ -55,15 +55,15 @@ class PaystackProvider:
         self.base = "https://api.paystack.co"
 
     async def create_payment_link(
-        self, 
-        reference: str, 
-        amount: Decimal, 
+        self,
+        reference: str,
+        amount: Decimal,
         email: str | None = None,
         pass_fees_to_customer: bool = True,
     ) -> str:
         """
         Create a Paystack payment link.
-        
+
         Args:
             reference: Unique transaction reference
             amount: Target amount you want to receive (in Naira)
@@ -76,7 +76,7 @@ class PaystackProvider:
             logger.info("Passing fees to customer: target=%s, charging=%s", amount, charge_amount)
         else:
             charge_amount = Decimal(amount)
-        
+
         payload = {
             "reference": reference,
             "amount": int(charge_amount * 100),  # Paystack expects kobo
@@ -119,9 +119,9 @@ class PaymentRouter:
         self.provider = PaystackProvider(paystack_secret_key)
 
     async def create_payment_link(
-        self, 
-        reference: str, 
-        amount: Decimal, 
+        self,
+        reference: str,
+        amount: Decimal,
         email: str | None = None,
         pass_fees_to_customer: bool = True,
     ) -> str:

@@ -1,5 +1,4 @@
 """Collection provider abstraction: factory + Paystack/Flutterwave charge/verify/refund."""
-from types import SimpleNamespace
 
 
 class _Resp:
@@ -42,9 +41,9 @@ def test_factory_selects_collection_provider(monkeypatch):
 
 
 def test_paystack_collection_init_and_verify(monkeypatch):
-    from app.core.config import settings
     import app.services.collections.paystack as pc
     import app.services.paystack_http as psh
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "PAYSTACK_SECRET", "sk_test_x")
     captured = {}
@@ -59,9 +58,14 @@ def test_paystack_collection_init_and_verify(monkeypatch):
     monkeypatch.setattr(psh.httpx, "Client", lambda *a, **k: _FakeClient(handler))
     prov = pc.PaystackCollectionProvider()
     charge = prov.initialize_hold_charge(
-        amount_kobo=50000, reference="INVPAY-1-AB", customer_email="c@x.com",
-        customer_phone="+234", customer_name="C", callback_url="https://cb",
-        narration="n", metadata={"invoice_id": 1},
+        amount_kobo=50000,
+        reference="INVPAY-1-AB",
+        customer_email="c@x.com",
+        customer_phone="+234",
+        customer_name="C",
+        callback_url="https://cb",
+        narration="n",
+        metadata={"invoice_id": 1},
     )
     assert charge.authorization_url == "https://pay/x"
     assert captured["url"].endswith("/transaction/initialize")
@@ -74,8 +78,8 @@ def test_paystack_collection_init_and_verify(monkeypatch):
 
 
 def test_flutterwave_collection_init_verify_refund(monkeypatch):
-    from app.core.config import settings
     import app.services.collections.flutterwave as fc
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "FLUTTERWAVE_SECRET", "FLWSECK_test")
     calls = {}
@@ -86,7 +90,9 @@ def test_flutterwave_collection_init_verify_refund(monkeypatch):
             return _Resp({"status": "success", "data": {"link": "https://flw/checkout"}})
         if method == "GET" and url.endswith("/verify_by_reference"):
             calls["verify_params"] = params
-            return _Resp({"status": "success", "data": {"status": "successful", "amount": 500, "currency": "NGN", "id": 12345}})
+            return _Resp(
+                {"status": "success", "data": {"status": "successful", "amount": 500, "currency": "NGN", "id": 12345}}
+            )
         if method == "POST" and "/refund" in url:
             calls["refund_url"] = url
             calls["refund_body"] = body
@@ -97,9 +103,14 @@ def test_flutterwave_collection_init_verify_refund(monkeypatch):
     prov = fc.FlutterwaveCollectionProvider()
 
     charge = prov.initialize_hold_charge(
-        amount_kobo=50000, reference="INVPAY-2-CD", customer_email="c@x.com",
-        customer_phone="+234", customer_name="C", callback_url="https://cb",
-        narration="Storefront order", metadata={"invoice_id": 2},
+        amount_kobo=50000,
+        reference="INVPAY-2-CD",
+        customer_email="c@x.com",
+        customer_phone="+234",
+        customer_name="C",
+        callback_url="https://cb",
+        narration="Storefront order",
+        metadata={"invoice_id": 2},
     )
     assert charge.authorization_url == "https://flw/checkout"
     assert calls["init"]["tx_ref"] == "INVPAY-2-CD"
@@ -119,8 +130,8 @@ def test_flutterwave_collection_init_verify_refund(monkeypatch):
 def test_flutterwave_refund_raises_without_tx(monkeypatch):
     import pytest
 
-    from app.core.config import settings
     import app.services.collections.flutterwave as fc
+    from app.core.config import settings
     from app.services.collections.base import CollectionError
 
     monkeypatch.setattr(settings, "FLUTTERWAVE_SECRET", "FLWSECK_test")

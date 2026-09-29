@@ -1,4 +1,5 @@
 """Select the active collection provider from configuration."""
+
 from __future__ import annotations
 
 from app.core.config import settings

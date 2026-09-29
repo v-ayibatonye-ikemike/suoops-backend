@@ -13,6 +13,7 @@ Future Implementation Notes:
 - Implement OAuth2 / API key auth handshake (depending on NRS spec).
 - Add robust retry, idempotency keys, circuit breaker, telemetry.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ class NRSClient:
 
     Only returns synthetic responses until `enabled` and credentials provided.
     """
+
     def __init__(self, config: NRSConfig):
         self.config = config
 
@@ -78,10 +80,12 @@ class NRSClient:
 
 # Factory helper (could later read from runtime settings)
 
+
 def get_nrs_client() -> NRSClient:
     # Lazy import to avoid circular with settings if any
     try:
         from app.core.config import settings  # type: ignore
+
         cfg = NRSConfig(
             base_url=getattr(settings, "NRS_BASE_URL", None),
             api_key=getattr(settings, "NRS_API_KEY", None),
@@ -90,6 +94,7 @@ def get_nrs_client() -> NRSClient:
         )
     except Exception:  # noqa: BLE001
         import logging as _log
+
         _log.getLogger(__name__).debug("NRS config not available, using defaults")
         cfg = NRSConfig()
     return NRSClient(cfg)

@@ -19,6 +19,7 @@ The secret is read from the environment — never hardcode or paste it. Run with
 Nothing here writes to the database. It only moves the small test amount you
 choose, to the account you choose (default: your own settlement account).
 """
+
 from __future__ import annotations
 
 import os

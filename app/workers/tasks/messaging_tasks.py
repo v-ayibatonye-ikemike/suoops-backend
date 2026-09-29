@@ -3,6 +3,7 @@ Messaging and WhatsApp Tasks.
 
 Celery tasks for WhatsApp processing, reminders, OCR, and payment sync.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -101,10 +102,8 @@ def notify_back_in_stock(product_id: int) -> dict[str, Any]:
             if owner and owner.storefront_slug
             else None
         )
-        msg = (
-            f"✅ *Back in stock!*\n\n"
-            f"*{product.name}* is available again at {store_name}."
-            + (f"\n\n👉 Order now: {link}" if link else "")
+        msg = f"✅ *Back in stock!*\n\n" f"*{product.name}* is available again at {store_name}." + (
+            f"\n\n👉 Order now: {link}" if link else ""
         )
 
         client = WhatsAppClient(settings.WHATSAPP_API_KEY)
@@ -150,7 +149,7 @@ def send_overdue_reminders() -> dict[str, Any]:
     from sqlalchemy.orm import joinedload
 
     from app.bot.conversation_window import is_window_open
-    from app.models.models import InvoiceReminderLog, Invoice, User
+    from app.models.models import Invoice, InvoiceReminderLog, User
 
     sent = 0
     email_sent = 0
@@ -268,22 +267,29 @@ def send_overdue_reminders() -> dict[str, Any]:
                             user.phone,
                             overdue_tpl,
                             tpl_lang,
-                            components=[{
-                                "type": "body",
-                                "parameters": [
-                                    {"type": "text", "text": str(total_inv)},
-                                    {"type": "text", "text": f"₦{total_amt:,.0f}"},
-                                    {"type": "text", "text": str(critical_cnt)},
-                                    {"type": "text", "text": str(urgent_cnt)},
-                                ],
-                            }],
+                            components=[
+                                {
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": str(total_inv)},
+                                        {"type": "text", "text": f"₦{total_amt:,.0f}"},
+                                        {"type": "text", "text": str(critical_cnt)},
+                                        {"type": "text", "text": str(urgent_cnt)},
+                                    ],
+                                }
+                            ],
                         )
                         if wa_delivered:
                             record_whatsapp_send(priority=True)
                             sent += 1
 
                     # 2) Fallback to plain text (only within 24h window)
-                    if not wa_delivered and has_phone and is_window_open(user.phone) and can_send_whatsapp(priority=True):
+                    if (
+                        not wa_delivered
+                        and has_phone
+                        and is_window_open(user.phone)
+                        and can_send_whatsapp(priority=True)
+                    ):
                         wa_delivered = client.send_text(user.phone, message)
                         if wa_delivered:
                             record_whatsapp_send(priority=True)
@@ -297,9 +303,7 @@ def send_overdue_reminders() -> dict[str, Any]:
 
                     # 3) Email fallback: send if WhatsApp didn't deliver
                     if not wa_delivered and user.email:
-                        email_ok = _send_owner_overdue_email(
-                            user.email, user.name, tiers, today
-                        )
+                        email_ok = _send_owner_overdue_email(user.email, user.name, tiers, today)
                         if email_ok:
                             email_sent += 1
                         else:
@@ -323,9 +327,7 @@ def send_overdue_reminders() -> dict[str, Any]:
                                 )
                         db.commit()
                 except Exception as e:
-                    logger.warning(
-                        "Failed owner overdue reminder for user %s: %s", issuer_id, e
-                    )
+                    logger.warning("Failed owner overdue reminder for user %s: %s", issuer_id, e)
                     failed += 1
 
         logger.info(
@@ -351,9 +353,7 @@ def send_overdue_reminders() -> dict[str, Any]:
         raise
 
 
-def _build_owner_escalation_message(
-    tiers: dict[str, list[Any]], today: date
-) -> str | None:
+def _build_owner_escalation_message(tiers: dict[str, list[Any]], today: date) -> str | None:
     """Build a consolidated escalation message for the business owner."""
     total = sum(len(v) for v in tiers.values())
     if total == 0:
@@ -368,9 +368,7 @@ def _build_owner_escalation_message(
     light = tiers["owner_light"]
 
     if critical:
-        days_list = ", ".join(
-            f"{(today - inv.due_date.date()).days}d" for inv in critical[:3]
-        )
+        days_list = ", ".join(f"{(today - inv.due_date.date()).days}d" for inv in critical[:3])
         parts.append(
             f"🔴 *CRITICAL* — {len(critical)} invoice(s) 14+ days overdue ({days_list}).\n"
             "Consider calling these customers directly or reviewing your collection strategy."
@@ -394,10 +392,7 @@ def _build_owner_escalation_message(
             "These are still fresh — customers may just need a gentle nudge."
         )
 
-    header = (
-        f"⚠️ *Overdue Invoice Report*\n"
-        f"You have {total} overdue invoice(s) totalling ₦{total_owed:,.0f}.\n\n"
-    )
+    header = f"⚠️ *Overdue Invoice Report*\n" f"You have {total} overdue invoice(s) totalling ₦{total_owed:,.0f}.\n\n"
     footer = "\n\n🔗 Review all invoices at suoops.com/dashboard"
 
     return header + "\n\n".join(parts) + footer
@@ -406,9 +401,7 @@ def _build_owner_escalation_message(
 # ── Email fallback helpers ───────────────────────────────────────────
 
 
-def _send_owner_overdue_email(
-    to_email: str, name: str | None, tiers: dict[str, list[Any]], today: date
-) -> bool:
+def _send_owner_overdue_email(to_email: str, name: str | None, tiers: dict[str, list[Any]], today: date) -> bool:
     """Send the overdue invoice report via email when WhatsApp is unavailable."""
     import os
     import smtplib
@@ -438,9 +431,7 @@ def _send_owner_overdue_email(
     headline = f"You have {total} overdue invoice(s) totalling ₦{total_owed:,.0f}"
 
     # Load template
-    tpl_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html"
-    )
+    tpl_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html")
     try:
         with open(tpl_path) as f:
             tpl = Template(f.read())
@@ -457,7 +448,7 @@ def _send_owner_overdue_email(
 
     plain_body = (
         f"Hi {display_name},\n\n{headline}.\n\n"
-        + "\n".join(f"- {l}" for l in lines)
+        + "\n".join(f"- {line}" for line in lines)
         + "\n\nReview at https://suoops.com/dashboard"
     )
 
@@ -527,9 +518,7 @@ def _send_mark_paid_email(
     )
     headline = f"{pending_count} invoices still marked as pending"
 
-    tpl_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html"
-    )
+    tpl_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html")
     try:
         with open(tpl_path) as f:
             tpl = Template(f.read())
@@ -606,7 +595,7 @@ def send_customer_payment_reminders() -> dict[str, Any]:
     from sqlalchemy import or_
     from sqlalchemy.orm import joinedload
 
-    from app.models.models import InvoiceReminderLog, Invoice
+    from app.models.models import Invoice, InvoiceReminderLog
 
     stats = {"whatsapp_sent": 0, "email_sent": 0, "skipped": 0, "failed": 0, "wa_skipped_window": 0}
 
@@ -645,9 +634,7 @@ def send_customer_payment_reminders() -> dict[str, Any]:
                 logger.info("No invoices due or overdue for customer reminders")
                 return {"success": True, **stats}
 
-            logger.info(
-                "Customer reminders: %d candidate invoices", len(candidates)
-            )
+            logger.info("Customer reminders: %d candidate invoices", len(candidates))
 
             for inv in candidates:
                 customer = inv.customer
@@ -682,9 +669,7 @@ def send_customer_payment_reminders() -> dict[str, Any]:
                         stats["skipped"] += 1
                         wa_delivered = True  # Already sent via WA before
                     else:
-                        ok = _send_customer_whatsapp_reminder(
-                            inv, customer, issuer, tier, business_name
-                        )
+                        ok = _send_customer_whatsapp_reminder(inv, customer, issuer, tier, business_name)
                         if ok:
                             db.add(
                                 InvoiceReminderLog(
@@ -709,9 +694,7 @@ def send_customer_payment_reminders() -> dict[str, Any]:
                                 )
                                 .first()
                             ):
-                                email_ok = _send_customer_email_reminder(
-                                    inv, customer, issuer, tier, business_name
-                                )
+                                email_ok = _send_customer_email_reminder(inv, customer, issuer, tier, business_name)
                                 # Mark handled so the email-only block below
                                 # doesn't re-send (the log added here is still
                                 # pending/unflushed and its dedup query would
@@ -744,9 +727,7 @@ def send_customer_payment_reminders() -> dict[str, Any]:
                     if already:
                         stats["skipped"] += 1
                     else:
-                        ok = _send_customer_email_reminder(
-                            inv, customer, issuer, tier, business_name
-                        )
+                        ok = _send_customer_email_reminder(inv, customer, issuer, tier, business_name)
                         if ok:
                             db.add(
                                 InvoiceReminderLog(
@@ -836,6 +817,7 @@ def _send_customer_whatsapp_reminder(
                 days_info = str(abs(days_until_due))
 
             from app.utils.invoice_delivery import template_bank_params
+
             bank_name, account_number, _ = template_bank_params(
                 issuer, online_only=bool(getattr(issuer, "online_payments_active", False))
             )
@@ -907,13 +889,11 @@ def _send_customer_email_reminder(
         return False
 
 
-def _notify_owner_escalation(
-    inv: Any, issuer: Any, customer: Any, business_name: str
-) -> None:
+def _notify_owner_escalation(inv: Any, issuer: Any, customer: Any, business_name: str) -> None:
     """Alert the business owner about a severely overdue invoice."""
     try:
-        from app.core.whatsapp import get_whatsapp_client
         from app.bot.conversation_window import is_window_open
+        from app.core.whatsapp import get_whatsapp_client
 
         client = get_whatsapp_client()
         customer_name = customer.name or "a customer"
@@ -992,9 +972,7 @@ def _notify_owner_escalation(
                 except Exception as e:
                     logger.warning("Escalation email failed for %s: %s", issuer.email, e)
     except Exception as e:
-        logger.warning(
-            "Owner escalation alert failed for invoice %s: %s", inv.invoice_id, e
-        )
+        logger.warning("Owner escalation alert failed for invoice %s: %s", inv.invoice_id, e)
 
 
 # ── Mark-as-Paid Nudge ──────────────────────────────────────────
@@ -1140,8 +1118,13 @@ def send_mark_paid_nudges() -> dict[str, Any]:
                     #    email on file, so this keeps nudges off paid WhatsApp).
                     if user.email:
                         delivered = _send_mark_paid_email(
-                            user.email, user.name, pending_count,
-                            pending_total, days_oldest, oldest_invoices, today,
+                            user.email,
+                            user.name,
+                            pending_count,
+                            pending_total,
+                            days_oldest,
+                            oldest_invoices,
+                            today,
                         )
                         if delivered:
                             sent += 1
@@ -1155,14 +1138,16 @@ def send_mark_paid_nudges() -> dict[str, Any]:
                             user.phone,
                             nudge_tpl,
                             tpl_lang,
-                            components=[{
-                                "type": "body",
-                                "parameters": [
-                                    {"type": "text", "text": str(pending_count)},
-                                    {"type": "text", "text": f"₦{pending_total:,.0f}"},
-                                    {"type": "text", "text": str(days_oldest)},
-                                ],
-                            }],
+                            components=[
+                                {
+                                    "type": "body",
+                                    "parameters": [
+                                        {"type": "text", "text": str(pending_count)},
+                                        {"type": "text", "text": f"₦{pending_total:,.0f}"},
+                                        {"type": "text", "text": str(days_oldest)},
+                                    ],
+                                }
+                            ],
                         )
                         if delivered:
                             sent += 1
@@ -1183,14 +1168,15 @@ def send_mark_paid_nudges() -> dict[str, Any]:
                     if redis:
                         redis.set(cooldown_key, "1", ex=7 * 86400)
                 except Exception as e:
-                    logger.warning(
-                        "Mark-paid nudge failed for user %s: %s", issuer_id, e
-                    )
+                    logger.warning("Mark-paid nudge failed for user %s: %s", issuer_id, e)
                     failed += 1
 
         logger.info(
             "Mark-paid nudges: sent=%d skipped_cooldown=%d skipped_window=%d failed=%d",
-            sent, skipped_cooldown, skipped_window, failed,
+            sent,
+            skipped_cooldown,
+            skipped_window,
+            failed,
         )
         return {
             "success": True,
@@ -1344,11 +1330,7 @@ def sync_provider_status(self: Task, provider: str, reference: str) -> dict[str,
         return {"success": False, "error": f"Unknown provider status: {tx_status}"}
 
     with session_scope() as db:
-        invoice = (
-            db.query(Invoice)
-            .filter(Invoice.invoice_id == reference)
-            .first()
-        )
+        invoice = db.query(Invoice).filter(Invoice.invoice_id == reference).first()
         if not invoice:
             logger.warning("No invoice found for reference %s", reference)
             return {"success": False, "error": "Invoice not found"}
@@ -1382,9 +1364,7 @@ def sync_provider_status(self: Task, provider: str, reference: str) -> dict[str,
     retry_jitter=True,
     retry_kwargs={"max_retries": 3},
 )
-def ocr_parse_image(
-    self: Task, image_bytes_b64: str, context: str | None = None
-) -> dict[str, Any]:
+def ocr_parse_image(self: Task, image_bytes_b64: str, context: str | None = None) -> dict[str, Any]:
     """Run OCR parse with retries (handles rate limits/timeouts)."""
     import base64
 
@@ -1448,7 +1428,8 @@ def send_daily_summaries() -> dict[str, Any]:
             )
             logger.info(
                 "Daily summary debug: pro/override_users=%d with_phone=%d",
-                pro_count, with_phone,
+                pro_count,
+                with_phone,
             )
 
             # Get PRO / pro_override users who have a phone OR email
@@ -1465,8 +1446,8 @@ def send_daily_summaries() -> dict[str, Any]:
             )
             logger.info("Daily summary: %d users after join", len(active_users))
 
-            from app.core.whatsapp import get_whatsapp_client
             from app.bot.conversation_window import is_window_open
+            from app.core.whatsapp import get_whatsapp_client
 
             client = get_whatsapp_client()
             summary_template = getattr(settings, "WHATSAPP_TEMPLATE_DAILY_SUMMARY", None)
@@ -1553,14 +1534,16 @@ def send_daily_summaries() -> dict[str, Any]:
 
                     logger.info(
                         "Daily summary user %s: rev=%.0f exp=%.0f outstanding=%.0f overdue=%d",
-                        user.id, rev, exp, out, overdue_count,
+                        user.id,
+                        rev,
+                        exp,
+                        out,
+                        overdue_count,
                     )
 
                     # PRO users always get a daily summary, even on quiet days
 
-                    message = _format_daily_summary(
-                        revenue_today, expenses_today, outstanding, overdue_count
-                    )
+                    message = _format_daily_summary(revenue_today, expenses_today, outstanding, overdue_count)
 
                     # Email is the primary channel (free). WhatsApp is only used
                     # for users with no email on file — this keeps the daily
@@ -1590,16 +1573,18 @@ def send_daily_summaries() -> dict[str, Any]:
                                 user.phone,
                                 summary_template,
                                 template_lang,
-                                components=[{
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": f"₦{rev:,.0f}"},
-                                        {"type": "text", "text": f"₦{exp:,.0f}"},
-                                        {"type": "text", "text": f"₦{net:,.0f}"},
-                                        {"type": "text", "text": f"₦{out:,.0f}"},
-                                        {"type": "text", "text": str(overdue_count)},
-                                    ],
-                                }],
+                                components=[
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                            {"type": "text", "text": f"₦{rev:,.0f}"},
+                                            {"type": "text", "text": f"₦{exp:,.0f}"},
+                                            {"type": "text", "text": f"₦{net:,.0f}"},
+                                            {"type": "text", "text": f"₦{out:,.0f}"},
+                                            {"type": "text", "text": str(overdue_count)},
+                                        ],
+                                    }
+                                ],
                             )
                             if not wa_success:
                                 logger.warning(
@@ -1614,7 +1599,8 @@ def send_daily_summaries() -> dict[str, Any]:
                             else:
                                 skipped_window += 1
                                 logger.debug(
-                                    "Daily summary outside 24h window for user %s", user.id,
+                                    "Daily summary outside 24h window for user %s",
+                                    user.id,
                                 )
 
                     if wa_success:
@@ -1624,16 +1610,13 @@ def send_daily_summaries() -> dict[str, Any]:
                         try:
                             _send_daily_cash_image(db, client, user, is_window_open)
                         except Exception as img_err:  # noqa: BLE001
-                            logger.warning(
-                                "Daily cash image failed for user %s: %s", user.id, img_err
-                            )
+                            logger.warning("Daily cash image failed for user %s: %s", user.id, img_err)
                         continue
 
                     # Neither channel succeeded
                     failed += 1
                     logger.warning(
-                        "Daily summary delivery failed for user %s "
-                        "(phone=%s… email=%s)",
+                        "Daily summary delivery failed for user %s " "(phone=%s… email=%s)",
                         user.id,
                         user.phone[:6] if user.phone else "none",
                         "yes" if user.email else "no",
@@ -1645,7 +1628,10 @@ def send_daily_summaries() -> dict[str, Any]:
 
         logger.info(
             "Daily summaries: wa_sent=%d email_sent=%d failed=%d skipped_24h_window=%d",
-            sent, email_sent, failed, skipped_window,
+            sent,
+            email_sent,
+            failed,
+            skipped_window,
         )
         return {
             "success": True,
@@ -1678,8 +1664,12 @@ def _send_daily_cash_image(db, client, user, window_check) -> None:
     if not any(
         cash.get(k)
         for k in (
-            "cash_collected_today", "cash_collected_this_week", "total_outstanding",
-            "total_overdue", "expected_inflow_7_days", "expenses_today",
+            "cash_collected_today",
+            "cash_collected_this_week",
+            "total_outstanding",
+            "total_overdue",
+            "expected_inflow_7_days",
+            "expenses_today",
         )
     ):
         return
@@ -1692,9 +1682,7 @@ def _send_daily_cash_image(db, client, user, window_check) -> None:
         client.send_image(user.phone, media_id, caption="💰 Your cash snapshot")
 
 
-def _format_daily_summary(
-    revenue: Any, expenses: Any, outstanding: Any, overdue_count: int
-) -> str:
+def _format_daily_summary(revenue: Any, expenses: Any, outstanding: Any, overdue_count: int) -> str:
     """Format the daily WhatsApp summary message."""
     rev = float(revenue)
     exp = float(expenses)
@@ -1722,8 +1710,7 @@ def _format_daily_summary(
         if overdue_count > 0:
             s = "s" if overdue_count != 1 else ""
             msg += (
-                f"⚠️ Overdue: {overdue_count} invoice{s}\n"
-                "💡 Send reminders from your dashboard to collect faster!\n"
+                f"⚠️ Overdue: {overdue_count} invoice{s}\n" "💡 Send reminders from your dashboard to collect faster!\n"
             )
 
     msg += "\n🔗 suoops.com/dashboard"
@@ -1771,9 +1758,7 @@ def _send_daily_summary_email(
 
     headline = "Your Daily Business Summary"
 
-    tpl_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html"
-    )
+    tpl_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html")
     try:
         with open(tpl_path) as f:
             tpl = Template(f.read())
@@ -1788,10 +1773,7 @@ def _send_daily_summary_email(
     except Exception:
         html_body = f"<p>Hi {display_name},</p><p>{headline}</p><p>{body_html}</p>"
 
-    plain_lines = [
-        line.replace("<b>", "").replace("</b>", "").replace("<br>", "\n")
-        for line in lines
-    ]
+    plain_lines = [line.replace("<b>", "").replace("</b>", "").replace("<br>", "\n") for line in lines]
     plain_body = (
         f"Hi {display_name},\n\n{headline}\n\n"
         + "\n".join(plain_lines)

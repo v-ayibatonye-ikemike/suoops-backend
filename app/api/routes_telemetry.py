@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover
     from prometheus_client import Counter
+
     _TELEMETRY_COUNTER = Counter(
         "suoops_telemetry_events_total",
         "Total telemetry events received",
@@ -23,6 +23,7 @@ except Exception:  # noqa: BLE001
 
 class TelemetryIn(BaseModel):
     """Telemetry event payload from frontend."""
+
     type: str = Field(min_length=1, max_length=100)
     ts: str
     trace_id: Optional[str] = None

@@ -231,7 +231,9 @@ class WhatsAppClient:
             logger.error("[WHATSAPP IMG] Failed to send to %s: %s", to, exc)
             return False
 
-    def upload_media(self, data: bytes, mime_type: str = "application/pdf", filename: str = "document.pdf") -> str | None:
+    def upload_media(
+        self, data: bytes, mime_type: str = "application/pdf", filename: str = "document.pdf"
+    ) -> str | None:
         """Upload media bytes directly to WhatsApp's Media API.
 
         Returns the media_id on success, or None on failure.
@@ -308,9 +310,7 @@ class WhatsAppClient:
             )
             return None
         if not self._is_valid_recipient(to):
-            logger.warning(
-                "[WHATSAPP TEMPLATE] Skipping invalid recipient %r (not a phone number)", to
-            )
+            logger.warning("[WHATSAPP TEMPLATE] Skipping invalid recipient %r (not a phone number)", to)
             return None
 
         payload: dict[str, Any] = {
@@ -380,22 +380,10 @@ class WhatsAppClient:
         # - Body: {{1}} is the OTP code
         # - Button: URL button with otp{{1}} parameter
         components = [
-            {
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": otp_code}
-                ]
-            },
-            {
-                "type": "button",
-                "sub_type": "url",
-                "index": "0",
-                "parameters": [
-                    {"type": "text", "text": otp_code}
-                ]
-            }
+            {"type": "body", "parameters": [{"type": "text", "text": otp_code}]},
+            {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": otp_code}]},
         ]
-        
+
         logger.info("[WHATSAPP OTP] Sending OTP template '%s' to %s", template_name, to)
         return self.send_template_with_id(to, template_name, language, components)
 
@@ -527,14 +515,14 @@ class WhatsAppClient:
     ) -> bool:
         """
         Send an interactive message with reply buttons.
-        
+
         Args:
             to: Recipient phone number
             body: Message body text
             buttons: List of buttons, each with 'id' and 'title' (max 3 buttons, title max 20 chars)
             header: Optional header text
             footer: Optional footer text
-        
+
         Returns:
             True if sent successfully
         """
@@ -546,10 +534,7 @@ class WhatsAppClient:
             return False
 
         # Build button rows (max 3 buttons allowed by WhatsApp)
-        button_rows = [
-            {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"][:20]}}
-            for btn in buttons[:3]
-        ]
+        button_rows = [{"type": "reply", "reply": {"id": btn["id"], "title": btn["title"][:20]}} for btn in buttons[:3]]
 
         interactive: dict[str, Any] = {
             "type": "button",

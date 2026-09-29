@@ -8,13 +8,12 @@ the customer opt-in / paid handlers.
 
 All external I/O (WhatsApp send, PDF, S3, email, invoice service) is mocked.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-
-import pytest
 
 import app.bot.invoice_intent_processor as iip
 from app.bot.invoice_intent_processor import InvoiceIntentProcessor
@@ -22,9 +21,7 @@ from app.core.exceptions import (
     InvoiceBalanceExhaustedError,
     MissingBankDetailsError,
 )
-from app.models.inventory_models import Product
 from app.models.models import Customer, Invoice, User
-
 
 # ── Helpers ──────────────────────────────────────────────────────
 
@@ -99,8 +96,7 @@ async def test_handle_full_success_no_contact():
     with patch.object(iip, "build_invoice_service", return_value=service):
         await proc.handle(
             "234801",
-            _parse(customer_name="Joy", amount=5000,
-                   lines=[{"description": "wig", "quantity": 1, "unit_price": 5000}]),
+            _parse(customer_name="Joy", amount=5000, lines=[{"description": "wig", "quantity": 1, "unit_price": 5000}]),
             {},
         )
     # business confirmation sent
@@ -147,8 +143,7 @@ async def test_create_invoice_zero_amount_starts_guided_flow():
     proc, client = _make_processor()
     service = Mock()
     with patch("app.bot.onboarding_flow.start_guided_invoice") as guided:
-        await proc._create_invoice(service, 1, "234801",
-                                   {"customer_name": "Joy", "amount": 0}, {})
+        await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 0}, {})
     assert guided.called
     service.create_invoice.assert_not_called()
 
@@ -156,8 +151,7 @@ async def test_create_invoice_zero_amount_starts_guided_flow():
 async def test_create_invoice_min_amount_ngn():
     proc, client = _make_processor()
     service = Mock()
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 50}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 50}, {})
     assert "too low" in _last_text(client)
     service.create_invoice.assert_not_called()
 
@@ -166,8 +160,11 @@ async def test_create_invoice_min_amount_usd():
     proc, client = _make_processor()
     service = Mock()
     await proc._create_invoice(
-        service, 1, "234801",
-        {"customer_name": "Joy", "amount": 0.5, "currency": "USD"}, {},
+        service,
+        1,
+        "234801",
+        {"customer_name": "Joy", "amount": 0.5, "currency": "USD"},
+        {},
     )
     assert "$0.50" in _last_text(client)
     service.create_invoice.assert_not_called()
@@ -176,8 +173,7 @@ async def test_create_invoice_min_amount_usd():
 async def test_create_invoice_missing_customer_name():
     proc, client = _make_processor()
     service = Mock()
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Customer", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Customer", "amount": 5000}, {})
     assert "couldn't find a customer name" in _last_text(client)
     service.create_invoice.assert_not_called()
 
@@ -188,9 +184,14 @@ async def test_create_invoice_suspicious_large_amount_still_creates():
     service.check_invoice_quota = Mock(return_value=_quota(True))
     service.create_invoice = Mock(return_value=_fake_invoice(amount=Decimal("9000000")))
     await proc._create_invoice(
-        service, 1, "234801",
-        {"customer_name": "Joy", "amount": 9_000_000,
-         "lines": [{"description": "job", "quantity": 1, "unit_price": 9_000_000}]},
+        service,
+        1,
+        "234801",
+        {
+            "customer_name": "Joy",
+            "amount": 9_000_000,
+            "lines": [{"description": "job", "quantity": 1, "unit_price": 9_000_000}],
+        },
         {},
     )
     # a heads-up warning is sent, but the invoice is still created
@@ -205,12 +206,17 @@ async def test_create_invoice_suspicious_small_multi_item():
     service.check_invoice_quota = Mock(return_value=_quota(True))
     service.create_invoice = Mock(return_value=_fake_invoice(amount=Decimal("300")))
     await proc._create_invoice(
-        service, 1, "234801",
-        {"customer_name": "Joy", "amount": 300,
-         "lines": [
-             {"description": "a", "quantity": 1, "unit_price": 100},
-             {"description": "b", "quantity": 1, "unit_price": 200},
-         ]},
+        service,
+        1,
+        "234801",
+        {
+            "customer_name": "Joy",
+            "amount": 300,
+            "lines": [
+                {"description": "a", "quantity": 1, "unit_price": 100},
+                {"description": "b", "quantity": 1, "unit_price": 200},
+            ],
+        },
         {},
     )
     texts = " ".join(c.args[1] for c in client.send_text.call_args_list)
@@ -224,8 +230,7 @@ async def test_create_invoice_balance_exhausted_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=InvoiceBalanceExhaustedError())
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "wallet is too low" in _last_text(client)
 
 
@@ -233,8 +238,7 @@ async def test_create_invoice_missing_bank_details_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=MissingBankDetailsError())
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "bank details" in _last_text(client)
 
 
@@ -242,8 +246,7 @@ async def test_create_invoice_generic_amount_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=ValueError("Amount must be positive"))
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "valid amount" in _last_text(client)
 
 
@@ -251,8 +254,7 @@ async def test_create_invoice_generic_name_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=ValueError("customer name required"))
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "customer name" in _last_text(client).lower()
 
 
@@ -260,8 +262,7 @@ async def test_create_invoice_constraint_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=Exception("NOT-NULL constraint failed"))
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "Something was missing" in _last_text(client)
 
 
@@ -269,8 +270,7 @@ async def test_create_invoice_connection_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=Exception("connection timeout"))
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "Network issue" in _last_text(client)
 
 
@@ -278,8 +278,7 @@ async def test_create_invoice_generic_fallback_error():
     proc, client = _make_processor()
     service = Mock()
     service.create_invoice = Mock(side_effect=Exception("weird failure xyz"))
-    await proc._create_invoice(service, 1, "234801",
-                               {"customer_name": "Joy", "amount": 5000}, {})
+    await proc._create_invoice(service, 1, "234801", {"customer_name": "Joy", "amount": 5000}, {})
     assert "couldn't create that invoice" in _last_text(client)
 
 
@@ -289,16 +288,13 @@ async def test_create_invoice_generic_fallback_error():
 async def test_create_invoice_success_with_pdf_and_wallet_low():
     proc, client = _make_processor()
     service = Mock()
-    service.check_invoice_quota = Mock(
-        return_value={"can_create": True, "wallet_balance_naira": 100}
-    )
-    service.create_invoice = Mock(
-        return_value=_fake_invoice(pdf_url="https://x/invoice.pdf", status="paid")
-    )
+    service.check_invoice_quota = Mock(return_value={"can_create": True, "wallet_balance_naira": 100})
+    service.create_invoice = Mock(return_value=_fake_invoice(pdf_url="https://x/invoice.pdf", status="paid"))
     await proc._create_invoice(
-        service, 1, "234801",
-        {"customer_name": "Joy", "amount": 5000,
-         "lines": [{"description": "wig", "quantity": 1, "unit_price": 5000}]},
+        service,
+        1,
+        "234801",
+        {"customer_name": "Joy", "amount": 5000, "lines": [{"description": "wig", "quantity": 1, "unit_price": 5000}]},
         {},
     )
     # PDF document sent + low-wallet nudge present
@@ -308,23 +304,25 @@ async def test_create_invoice_success_with_pdf_and_wallet_low():
 
 
 async def test_create_invoice_success_with_email(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                wallet_balance_kobo=10_000_000)
+    user = User(phone="+2348012345678", name="Biz", phone_verified=True, wallet_balance_kobo=10_000_000)
     db_session.add(user)
     db_session.commit()
     proc, client = _make_processor(db=db_session)
     service = Mock()
     service.check_invoice_quota = Mock(return_value=_quota(True))
     service.create_invoice = Mock(return_value=_fake_invoice())
-    with patch(
-        "app.services.notification.service.NotificationService"
-    ) as NS:
+    with patch("app.services.notification.service.NotificationService") as NS:
         NS.return_value.send_invoice_email = AsyncMock(return_value=True)
         await proc._create_invoice(
-            service, user.id, "234801",
-            {"customer_name": "Joy", "amount": 5000,
-             "customer_email": "joy@example.com",
-             "lines": [{"description": "wig", "quantity": 1, "unit_price": 5000}]},
+            service,
+            user.id,
+            "234801",
+            {
+                "customer_name": "Joy",
+                "amount": 5000,
+                "customer_email": "joy@example.com",
+                "lines": [{"description": "wig", "quantity": 1, "unit_price": 5000}],
+            },
             {},
         )
     assert NS.return_value.send_invoice_email.await_count == 1
@@ -339,15 +337,22 @@ def test_notify_customer_no_phone_returns_false():
 
 
 def test_notify_customer_full_invoice_no_template(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                bank_name="GTB", account_number="123", account_name="Biz",
-                wallet_balance_kobo=10_000_000)
+    user = User(
+        phone="+2348012345678",
+        name="Biz",
+        phone_verified=True,
+        bank_name="GTB",
+        account_number="123",
+        account_name="Biz",
+        wallet_balance_kobo=10_000_000,
+    )
     db_session.add(user)
     db_session.commit()
     proc, client = _make_processor(db=db_session)
     invoice = _fake_invoice(pdf_url="https://x/i.pdf")
-    with patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", None), \
-         patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE", None):
+    with patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", None), patch.object(
+        iip.settings, "WHATSAPP_TEMPLATE_INVOICE", None
+    ):
         pending = proc._notify_customer(invoice, {"customer_phone": "08012345678"}, user.id)
     assert pending is False
     # payment link message + PDF document
@@ -360,12 +365,12 @@ def test_notify_customer_full_invoice_no_template(db_session):
 
 async def test_resolve_prices_no_products_starts_pending_session():
     proc, client = _make_processor()
-    with patch(
-        "app.services.inventory.product_service.ProductService"
-    ) as PS:
+    with patch("app.services.inventory.product_service.ProductService") as PS:
         PS.return_value.list_products.return_value = ([], 0)
         result = proc._resolve_prices_from_inventory(
-            1, [{"description": "wig", "quantity": 5}], "234801",
+            1,
+            [{"description": "wig", "quantity": 5}],
+            "234801",
             data={"customer_name": "Joy"},
         )
     assert result is None
@@ -376,12 +381,12 @@ async def test_resolve_prices_no_products_starts_pending_session():
 async def test_resolve_prices_matches_inventory():
     proc, client = _make_processor()
     product = SimpleNamespace(name="Wig", selling_price=Decimal("5000"), id=9)
-    with patch(
-        "app.services.inventory.product_service.ProductService"
-    ) as PS:
+    with patch("app.services.inventory.product_service.ProductService") as PS:
         PS.return_value.list_products.return_value = ([product], 1)
         result = proc._resolve_prices_from_inventory(
-            1, [{"description": "wig", "quantity": 2}], "234801",
+            1,
+            [{"description": "wig", "quantity": 2}],
+            "234801",
             data={"customer_name": "Joy"},
         )
     assert result is not None
@@ -392,15 +397,15 @@ async def test_resolve_prices_matches_inventory():
 async def test_resolve_prices_partial_match_prompts():
     proc, client = _make_processor()
     product = SimpleNamespace(name="Wig", selling_price=Decimal("5000"), id=9)
-    with patch(
-        "app.services.inventory.product_service.ProductService"
-    ) as PS:
+    with patch("app.services.inventory.product_service.ProductService") as PS:
         PS.return_value.list_products.return_value = ([product], 1)
         result = proc._resolve_prices_from_inventory(
-            1, [
+            1,
+            [
                 {"description": "wig", "quantity": 2},
                 {"description": "unicorn", "quantity": 1},
-            ], "234801",
+            ],
+            "234801",
             data={"customer_name": "Joy"},
         )
     assert result is None
@@ -465,9 +470,7 @@ def test_paid_no_customer(db_session):
 def test_paid_confirms_transfer(db_session):
     _seed_customer_with_invoice(db_session)
     proc, client = _make_processor(db=db_session)
-    with patch(
-        "app.services.invoice_service.build_invoice_service"
-    ) as build:
+    with patch("app.services.invoice_service.build_invoice_service") as build:
         build.return_value.confirm_transfer = Mock()
         handled = proc.handle_customer_paid("+2348099998888")
     assert handled is True
@@ -489,10 +492,12 @@ def test_paid_no_pending_invoice(db_session):
 
 def test_build_items_text():
     proc, _ = _make_processor()
-    invoice = _fake_invoice(lines=[
-        SimpleNamespace(description="wig", quantity=2),
-        SimpleNamespace(description="shoe", quantity=1),
-    ])
+    invoice = _fake_invoice(
+        lines=[
+            SimpleNamespace(description="wig", quantity=2),
+            SimpleNamespace(description="shoe", quantity=1),
+        ]
+    )
     text = proc._build_items_text(invoice)
     assert "2x wig" in text and "shoe" in text
 
@@ -507,16 +512,25 @@ def test_build_items_text_no_lines():
 
 
 def test_notify_customer_template_configured(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                business_name="Biz Co", bank_name="GTB", account_number="123",
-                account_name="Biz", wallet_balance_kobo=10_000_000)
+    user = User(
+        phone="+2348012345678",
+        name="Biz",
+        phone_verified=True,
+        business_name="Biz Co",
+        bank_name="GTB",
+        account_number="123",
+        account_name="Biz",
+        wallet_balance_kobo=10_000_000,
+    )
     db_session.add(user)
     db_session.commit()
     proc, client = _make_processor(db=db_session)
     invoice = _fake_invoice(pdf_url="https://x/i.pdf")
     with patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", "inv_pay"):
         pending = proc._notify_customer(
-            invoice, {"customer_phone": "08012345678"}, user.id,
+            invoice,
+            {"customer_phone": "08012345678"},
+            user.id,
         )
     # invoice_with_payment carries the PDF in a document header, so it's
     # delivered inline — nothing pending a reply.
@@ -525,16 +539,18 @@ def test_notify_customer_template_configured(db_session):
 
 
 def test_notify_customer_basic_template(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                wallet_balance_kobo=10_000_000)
+    user = User(phone="+2348012345678", name="Biz", phone_verified=True, wallet_balance_kobo=10_000_000)
     db_session.add(user)
     db_session.commit()
     proc, client = _make_processor(db=db_session)
     invoice = _fake_invoice()
-    with patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", None), \
-         patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE", "basic_tmpl"):
+    with patch.object(iip.settings, "WHATSAPP_TEMPLATE_INVOICE_PAYMENT", None), patch.object(
+        iip.settings, "WHATSAPP_TEMPLATE_INVOICE", "basic_tmpl"
+    ):
         pending = proc._notify_customer(
-            invoice, {"customer_phone": "08012345678"}, user.id,
+            invoice,
+            {"customer_phone": "08012345678"},
+            user.id,
         )
     assert pending is True
     assert client.send_template.called
@@ -547,7 +563,8 @@ def test_start_pending_price_session_prompts():
     proc, client = _make_processor()
     iip._pending_prices.clear()
     proc._start_pending_price_session(
-        "234801", 1,
+        "234801",
+        1,
         [{"description": "wig", "quantity": 5}, {"description": "shoe", "quantity": 2}],
         {"customer_name": "Tonye", "customer_phone": "08012345678"},
     )
@@ -562,13 +579,12 @@ async def test_handle_price_reply_creates_invoice():
     proc, client = _make_processor()
     iip._pending_prices["234801"] = iip.PendingPriceSession(
         user_id=42,
-        lines=[{"description": "wig", "quantity": 5},
-               {"description": "shoe", "quantity": 10}],
+        lines=[{"description": "wig", "quantity": 5}, {"description": "shoe", "quantity": 10}],
         data={"customer_name": "Tonye", "customer_phone": "08012345678"},
     )
-    with patch.object(proc, "_enforce_quota", return_value=True), \
-         patch.object(proc, "_create_invoice", new_callable=AsyncMock) as mock_create, \
-         patch.object(iip, "build_invoice_service"):
+    with patch.object(proc, "_enforce_quota", return_value=True), patch.object(
+        proc, "_create_invoice", new_callable=AsyncMock
+    ) as mock_create, patch.object(iip, "build_invoice_service"):
         handled = await proc.handle_price_reply("234801", "5000, 3000")
     assert handled is True
     assert "234801" not in iip._pending_prices
@@ -620,7 +636,10 @@ def test_resolve_prices_no_products_no_data_blocks():
     with patch("app.services.inventory.product_service.ProductService") as PS:
         PS.return_value.list_products.return_value = ([], 0)
         result = proc._resolve_prices_from_inventory(
-            1, [{"description": "wig", "quantity": 5}], "234801", data=None,
+            1,
+            [{"description": "wig", "quantity": 5}],
+            "234801",
+            data=None,
         )
     assert result is None
     assert "no prices" in _last_text(client)
@@ -632,7 +651,10 @@ def test_resolve_prices_no_match_no_data_blocks():
     with patch("app.services.inventory.product_service.ProductService") as PS:
         PS.return_value.list_products.return_value = ([product], 1)
         result = proc._resolve_prices_from_inventory(
-            1, [{"description": "unicorn", "quantity": 5}], "234801", data=None,
+            1,
+            [{"description": "unicorn", "quantity": 5}],
+            "234801",
+            data=None,
         )
     assert result is None
     assert "couldn't find" in _last_text(client).lower()
@@ -642,8 +664,7 @@ def test_resolve_prices_no_match_no_data_blocks():
 
 
 def test_load_issuer(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                wallet_balance_kobo=10_000_000)
+    user = User(phone="+2348012345678", name="Biz", phone_verified=True, wallet_balance_kobo=10_000_000)
     db_session.add(user)
     db_session.commit()
     proc, _ = _make_processor(db=db_session)
@@ -655,8 +676,7 @@ def test_load_issuer(db_session):
 
 
 def test_resolve_issuer_id_verified(db_session):
-    user = User(phone="+2348012345678", name="Biz", phone_verified=True,
-                wallet_balance_kobo=10_000_000)
+    user = User(phone="+2348012345678", name="Biz", phone_verified=True, wallet_balance_kobo=10_000_000)
     db_session.add(user)
     db_session.commit()
     proc, _ = _make_processor(db=db_session)
@@ -664,8 +684,7 @@ def test_resolve_issuer_id_verified(db_session):
 
 
 def test_resolve_issuer_id_auto_verifies(db_session):
-    user = User(phone="+2348088887777", name="Biz", phone_verified=False,
-                wallet_balance_kobo=10_000_000)
+    user = User(phone="+2348088887777", name="Biz", phone_verified=False, wallet_balance_kobo=10_000_000)
     db_session.add(user)
     db_session.commit()
     proc, _ = _make_processor(db=db_session)
@@ -678,4 +697,3 @@ def test_resolve_issuer_id_none_inputs(db_session):
     proc, _ = _make_processor(db=db_session)
     assert proc._resolve_issuer_id(None) is None
     assert proc._resolve_issuer_id("+2348000000000") is None
-

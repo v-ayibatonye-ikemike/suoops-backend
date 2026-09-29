@@ -1,4 +1,5 @@
 """Query/list helpers for invoices."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -26,14 +27,12 @@ class InvoiceQueryMixin:
         """Shared invoice filter (issuer + storefront-hidden + type + date +
         search). Used by both the list page and the per-status counts so they
         never disagree."""
+        from sqlalchemy import String as _String
         from sqlalchemy import cast as _cast
         from sqlalchemy import func as sa_func
         from sqlalchemy import or_ as _sa_or
-        from sqlalchemy import String as _String
 
-        query = self.db.query(models.Invoice).filter(
-            models.Invoice.issuer_id == issuer_id
-        )
+        query = self.db.query(models.Invoice).filter(models.Invoice.issuer_id == issuer_id)
 
         # Abandoned/unpaid storefront orders (an online order the customer
         # started but never paid for) aren't real seller invoices yet — keep
@@ -60,9 +59,7 @@ class InvoiceQueryMixin:
         # SQL so it spans ALL invoices, not just the current page.
         if search and search.strip():
             like = f"%{search.strip()}%"
-            query = query.outerjoin(
-                models.Customer, models.Invoice.customer_id == models.Customer.id
-            ).filter(
+            query = query.outerjoin(models.Customer, models.Invoice.customer_id == models.Customer.id).filter(
                 _sa_or(
                     models.Invoice.invoice_id.ilike(like),
                     _cast(models.Invoice.amount, _String).ilike(like),
@@ -83,14 +80,8 @@ class InvoiceQueryMixin:
         ``all`` total — powers the filter chips accurately across every page."""
         from sqlalchemy import func as sa_func
 
-        base = self._base_invoice_query(
-            issuer_id, invoice_type, start_date, end_date, search
-        )
-        rows = (
-            base.with_entities(models.Invoice.status, sa_func.count())
-            .group_by(models.Invoice.status)
-            .all()
-        )
+        base = self._base_invoice_query(issuer_id, invoice_type, start_date, end_date, search)
+        rows = base.with_entities(models.Invoice.status, sa_func.count()).group_by(models.Invoice.status).all()
         counts: dict[str, int] = {str(status): int(n) for status, n in rows}
         counts["all"] = sum(counts.values())
         return counts
@@ -107,9 +98,7 @@ class InvoiceQueryMixin:
         search: str | None = None,
     ) -> tuple[list[models.Invoice], int]:
         """Return a page of invoices and the total count matching the filters."""
-        query = self._base_invoice_query(
-            issuer_id, invoice_type, start_date, end_date, search
-        )
+        query = self._base_invoice_query(issuer_id, invoice_type, start_date, end_date, search)
 
         if status and status != "all":
             query = query.filter(models.Invoice.status == status)
@@ -118,8 +107,7 @@ class InvoiceQueryMixin:
         total = query.count()
 
         invoices = (
-            query
-            .options(
+            query.options(
                 joinedload(models.Invoice.customer),
                 joinedload(models.Invoice.issuer),
                 joinedload(models.Invoice.created_by),

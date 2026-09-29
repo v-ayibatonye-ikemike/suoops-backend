@@ -4,6 +4,7 @@ In production (APP_ENV=prod), ENCRYPTION_KEY is REQUIRED — missing key will
 raise an error to prevent storing sensitive data as plaintext.
 In dev/test, functions fall back to passthrough (no-op) for convenience.
 """
+
 from __future__ import annotations
 
 import base64
@@ -21,12 +22,14 @@ logger = logging.getLogger(__name__)
 
 def _is_production() -> bool:
     from app.core.config import settings
+
     return settings.ENV.lower() in ("prod", "production")
 
 
 @lru_cache
 def _get_cipher() -> Fernet | None:
     from app.core.config import settings
+
     key = settings.ENCRYPTION_KEY
     if not key or Fernet is None:
         if _is_production():

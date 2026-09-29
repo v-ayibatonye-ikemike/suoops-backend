@@ -3,6 +3,7 @@
 Full emails/phone numbers must never land in application logs — mask them so logs
 stay useful for debugging without exposing customer PII.
 """
+
 from __future__ import annotations
 
 

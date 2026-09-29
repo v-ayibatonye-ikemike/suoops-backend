@@ -7,6 +7,7 @@ to the new modular tasks package.
 DEPRECATED: Import directly from app.workers.tasks instead:
     from app.workers.tasks import generate_invoice_pdf_async
 """
+
 from app.workers.tasks import (
     generate_invoice_pdf_async,
     generate_previous_month_reports,

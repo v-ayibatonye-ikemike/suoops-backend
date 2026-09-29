@@ -1,4 +1,5 @@
 """Tests for security module — bcrypt password hashing and token handling."""
+
 import pytest
 
 from app.core.security import (

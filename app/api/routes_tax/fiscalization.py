@@ -3,6 +3,7 @@ Fiscalization and Development Levy Routes.
 
 Handles fiscalization status, invoice fiscalization, and development levy calculation.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +19,7 @@ from app.models.models import Invoice
 from app.services.fiscalization_service import FiscalizationService
 from app.services.tax_service import TaxProfileService
 
-from .schemas import DevelopmentLevyResponse, FiscalizeInvoiceOut, FiscalizationStatus
+from .schemas import DevelopmentLevyResponse, FiscalizationStatus, FiscalizeInvoiceOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,12 +37,7 @@ def get_fiscalization_status(
 
         accredited = bool(getattr(settings, "FISCALIZATION_ACCREDITED", False))
 
-        generated_count = (
-            db.query(FiscalInvoice)
-            .join(Invoice)
-            .filter(Invoice.issuer_id == current_user_id)
-            .count()
-        )
+        generated_count = db.query(FiscalInvoice).join(Invoice).filter(Invoice.issuer_id == current_user_id).count()
         pending_external_count = (
             db.query(FiscalInvoice)
             .join(Invoice)
@@ -109,10 +105,14 @@ async def fiscalize_invoice(
 ):
     """Fiscalize an invoice (provisional FIRS readiness)."""
     try:
-        invoice = db.query(Invoice).filter(
-            Invoice.id == invoice_id,
-            Invoice.issuer_id == current_user_id,
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(
+                Invoice.id == invoice_id,
+                Invoice.issuer_id == current_user_id,
+            )
+            .first()
+        )
 
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")

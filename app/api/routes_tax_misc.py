@@ -1,4 +1,5 @@
 """Miscellaneous tax endpoints: config, levy, fiscalization status, alerts, invoice fiscalize."""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -6,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.routes_auth import get_current_user_id
 from app.api.routes_admin_auth import get_current_admin
+from app.api.routes_auth import get_current_user_id
 from app.db.session import get_db
 from app.models.models import Invoice
 from app.services.fiscalization_service import FiscalizationService
@@ -44,12 +45,18 @@ def get_fiscalization_status(
     try:
         from app.core.config import settings
         from app.models.tax_models import FiscalInvoice
+
         accredited = bool(getattr(settings, "FISCALIZATION_ACCREDITED", False))
         generated_count = db.query(FiscalInvoice).join(Invoice).filter(Invoice.issuer_id == current_user_id).count()
-        pending_external_count = db.query(FiscalInvoice).join(Invoice).filter(
-            Invoice.issuer_id == current_user_id,
-            ~FiscalInvoice.transmitted_at.isnot(None),
-        ).count()
+        pending_external_count = (
+            db.query(FiscalInvoice)
+            .join(Invoice)
+            .filter(
+                Invoice.issuer_id == current_user_id,
+                ~FiscalInvoice.transmitted_at.isnot(None),
+            )
+            .count()
+        )
         return FiscalizationStatus(
             accredited=accredited,
             generated_count=generated_count,
@@ -104,7 +111,7 @@ def list_recent_alerts(
     limit: int = Query(50, ge=1, le=200),
     category: str | None = Query(None),
     db: Session = Depends(get_db),
-    admin_user = Depends(get_current_admin),
+    admin_user=Depends(get_current_admin),
 ):
     try:
         from app.models.alert_models import AlertEvent  # type: ignore

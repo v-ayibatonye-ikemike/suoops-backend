@@ -10,6 +10,7 @@ stay index-only at scale instead of scanning the whole escrow table.
 
 NOTE: revision id kept <=32 chars — alembic_version.version_num is varchar(32).
 """
+
 from __future__ import annotations
 
 from alembic import op

@@ -3,6 +3,7 @@ Expense tracking API endpoints.
 
 Handles CRUD operations for business expenses and provides summary/stats endpoints.
 """
+
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Annotated
@@ -16,7 +17,6 @@ from app.api.rate_limit import limiter
 from app.api.routes_auth import get_current_user_id
 from app.core.audit import log_audit_event
 from app.db.session import get_db
-from app.models.models import Invoice
 from app.models.expense_schemas import (
     ExpenseCreate,
     ExpenseOut,
@@ -24,6 +24,7 @@ from app.models.expense_schemas import (
     ExpenseSummary,
     ExpenseUpdate,
 )
+from app.models.models import Invoice
 from app.services.expense_service import expense_invoice_to_out, record_expense_invoice
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -43,18 +44,18 @@ def _calculate_period_range(
 ) -> tuple[date, date]:
     """
     Calculate start and end date for a given period.
-    
+
     Same logic as tax reporting for consistency.
     """
     today = date.today()
-    
+
     if period_type == "day":
         if year and month and day:
             target_date = date(year, month, day)
         else:
             target_date = today
         return target_date, target_date
-    
+
     elif period_type == "week":
         if year and week:
             # ISO week calculation
@@ -67,13 +68,13 @@ def _calculate_period_range(
             target_start = today - timedelta(days=today.isoweekday() - 1)
             target_end = target_start + timedelta(days=6)
         return target_start, target_end
-    
+
     elif period_type == "month":
         if year and month:
             target_year, target_month = year, month
         else:
             target_year, target_month = today.year, today.month
-        
+
         start_date = date(target_year, target_month, 1)
         # Last day of month
         if target_month == 12:
@@ -81,11 +82,11 @@ def _calculate_period_range(
         else:
             end_date = date(target_year, target_month + 1, 1) - timedelta(days=1)
         return start_date, end_date
-    
+
     elif period_type == "year":
         target_year = year if year else today.year
         return date(target_year, 1, 1), date(target_year, 12, 31)
-    
+
     else:
         raise ValueError(f"Invalid period_type: {period_type}")
 
@@ -101,7 +102,7 @@ def create_expense(
 ):
     """
     Create a new expense manually from dashboard.
-    
+
     For WhatsApp/email expenses, use the bot message handler.
     Expense is created under the data owner (team admin for members).
     """
@@ -134,7 +135,7 @@ def list_expenses(
 ):
     """
     List expenses with optional filters.
-    
+
     Returns expenses sorted by date (most recent first).
     For team members, returns the team admin's expenses.
     """
@@ -220,9 +221,7 @@ def update_expense(
     }
     first_line = invoice.lines[0] if invoice.lines else None
 
-    if invoice.receipt_url and any(
-        field in update_data for field in ("amount", "expense_date", "merchant")
-    ):
+    if invoice.receipt_url and any(field in update_data for field in ("amount", "expense_date", "merchant")):
         invoice.expense_flag_reason = invoice.expense_flag_reason or "receipt_details_edited"
 
     if update_data.get("amount") is not None:
@@ -233,8 +232,7 @@ def update_expense(
     if update_data.get("expense_date") is not None:
         ed = update_data["expense_date"]
         invoice.due_date = (
-            ed if isinstance(ed, datetime)
-            else datetime.combine(ed, datetime.min.time(), tzinfo=timezone.utc)
+            ed if isinstance(ed, datetime) else datetime.combine(ed, datetime.min.time(), tzinfo=timezone.utc)
         )
     if "category" in update_data:
         invoice.category = update_data["category"]
@@ -282,11 +280,15 @@ def delete_expense(
     db: DbDep,
 ):
     """Delete an expense"""
-    invoice = db.query(Invoice).filter(
-        Invoice.id == expense_id,
-        Invoice.issuer_id == data_owner_id,
-        Invoice.invoice_type == "expense",
-    ).first()
+    invoice = (
+        db.query(Invoice)
+        .filter(
+            Invoice.id == expense_id,
+            Invoice.issuer_id == data_owner_id,
+            Invoice.invoice_type == "expense",
+        )
+        .first()
+    )
 
     if not invoice:
         raise HTTPException(status_code=404, detail="Expense not found")
@@ -325,7 +327,7 @@ def expense_summary(
 ):
     """
     Get expense summary by category for a given period.
-    
+
     Examples:
     - Daily: /summary/by-period?period_type=day&year=2025&month=11&day=10
     - Weekly: /summary/by-period?period_type=week&year=2025&week=45
@@ -335,7 +337,7 @@ def expense_summary(
     """
     # Calculate date range
     start_date, end_date = _calculate_period_range(period_type, year, month, day, week)
-    
+
     # SQL aggregation over unified expense-invoices (invoice_type='expense').
     date_col = func.coalesce(Invoice.due_date, Invoice.created_at)
     rows = (
@@ -354,11 +356,11 @@ def expense_summary(
         .group_by(Invoice.category)
         .all()
     )
-    
+
     by_category = {(row.category or "other"): float(row.total) for row in rows}
     total = sum(row.total for row in rows)
     count = sum(row.cnt for row in rows)
-    
+
     return ExpenseSummary(
         total_expenses=float(total),
         by_category=by_category,
@@ -382,7 +384,7 @@ def expense_stats(
 ):
     """
     Get comprehensive expense statistics including revenue and profit.
-    
+
     Shows:
     - Total expenses
     - Total revenue (from invoices)
@@ -390,8 +392,8 @@ def expense_stats(
     - Expense-to-revenue ratio
     - Top expense categories
     """
-    from app.services.tax_reporting_service import compute_revenue_by_date_range
     from app.models.models import Invoice
+    from app.services.tax_reporting_service import compute_revenue_by_date_range
 
     # Calculate date range
     start_date, end_date = _calculate_period_range(period_type, year, month, day, week)
@@ -431,7 +433,7 @@ def expense_stats(
         .all()
     )
     top_categories = [{(row.category or "other"): float(row.total)} for row in category_rows]
-    
+
     # Get revenue from invoices (use data_owner_id for team context)
     total_revenue = compute_revenue_by_date_range(
         db=db,
@@ -440,16 +442,16 @@ def expense_stats(
         end_date=end_date,
         basis="paid",  # Use paid basis for actual cash flow
     )
-    
+
     # Calculate profit
     actual_profit = total_revenue - total_expenses
-    
+
     # Calculate expense-to-revenue ratio
     if total_revenue > 0:
         expense_ratio = float(total_expenses / total_revenue * 100)
     else:
         expense_ratio = 0.0
-    
+
     return ExpenseStats(
         total_expenses=float(total_expenses),
         total_revenue=float(total_revenue),

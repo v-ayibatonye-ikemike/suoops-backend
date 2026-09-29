@@ -11,10 +11,12 @@ Adds:
     customer's payment is held; the seller is paid out (Paystack Transfer, minus
     commission) on buyer confirmation or window expiry; refunded on valid dispute.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260708_storefront_escrow"

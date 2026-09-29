@@ -8,10 +8,12 @@ Adds ``storefront_order_escrow.charge_reference`` — the original Paystack char
 reference (INVPAY-…) captured at payment time, used to refund the buyer on a
 valid non-delivery dispute.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260708_escrow_charge_ref"

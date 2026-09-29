@@ -12,6 +12,7 @@ Providers:
 - Microsoft (planned)
 - Apple (planned)
 """
+
 from .exceptions import (
     OAuthProviderError,
     OAuthTokenError,

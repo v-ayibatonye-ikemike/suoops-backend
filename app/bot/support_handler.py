@@ -24,9 +24,16 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Account & Registration ──
     {
         "patterns": [
-            "how to register", "how do i register", "how to sign up",
-            "how do i sign up", "create account", "create an account",
-            "open account", "sign up", "signup", "register",
+            "how to register",
+            "how do i register",
+            "how to sign up",
+            "how do i sign up",
+            "create account",
+            "create an account",
+            "open account",
+            "sign up",
+            "signup",
+            "register",
         ],
         "answer": (
             "📝 *How to Register*\n\n"
@@ -39,9 +46,15 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "patterns": [
-            "how to verify", "verify my number", "verify whatsapp",
-            "verify phone", "link whatsapp", "connect whatsapp",
-            "link my number", "add my number", "otp",
+            "how to verify",
+            "verify my number",
+            "verify whatsapp",
+            "verify phone",
+            "link whatsapp",
+            "connect whatsapp",
+            "link my number",
+            "add my number",
+            "otp",
         ],
         "answer": (
             "📱 *How to Verify Your WhatsApp Number*\n\n"
@@ -56,9 +69,13 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Invoicing ──
     {
         "patterns": [
-            "how to create invoice", "how to send invoice",
-            "how to make invoice", "how do i invoice",
-            "how to use", "how does this work", "how it works",
+            "how to create invoice",
+            "how to send invoice",
+            "how to make invoice",
+            "how do i invoice",
+            "how to use",
+            "how does this work",
+            "how it works",
         ],
         "answer": (
             "📄 *How to Create an Invoice*\n\n"
@@ -73,9 +90,12 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "patterns": [
-            "invoice not sent", "customer didn't receive",
-            "customer no receive", "invoice not delivered",
-            "customer didn't get", "not receiving",
+            "invoice not sent",
+            "customer didn't receive",
+            "customer no receive",
+            "invoice not delivered",
+            "customer didn't get",
+            "not receiving",
         ],
         "answer": (
             "⚠️ *Invoice Not Delivered?*\n\n"
@@ -91,9 +111,16 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Payments ──
     {
         "patterns": [
-            "how to get paid", "how do i get paid", "receive payment",
-            "how to receive money", "payment method", "bank details",
-            "add bank", "bank account", "set up bank", "setup bank",
+            "how to get paid",
+            "how do i get paid",
+            "receive payment",
+            "how to receive money",
+            "payment method",
+            "bank details",
+            "add bank",
+            "bank account",
+            "set up bank",
+            "setup bank",
         ],
         "answer": (
             "💳 *How to Get Paid*\n\n"
@@ -108,9 +135,12 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "patterns": [
-            "customer paid but", "payment not showing",
-            "paid but not confirmed", "payment not reflected",
-            "mark as paid", "confirm payment",
+            "customer paid but",
+            "payment not showing",
+            "paid but not confirmed",
+            "payment not reflected",
+            "mark as paid",
+            "confirm payment",
         ],
         "answer": (
             "💰 *Payment Not Showing?*\n\n"
@@ -124,9 +154,17 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Plans & Pricing ──
     {
         "patterns": [
-            "pricing", "how much", "price", "plans", "subscription",
-            "upgrade", "pro plan", "starter plan", "free plan",
-            "what plan", "my plan",
+            "pricing",
+            "how much",
+            "price",
+            "plans",
+            "subscription",
+            "upgrade",
+            "pro plan",
+            "starter plan",
+            "free plan",
+            "what plan",
+            "my plan",
         ],
         "answer": (
             "💰 *SuoOps Pricing — fees as low as 0.5%*\n\n"
@@ -141,8 +179,11 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Expenses ──
     {
         "patterns": [
-            "how to track expense", "how to add expense",
-            "record expense", "log expense", "expense tracking",
+            "how to track expense",
+            "how to add expense",
+            "record expense",
+            "log expense",
+            "expense tracking",
             "how to expense",
         ],
         "answer": (
@@ -160,8 +201,11 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Tax ──
     {
         "patterns": [
-            "how to get tax report", "tax report how",
-            "what is tax report", "tax help", "nta",
+            "how to get tax report",
+            "tax report how",
+            "what is tax report",
+            "tax help",
+            "nta",
         ],
         "answer": (
             "🏛️ *Tax Reports*\n\n"
@@ -173,9 +217,15 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── Account Issues ──
     {
         "patterns": [
-            "can't login", "cannot login", "can't log in", "cannot log in",
-            "forgot password", "reset password", "password reset",
-            "locked out", "account locked",
+            "can't login",
+            "cannot login",
+            "can't log in",
+            "cannot log in",
+            "forgot password",
+            "reset password",
+            "password reset",
+            "locked out",
+            "account locked",
         ],
         "answer": (
             "🔐 *Login Issues*\n\n"
@@ -187,8 +237,11 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "patterns": [
-            "delete account", "delete my account", "remove account",
-            "close account", "deactivate",
+            "delete account",
+            "delete my account",
+            "remove account",
+            "close account",
+            "deactivate",
         ],
         "answer": (
             "🗑️ *Account Deletion*\n\n"
@@ -203,8 +256,11 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
     # ── General ──
     {
         "patterns": [
-            "what is suoops", "what's suoops", "what does suoops do",
-            "tell me about suoops", "about suoops",
+            "what is suoops",
+            "what's suoops",
+            "what does suoops do",
+            "tell me about suoops",
+            "about suoops",
         ],
         "answer": (
             "🇳🇬 *What is SuoOps?*\n\n"
@@ -221,52 +277,60 @@ _FAQ_ENTRIES: list[dict[str, Any]] = [
 # ── Onboarding steps ─────────────────────────────────────────────────
 # Checks run in order; the first incomplete step is surfaced to the user.
 
+
 def _check_onboarding_status(db: Session, user: models.User) -> list[dict[str, Any]]:
     """Return list of onboarding steps with completion status."""
     steps: list[dict[str, Any]] = []
 
     # 1. Email verified
     email_verified = bool(getattr(user, "email_verified", False) or getattr(user, "is_verified", False))
-    steps.append({
-        "label": "Verify your email",
-        "done": email_verified,
-        "help": "Check your inbox for the verification link from SuoOps.",
-    })
+    steps.append(
+        {
+            "label": "Verify your email",
+            "done": email_verified,
+            "help": "Check your inbox for the verification link from SuoOps.",
+        }
+    )
 
     # 2. Phone verified (WhatsApp linked)
     phone_linked = bool(user.phone and getattr(user, "phone_verified", False))
-    steps.append({
-        "label": "Link your WhatsApp number",
-        "done": phone_linked,
-        "help": (
-            "Go to suoops.com/dashboard/settings → enter your WhatsApp number "
-            "→ tap *Send OTP* → enter the code."
-        ),
-    })
+    steps.append(
+        {
+            "label": "Link your WhatsApp number",
+            "done": phone_linked,
+            "help": (
+                "Go to suoops.com/dashboard/settings → enter your WhatsApp number " "→ tap *Send OTP* → enter the code."
+            ),
+        }
+    )
 
     # 3. Bank details added
     has_bank = bool(user.bank_name and user.account_number)
-    steps.append({
-        "label": "Add your bank details",
-        "done": has_bank,
-        "help": (
-            "Go to suoops.com/dashboard/settings → *Bank Details* "
-            "→ enter your bank, account number and name."
-        ),
-    })
+    steps.append(
+        {
+            "label": "Add your bank details",
+            "done": has_bank,
+            "help": (
+                "Go to suoops.com/dashboard/settings → *Bank Details* " "→ enter your bank, account number and name."
+            ),
+        }
+    )
 
     # 4. First invoice created
     from app.models.models import Invoice
+
     has_invoice = db.query(Invoice.id).filter(Invoice.issuer_id == user.id).first() is not None
-    steps.append({
-        "label": "Create your first invoice",
-        "done": has_invoice,
-        "help": (
-            "Type here:\n"
-            "`Invoice Joy 08012345678, 5000 wig`\n\n"
-            "Or go to suoops.com/dashboard → *Create Invoice*."
-        ),
-    })
+    steps.append(
+        {
+            "label": "Create your first invoice",
+            "done": has_invoice,
+            "help": (
+                "Type here:\n"
+                "`Invoice Joy 08012345678, 5000 wig`\n\n"
+                "Or go to suoops.com/dashboard → *Create Invoice*."
+            ),
+        }
+    )
 
     return steps
 
@@ -275,16 +339,37 @@ class SupportHandler:
     """Handles support questions, onboarding guidance, and escalation."""
 
     SUPPORT_KEYWORDS = {
-        "support", "contact", "talk to human", "speak to someone",
-        "escalate", "complaint", "complain", "issue", "problem",
-        "bug", "error", "broken", "not working", "doesn't work",
+        "support",
+        "contact",
+        "talk to human",
+        "speak to someone",
+        "escalate",
+        "complaint",
+        "complain",
+        "issue",
+        "problem",
+        "bug",
+        "error",
+        "broken",
+        "not working",
+        "doesn't work",
     }
 
     ONBOARDING_KEYWORDS = {
-        "setup", "set up", "get started", "getting started",
-        "onboard", "onboarding", "activate", "activation",
-        "what next", "what do i do", "next step", "next steps",
-        "how to start", "first time",
+        "setup",
+        "set up",
+        "get started",
+        "getting started",
+        "onboard",
+        "onboarding",
+        "activate",
+        "activation",
+        "what next",
+        "what do i do",
+        "next step",
+        "next steps",
+        "how to start",
+        "first time",
     }
 
     def __init__(self, db: Session, client: WhatsAppClient):
@@ -370,7 +455,7 @@ class SupportHandler:
                 "`Invoice Joy 08012345678, 5000 wig`\n\n"
                 "...and your first invoice goes out instantly! 🎉\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━\n"
-                "💬 Need help? Visit support.suoops.com"
+                "💬 Need help? Visit support.suoops.com",
             )
             return True
 
@@ -387,7 +472,7 @@ class SupportHandler:
                 "💸 Track expense: `Expense: ₦5,000 for transport`\n"
                 "📊 Business report: Type *report*\n"
                 "🏛️ Tax report: Type *tax report*\n\n"
-                "Type *help* for the full guide."
+                "Type *help* for the full guide.",
             )
             return True
 
@@ -404,10 +489,7 @@ class SupportHandler:
         msg += "\n━━━━━━━━━━━━━━━━━━━━━\n"
 
         if first_incomplete:
-            msg += (
-                f"👉 *Next step: {first_incomplete['label']}*\n\n"
-                f"{first_incomplete['help']}\n"
-            )
+            msg += f"👉 *Next step: {first_incomplete['label']}*\n\n" f"{first_incomplete['help']}\n"
 
         msg += "\n━━━━━━━━━━━━━━━━━━━━━\n💬 Stuck? Visit support.suoops.com for help"
 
@@ -430,7 +512,7 @@ class SupportHandler:
             "• Your registered email\n"
             "• Description of the issue\n"
             "• Any invoice numbers involved\n\n"
-            "We'll get back to you as fast as possible! 💪"
+            "We'll get back to you as fast as possible! 💪",
         )
 
     def _resolve_user(self, phone: str) -> models.User | None:
@@ -449,8 +531,4 @@ class SupportHandler:
             else:
                 candidates.add(f"+{digits}")
 
-        return (
-            self.db.query(models.User)
-            .filter(models.User.phone.in_(list(candidates)))
-            .first()
-        )
+        return self.db.query(models.User).filter(models.User.phone.in_(list(candidates))).first()

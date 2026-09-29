@@ -12,6 +12,7 @@ Design goals:
   * Everything else raises the risk score and flags for review instead of blocking.
   * Cheap: a couple of indexed COUNT queries, no third-party calls.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -29,9 +30,9 @@ from app.models import models
 # assisted (concierge) onboarding legitimately create several accounts from one
 # IP or device. So IP is treated as a *flag only* signal — it never hard-blocks —
 # and device only hard-blocks at an extreme, clearly-automated count.
-IP_FLAG_THRESHOLD = 6           # ≥ this many from one IP in the window → flag for review
-DEVICE_FLAG_THRESHOLD = 3       # ≥ this many accounts from one browser → flag for review
-DEVICE_BLOCK_THRESHOLD = 12     # ≥ this many from one browser in the window → hard block (bot)
+IP_FLAG_THRESHOLD = 6  # ≥ this many from one IP in the window → flag for review
+DEVICE_FLAG_THRESHOLD = 3  # ≥ this many accounts from one browser → flag for review
+DEVICE_BLOCK_THRESHOLD = 12  # ≥ this many from one browser in the window → hard block (bot)
 VELOCITY_WINDOW = dt.timedelta(hours=24)
 
 # Score at/above which we automatically flag the account for manual review.
@@ -100,11 +101,7 @@ def is_disposable_email(email: str | None) -> bool:
 def _count_recent_by(db: Session, column, value: str, window: dt.timedelta) -> int:
     """Count users created within ``window`` whose ``column`` equals ``value``."""
     since = dt.datetime.now(dt.timezone.utc) - window
-    return (
-        db.query(func.count(models.User.id))
-        .filter(column == value, models.User.created_at >= since)
-        .scalar()
-    ) or 0
+    return (db.query(func.count(models.User.id)).filter(column == value, models.User.created_at >= since).scalar()) or 0
 
 
 def evaluate_signup(
@@ -144,9 +141,7 @@ def evaluate_signup(
     #    Only hard-block at an extreme, clearly-automated count; flag before that
     #    (agent-assisted onboarding of a few shops from one device is legitimate).
     if device_id:
-        device_count = _count_recent_by(
-            db, models.User.signup_device_id, device_id, VELOCITY_WINDOW
-        )
+        device_count = _count_recent_by(db, models.User.signup_device_id, device_id, VELOCITY_WINDOW)
         if device_count >= DEVICE_BLOCK_THRESHOLD:
             assessment.score += 45
             assessment.signals.append("device_reuse_high")
@@ -190,10 +185,5 @@ def linked_account_ids(db: Session, user: models.User, *, limit: int = 50) -> li
 
     from sqlalchemy import or_
 
-    rows = (
-        db.query(models.User.id)
-        .filter(or_(*filters), models.User.id != user.id)
-        .limit(limit)
-        .all()
-    )
+    rows = db.query(models.User.id).filter(or_(*filters), models.User.id != user.id).limit(limit).all()
     return [r.id for r in rows]

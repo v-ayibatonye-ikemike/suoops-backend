@@ -1,4 +1,5 @@
 """Common utility functions for schemas."""
+
 from decimal import Decimal
 
 

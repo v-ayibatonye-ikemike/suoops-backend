@@ -4,6 +4,7 @@ Tax Reports Routes.
 Handles tax report generation, downloads, and CSV exports.
 Requires STARTER or PRO plan for access.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,7 +67,7 @@ def generate_tax_report(
     """Generate tax report for specified period. Requires STARTER or PRO plan."""
     # Gate: Require tax_reports feature (STARTER+)
     require_plan_feature(db, current_user_id, "tax_reports", "Tax Reports")
-    
+
     try:
         reporting_service = TaxReportingService(db)
         report = reporting_service.generate_report(
@@ -87,19 +88,12 @@ def generate_tax_report(
             compute_personal_income_tax,
             compute_revenue_by_date_range,
         )
+
         total_revenue = float(
-            compute_revenue_by_date_range(
-                db, current_user_id, report.start_date, report.end_date, basis
-            )
+            compute_revenue_by_date_range(db, current_user_id, report.start_date, report.end_date, basis)
         )
-        total_expenses = float(
-            compute_expenses_by_date_range(
-                db, current_user_id, report.start_date, report.end_date
-            )
-        )
-        expense_breakdown = compute_expense_evidence_breakdown(
-            db, current_user_id, report.start_date, report.end_date
-        )
+        total_expenses = float(compute_expenses_by_date_range(db, current_user_id, report.start_date, report.end_date))
+        expense_breakdown = compute_expense_evidence_breakdown(db, current_user_id, report.start_date, report.end_date)
         cogs_amount = float(report.cogs_amount or 0)
 
         # Always use fresh-computed profit for consistency with revenue/expenses
@@ -114,10 +108,13 @@ def generate_tax_report(
         if not report.pdf_url:
             try:
                 from app.storage.s3_client import S3Client
+
                 pdf_service = PDFService(S3Client())
                 pdf_url = pdf_service.generate_monthly_tax_report_pdf(
-                    report, basis=basis,
-                    total_revenue=total_revenue, total_expenses=total_expenses,
+                    report,
+                    basis=basis,
+                    total_revenue=total_revenue,
+                    total_expenses=total_expenses,
                 )
                 reporting_service.attach_report_pdf(report, pdf_url)
                 report.pdf_url = pdf_url
@@ -132,16 +129,15 @@ def generate_tax_report(
         user_plan = user.plan.value if user else "free"
 
         annual_revenue_estimate = _estimate_annual_revenue(
-            total_revenue, period_type,
+            total_revenue,
+            period_type,
         )
         alerts = _generate_tax_alerts(user_plan, annual_revenue_estimate)
         pit_band_info = _get_pit_band_info(fresh_profit)
         is_cit_eligible = user_plan in ("pro", "business")
 
         # Debug: Get invoice counts for troubleshooting
-        invoice_debug = _get_invoice_debug_info(
-            db, current_user_id, report.start_date, report.end_date, basis
-        )
+        invoice_debug = _get_invoice_debug_info(db, current_user_id, report.start_date, report.end_date, basis)
         # Override calculated_revenue with the same value used for the cards
         # so debug_info is always consistent with the displayed revenue.
         invoice_debug["calculated_revenue"] = total_revenue
@@ -193,10 +189,14 @@ def download_tax_report_by_id(
     db: Session = Depends(get_db),
 ):
     """Download tax report PDF by report ID."""
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.id == report_id,
-        MonthlyTaxReport.user_id == current_user_id,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.id == report_id,
+            MonthlyTaxReport.user_id == current_user_id,
+        )
+        .first()
+    )
 
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
@@ -205,6 +205,7 @@ def download_tax_report_by_id(
     if not report.pdf_url:
         try:
             from app.storage.s3_client import S3Client
+
             pdf_service = PDFService(S3Client())
             pdf_url = pdf_service.generate_monthly_tax_report_pdf(report, basis="paid")
             report.pdf_url = pdf_url
@@ -230,12 +231,16 @@ def download_monthly_tax_report(
     db: Session = Depends(get_db),
 ):
     """Download monthly tax report PDF (backward compatible endpoint)."""
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.user_id == current_user_id,
-        MonthlyTaxReport.period_type == "month",
-        MonthlyTaxReport.year == year,
-        MonthlyTaxReport.month == month,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.user_id == current_user_id,
+            MonthlyTaxReport.period_type == "month",
+            MonthlyTaxReport.year == year,
+            MonthlyTaxReport.month == month,
+        )
+        .first()
+    )
 
     if not report or not report.pdf_url:
         raise HTTPException(status_code=404, detail="Report or PDF not found.")
@@ -253,10 +258,14 @@ def download_tax_report_csv_by_id(
     """Generate CSV export for a tax report by ID."""
     from app.storage.s3_client import s3_client
 
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.id == report_id,
-        MonthlyTaxReport.user_id == current_user_id,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.id == report_id,
+            MonthlyTaxReport.user_id == current_user_id,
+        )
+        .first()
+    )
 
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
@@ -290,12 +299,16 @@ def download_monthly_tax_report_csv(
     db: Session = Depends(get_db),
 ):
     """Generate CSV export for monthly tax report (backward compatible)."""
-    report = db.query(MonthlyTaxReport).filter(
-        MonthlyTaxReport.user_id == current_user_id,
-        MonthlyTaxReport.period_type == "month",
-        MonthlyTaxReport.year == year,
-        MonthlyTaxReport.month == month,
-    ).first()
+    report = (
+        db.query(MonthlyTaxReport)
+        .filter(
+            MonthlyTaxReport.user_id == current_user_id,
+            MonthlyTaxReport.period_type == "month",
+            MonthlyTaxReport.year == year,
+            MonthlyTaxReport.month == month,
+        )
+        .first()
+    )
 
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
@@ -308,9 +321,7 @@ def download_monthly_tax_report_csv(
 # ============================================================================
 
 
-def _format_period_label(
-    period_type: str, year: int, month: int | None, day: int | None, week: int | None
-) -> str:
+def _format_period_label(period_type: str, year: int, month: int | None, day: int | None, week: int | None) -> str:
     """Format period label for response."""
     if period_type == "day":
         return f"{year}-{month:02d}-{day:02d}"
@@ -333,27 +344,33 @@ def _generate_tax_alerts(user_plan: str, annual_revenue: float) -> list[dict]:
 
     if user_plan in ("free", "starter"):
         if annual_revenue >= 25_000_000:
-            alerts.append({
-                "type": "vat_threshold",
-                "severity": "warning",
-                "message": (
-                    f"Your estimated annual turnover (₦{annual_revenue:,.0f}) exceeds ₦25M. "
-                    "VAT registration required."
-                ),
-            })
+            alerts.append(
+                {
+                    "type": "vat_threshold",
+                    "severity": "warning",
+                    "message": (
+                        f"Your estimated annual turnover (₦{annual_revenue:,.0f}) exceeds ₦25M. "
+                        "VAT registration required."
+                    ),
+                }
+            )
         elif annual_revenue >= 20_000_000:
-            alerts.append({
-                "type": "vat_approaching",
-                "severity": "info",
-                "message": f"You're approaching the ₦25M VAT threshold (current: ₦{annual_revenue:,.0f}).",
-            })
+            alerts.append(
+                {
+                    "type": "vat_approaching",
+                    "severity": "info",
+                    "message": f"You're approaching the ₦25M VAT threshold (current: ₦{annual_revenue:,.0f}).",
+                }
+            )
 
     if user_plan == "pro" and annual_revenue >= 50_000_000:
-        alerts.append({
-            "type": "cit_threshold",
-            "severity": "warning",
-            "message": f"Your turnover (₦{annual_revenue:,.0f}) exceeds ₦50M. Upgrade to BUSINESS plan.",
-        })
+        alerts.append(
+            {
+                "type": "cit_threshold",
+                "severity": "warning",
+                "message": f"Your turnover (₦{annual_revenue:,.0f}) exceeds ₦50M. Upgrade to BUSINESS plan.",
+            }
+        )
 
     return alerts
 
@@ -369,11 +386,11 @@ def _get_invoice_debug_info(
     from datetime import datetime, timezone
 
     from app.models.models import Invoice
-    
+
     # Convert dates
     start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
     end_dt = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
-    
+
     # Query revenue invoices
     base_query = db.query(Invoice).filter(
         Invoice.issuer_id == user_id,
@@ -381,23 +398,23 @@ def _get_invoice_debug_info(
         Invoice.created_at >= start_dt,
         Invoice.created_at <= end_dt,
     )
-    
+
     # Get counts by status
     all_invoices = base_query.all()
     paid_invoices = [i for i in all_invoices if i.status == "paid"]
-    
+
     # Get top 5 invoices by amount
     top_invoices = sorted(all_invoices, key=lambda i: float(i.amount or 0), reverse=True)[:5]
-    
+
     # Calculate basis-specific totals (matching the actual revenue calculation logic)
     if basis == "paid":
         relevant_invoices = paid_invoices
     else:
         # Exclude both refunded AND cancelled invoices for "all" basis
         relevant_invoices = [i for i in all_invoices if i.status not in ("refunded", "cancelled")]
-    
+
     total_revenue = sum(float(i.amount or 0) - float(i.discount_amount or 0) for i in relevant_invoices)
-    
+
     return {
         "total_invoices_in_period": len(all_invoices),
         "paid_invoices": len(paid_invoices),
@@ -435,10 +452,22 @@ def _generate_csv_content(report: MonthlyTaxReport, basis: str) -> bytes:
     """Generate CSV content from report."""
     buf = StringIO()
     headers = [
-        "period_type", "start_date", "end_date", "year", "month", "basis",
-        "total_revenue", "total_expenses", "cogs_amount",
-        "assessable_profit", "levy_amount", "vat_collected",
-        "taxable_sales", "zero_rated_sales", "exempt_sales", "generated_at",
+        "period_type",
+        "start_date",
+        "end_date",
+        "year",
+        "month",
+        "basis",
+        "total_revenue",
+        "total_expenses",
+        "cogs_amount",
+        "assessable_profit",
+        "levy_amount",
+        "vat_collected",
+        "taxable_sales",
+        "zero_rated_sales",
+        "exempt_sales",
+        "generated_at",
     ]
     buf.write(",".join(headers) + "\n")
 

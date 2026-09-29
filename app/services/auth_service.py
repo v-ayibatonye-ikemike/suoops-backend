@@ -61,15 +61,9 @@ class AuthService:
         # Terms & Conditions (incl. buyer-protection/escrow policy) must be
         # accepted before we send an OTP or create anything.
         if not payload.accept_terms:
-            raise ValueError(
-                "Please accept the Terms & Conditions to create your account."
-            )
+            raise ValueError("Please accept the Terms & Conditions to create your account.")
         # Check if phone already registered
-        existing = (
-            self.db.query(models.User)
-            .filter(models.User.phone == identifier)
-            .one_or_none()
-        )
+        existing = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
         if existing:
             raise ValueError("An account with this identifier already exists")
 
@@ -78,8 +72,7 @@ class AuthService:
         # with an actionable message (legitimate SMEs never use these domains).
         if is_disposable_email(payload.email):
             raise ValueError(
-                "Please sign up with a real email address (temporary/disposable "
-                "email providers are not allowed)."
+                "Please sign up with a real email address (temporary/disposable " "email providers are not allowed)."
             )
         # Extreme velocity from one IP/device → refuse without tipping off the
         # abuser about which control fired.
@@ -93,7 +86,10 @@ class AuthService:
         if assessment.block:
             logger.warning(
                 "Blocked signup attempt phone=%s ip=%s reason=%s signals=%s",
-                identifier, ip, assessment.block_reason, assessment.signals,
+                identifier,
+                ip,
+                assessment.block_reason,
+                assessment.signals,
             )
             raise ValueError(
                 "We couldn't complete your signup right now. If you believe this "
@@ -116,25 +112,21 @@ class AuthService:
 
     def complete_signup(self, payload: schemas.SignupVerify) -> TokenBundle:
         """Complete signup with WhatsApp OTP verification."""
-        
+
         identifier = self._normalize_phone(payload.phone)
-        
+
         stored_data = self.otp.complete_signup(identifier, payload.otp)
 
         # Guard against race-condition: if user already created after OTP issuance
-        existing = (
-            self.db.query(models.User)
-            .filter(models.User.phone == identifier)
-            .one_or_none()
-        )
-            
+        existing = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
+
         if existing:
             # Race: account already created. Leave its verification state as-is
             # (the WhatsApp gate will prompt verification if still unverified).
             return self._issue_tokens(existing)
 
         # Create new user — signup is always phone-based (WhatsApp)
-        
+
         # Determine signup source: explicit from payload, or infer from context
         raw_source = stored_data.get("signup_source")
         if not raw_source and stored_data.get("referral_code"):
@@ -181,7 +173,9 @@ class AuthService:
             if assessment.flagged:
                 logger.warning(
                     "Signup flagged for review phone=%s score=%d signals=%s",
-                    identifier, assessment.score, assessment.signals,
+                    identifier,
+                    assessment.score,
+                    assessment.signals,
                 )
         except Exception as e:  # noqa: BLE001 — risk scoring must never block signup
             logger.warning("Risk evaluation failed for %s: %s", identifier, e)
@@ -193,7 +187,7 @@ class AuthService:
             encrypted_email = encrypt_value(plaintext_email)
             user_data["email"] = plaintext_email
             user_data["email_enc"] = encrypted_email
-            
+
         user = models.User(**user_data)
         user.last_login = datetime.now(timezone.utc)
         self.db.add(user)
@@ -205,6 +199,7 @@ class AuthService:
         if referral_code_str:
             try:
                 from app.services.referral_service import ReferralService
+
                 ref_svc = ReferralService(self.db)
                 code_obj = ref_svc.get_code_by_string(referral_code_str)
                 if code_obj and code_obj.bonus_invoices > 0:
@@ -215,14 +210,17 @@ class AuthService:
                     self.db.commit()
                     logger.info(
                         "Credited ₦%d bonus wallet to user %s via code %s",
-                        bonus_kobo // 100, user.id, referral_code_str,
+                        bonus_kobo // 100,
+                        user.id,
+                        referral_code_str,
                     )
             except Exception as e:
                 logger.warning("Failed to credit bonus invoices: %s", e)
-        
+
         # Sync new user to Brevo (real-time)
         try:
             from app.services.brevo_service import sync_user_to_brevo_sync
+
             sync_user_to_brevo_sync(user)
         except Exception as e:
             logger.warning(f"Failed to sync user to Brevo: {e}")
@@ -230,6 +228,7 @@ class AuthService:
         # Fire instant welcome message (async — doesn't block API response)
         try:
             from app.workers.tasks.welcome_tasks import send_instant_welcome
+
             send_instant_welcome.delay(user.id)
             logger.info("Queued instant welcome for user %s", user.id)
         except Exception as e:
@@ -249,15 +248,12 @@ class AuthService:
         """
 
         # Support both phone and email for login
-        if hasattr(payload, 'email') and payload.email:
+        if hasattr(payload, "email") and payload.email:
             identifier = payload.email.lower().strip()
             enc_identifier = encrypt_value(identifier)
             user = (
                 self.db.query(models.User)
-                .filter(
-                    (models.User.email == identifier) |
-                    (models.User.email_enc == enc_identifier)
-                )
+                .filter((models.User.email == identifier) | (models.User.email_enc == enc_identifier))
                 .one_or_none()
             )
             if not user:
@@ -265,11 +261,7 @@ class AuthService:
             return self.otp.request_login(identifier)
 
         identifier = self._normalize_phone(payload.phone)
-        user = (
-            self.db.query(models.User)
-            .filter(models.User.phone == identifier)
-            .one_or_none()
-        )
+        user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
         if not user:
             raise ValueError("Invalid credentials")
         # Prefer email delivery (free) over WhatsApp when the user has an email.
@@ -278,7 +270,7 @@ class AuthService:
 
     def verify_login(self, payload: schemas.LoginVerify) -> TokenBundle:
         """Verify login OTP for phone OR email."""
-        
+
         # Determine identifier (email or phone)
         if payload.email:
             identifier = payload.email.lower().strip()
@@ -288,7 +280,7 @@ class AuthService:
             lookup_field = "phone"
         else:
             raise ValueError("Either phone or email is required")
-            
+
         # Verify OTP (do NOT log the OTP code itself)
         otp_valid = self.otp.verify_otp(identifier, payload.otp, "login")
         logger.info(
@@ -298,24 +290,17 @@ class AuthService:
         )
         if not otp_valid:
             raise ValueError("Invalid or expired OTP")
-            
+
         if lookup_field == "email":
             enc_identifier = encrypt_value(identifier)
             user = (
                 self.db.query(models.User)
-                .filter(
-                    (models.User.email == identifier) |
-                    (models.User.email_enc == enc_identifier)
-                )
+                .filter((models.User.email == identifier) | (models.User.email_enc == enc_identifier))
                 .one_or_none()
             )
         else:
-            user = (
-                self.db.query(models.User)
-                .filter(models.User.phone == identifier)
-                .one_or_none()
-            )
-            
+            user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
+
         if not user:
             raise ValueError("User not found")
         user.last_login = datetime.now(timezone.utc)
@@ -352,11 +337,7 @@ class AuthService:
             # (keeps WhatsApp cost down). Signup stays on WhatsApp (verifies phone).
             deliver_to = None
             if purpose == "login":
-                user = (
-                    self.db.query(models.User)
-                    .filter(models.User.phone == identifier)
-                    .one_or_none()
-                )
+                user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
                 if user and getattr(user, "email", None):
                     deliver_to = user.email
             return self.otp.resend_otp(identifier, purpose, deliver_to=deliver_to)

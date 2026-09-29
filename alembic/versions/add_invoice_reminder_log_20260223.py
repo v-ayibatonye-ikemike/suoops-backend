@@ -7,7 +7,9 @@ Revision ID: invoice_reminder_log_20260223
 Revises: user_email_log_20260220
 Create Date: 2026-02-23
 """
+
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "invoice_reminder_log_20260223"

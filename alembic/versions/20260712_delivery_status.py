@@ -9,10 +9,12 @@ and ``delivery_status_at`` to ``storefront_order_escrow`` so the buyer and selle
 can see live progress — awaiting pickup → picked up → in transit → out for
 delivery → delivered — instead of only a booked/delivered flag.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260712_delivery_status"

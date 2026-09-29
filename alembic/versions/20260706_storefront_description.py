@@ -7,10 +7,12 @@ Create Date: 2026-07-05
 Short public description of what a shop sells, shown in the storefront
 directory so customers know what they're clicking into.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260706_storefront_description"

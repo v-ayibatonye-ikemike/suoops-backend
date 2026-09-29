@@ -3,6 +3,7 @@
 Tokens are stored by their SHA-256 hash with a TTL matching the token's
 remaining lifetime, so the blocklist is self-cleaning.
 """
+
 from __future__ import annotations
 
 import hashlib

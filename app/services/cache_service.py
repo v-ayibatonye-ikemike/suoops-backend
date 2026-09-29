@@ -34,7 +34,7 @@ class BaseKeyValueStore(Protocol):
 
 class InvoiceCacheRepository:
     """Repository for caching invoice data (Repository Pattern + Single Responsibility).
-    
+
     This class follows SOLID principles:
     - Single Responsibility: Only handles invoice caching
     - Open/Closed: Extensible via BaseKeyValueStore protocol
@@ -50,7 +50,7 @@ class InvoiceCacheRepository:
 
     def __init__(self, store: BaseKeyValueStore):
         """Initialize repository with key-value store.
-        
+
         Args:
             store: Any object implementing BaseKeyValueStore protocol
         """
@@ -66,10 +66,10 @@ class InvoiceCacheRepository:
 
     def _serialize_invoice(self, invoice: models.Invoice) -> str:
         """Serialize invoice model to JSON string.
-        
+
         Args:
             invoice: Invoice SQLAlchemy model
-            
+
         Returns:
             JSON string representation
         """
@@ -77,12 +77,12 @@ class InvoiceCacheRepository:
         customer_name = None
         customer_email = None
         customer_phone = None
-        
-        if hasattr(invoice, 'customer') and invoice.customer:
+
+        if hasattr(invoice, "customer") and invoice.customer:
             customer_name = invoice.customer.name
             customer_email = invoice.customer.email
             customer_phone = invoice.customer.phone
-        
+
         data = {
             "id": invoice.id,
             "invoice_id": invoice.invoice_id,
@@ -108,10 +108,10 @@ class InvoiceCacheRepository:
 
     def _deserialize_invoice(self, data: str) -> dict[str, Any]:
         """Deserialize JSON string to invoice dict.
-        
+
         Args:
             data: JSON string
-            
+
         Returns:
             Dictionary representation of invoice
         """
@@ -119,24 +119,24 @@ class InvoiceCacheRepository:
 
     def get_invoice(self, invoice_id: str) -> dict[str, Any] | None:
         """Retrieve invoice from cache.
-        
+
         Args:
             invoice_id: Unique invoice identifier
-            
+
         Returns:
             Invoice dict if found, None otherwise
         """
         try:
             key = self._invoice_key(invoice_id)
             cached = self.store.get(key)
-            
+
             if cached:
                 logger.debug("Cache HIT for invoice %s", invoice_id)
                 return self._deserialize_invoice(cached)
-            
+
             logger.debug("Cache MISS for invoice %s", invoice_id)
             return None
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache read error for invoice %s: %s", invoice_id, e)
@@ -144,7 +144,7 @@ class InvoiceCacheRepository:
 
     def set_invoice(self, invoice: models.Invoice, ttl: int | None = None) -> None:
         """Store invoice in cache.
-        
+
         Args:
             invoice: Invoice model to cache
             ttl: Time-to-live in seconds (defaults to DEFAULT_TTL)
@@ -153,17 +153,17 @@ class InvoiceCacheRepository:
             key = self._invoice_key(invoice.id)
             value = self._serialize_invoice(invoice)
             expiry = ttl or self.DEFAULT_TTL
-            
+
             self.store.set(key, value, ex=expiry)
             logger.debug("Cached invoice %s (TTL: %ss)", invoice.id, expiry)
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache write error for invoice %s: %s", invoice.id, e)
 
     def invalidate_invoice(self, invoice_id: str) -> None:
         """Remove invoice from cache.
-        
+
         Args:
             invoice_id: Unique invoice identifier
         """
@@ -171,14 +171,14 @@ class InvoiceCacheRepository:
             key = self._invoice_key(invoice_id)
             self.store.delete(key)
             logger.debug("Invalidated cache for invoice %s", invoice_id)
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache invalidation error for invoice %s: %s", invoice_id, e)
 
     def invalidate_user_invoices(self, user_id: int) -> None:
         """Remove user's invoice list from cache.
-        
+
         Args:
             user_id: User ID
         """
@@ -186,31 +186,31 @@ class InvoiceCacheRepository:
             key = self._invoice_list_key(user_id)
             self.store.delete(key)
             logger.debug("Invalidated invoice list cache for user %s", user_id)
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache list invalidation error for user %s: %s", user_id, e)
 
     def get_invoice_list(self, user_id: int) -> list[dict[str, Any]] | None:
         """Retrieve user's invoice list from cache.
-        
+
         Args:
             user_id: User ID
-            
+
         Returns:
             List of invoice dicts if found, None otherwise
         """
         try:
             key = self._invoice_list_key(user_id)
             cached = self.store.get(key)
-            
+
             if cached:
                 logger.debug("Cache HIT for user %s invoice list", user_id)
                 return json.loads(cached)
-            
+
             logger.debug("Cache MISS for user %s invoice list", user_id)
             return None
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache read error for user %s invoice list: %s", user_id, e)
@@ -218,7 +218,7 @@ class InvoiceCacheRepository:
 
     def set_invoice_list(self, user_id: int, invoices: list[models.Invoice], ttl: int | None = None) -> None:
         """Store user's invoice list in cache.
-        
+
         Args:
             user_id: User ID
             invoices: List of invoice models
@@ -229,10 +229,10 @@ class InvoiceCacheRepository:
             data = [self._deserialize_invoice(self._serialize_invoice(inv)) for inv in invoices]
             value = json.dumps(data)
             expiry = ttl or self.LIST_TTL
-            
+
             self.store.set(key, value, ex=expiry)
             logger.debug("Cached %s invoices for user %s (TTL: %ss)", len(invoices), user_id, expiry)
-            
+
         except Exception as e:
             # Redis is optional - log as warning not error to avoid Sentry noise
             logger.warning("Cache write error for user %s invoice list: %s", user_id, e)

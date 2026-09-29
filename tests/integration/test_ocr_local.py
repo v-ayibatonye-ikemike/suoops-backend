@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import sys
 from pathlib import Path
-import io
-from PIL import Image, ImageDraw, ImageFont  # noqa: I001
 
 import pytest
+from PIL import Image, ImageDraw, ImageFont  # noqa: I001
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,7 +24,7 @@ async def test_ocr_basic():
     print("=" * 60)
     print("Testing OCR Service Configuration")
     print("=" * 60)
-    
+
     try:
         ocr = OCRService()
         print("✅ OCR Service initialized")
@@ -42,6 +42,7 @@ async def test_ocr_basic():
     except Exception as e:  # noqa: BLE001
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -118,6 +119,7 @@ async def test_ocr_with_simple_image():
     except Exception as e:  # noqa: BLE001
         print(f"\n❌ ERROR during OCR test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -125,23 +127,23 @@ async def test_ocr_with_simple_image():
 async def main():
     """Run all tests."""
     print("\n🚀 Starting OCR Service Tests\n")
-    
+
     # Test 1: Basic configuration
     config_ok = await test_ocr_basic()
-    
+
     if not config_ok:
         print("\n❌ Configuration test failed. Fix issues before continuing.")
         return 1
-    
+
     # Test 2: Actual OCR with test image
     ocr_ok = await test_ocr_with_simple_image()
-    
+
     print("\n" + "=" * 60)
     print("TEST SUMMARY")
     print("=" * 60)
     print(f"Configuration: {'✅ PASS' if config_ok else '❌ FAIL'}")
     print(f"OCR Processing: {'✅ PASS' if ocr_ok else '❌ FAIL'}")
-    
+
     if config_ok and ocr_ok:
         print("\n🎉 All tests passed! OCR service is working correctly.")
         return 0

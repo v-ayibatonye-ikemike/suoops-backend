@@ -3,6 +3,7 @@
 Covers: eligibility/rotation logic, caption fallback (no LLM), and the
 orchestration service with a mocked Meta client (no real network calls).
 """
+
 from __future__ import annotations
 
 import uuid

@@ -3,6 +3,7 @@
 TODO(dead-code): Replace test monkeypatch usage of this module and then remove.
 Direct calls should use `NotificationService` facade methods instead.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,7 @@ def send_receipt_to_customer(invoice: models.Invoice) -> None:
         logger.info("Cannot send receipt: no contact info for invoice %s", invoice.invoice_id)
         return
     from app.services.notification.service import NotificationService
+
     service = NotificationService()
 
     async def _run():  # pragma: no cover - network IO
@@ -38,6 +40,7 @@ def send_receipt_to_customer(invoice: models.Invoice) -> None:
             customer_phone=customer_phone,
             pdf_url=invoice.pdf_url,
         )
+
     try:
         results = asyncio.run(_run())
         logger.info(
@@ -63,11 +66,12 @@ def notify_business_of_customer_confirmation(db: Session, invoice: models.Invoic
     if not user:
         logger.warning("Cannot notify business for invoice %s: issuer missing", invoice.invoice_id)
         return
-    
+
     from app.core.config import settings
+
     frontend_url = getattr(settings, "FRONTEND_URL", "https://suoops.com")
     verify_link = f"{frontend_url.rstrip('/')}/dashboard/invoices/{invoice.invoice_id}"
-    
+
     customer_name = invoice.customer.name if invoice.customer else "Customer"
     message = (
         f"💰 Payment Notification!\n\n"
@@ -80,6 +84,7 @@ def notify_business_of_customer_confirmation(db: Session, invoice: models.Invoic
         f"and mark the invoice as PAID to send the customer their receipt."
     )
     from app.services.notification.service import NotificationService
+
     service = NotificationService()
 
     async def _run():  # pragma: no cover - network IO
@@ -98,6 +103,7 @@ def notify_business_of_customer_confirmation(db: Session, invoice: models.Invoic
                 # Send WhatsApp notification to business
                 from app.bot.whatsapp_client import WhatsAppClient
                 from app.core.config import settings
+
                 whatsapp_key = getattr(settings, "WHATSAPP_API_KEY", None)
                 if whatsapp_key:
                     client = WhatsAppClient(whatsapp_key)
@@ -132,5 +138,6 @@ def notify_business_of_customer_confirmation(db: Session, invoice: models.Invoic
         asyncio.run(_run())
     except Exception as e:  # pragma: no cover
         logger.error("Notification dispatch failed for invoice %s: %s", invoice.invoice_id, e)
+
 
 __all__ = ["send_receipt_to_customer", "notify_business_of_customer_confirmation"]

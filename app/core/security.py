@@ -16,6 +16,7 @@ class TokenType(str, Enum):
     ACCESS = "access"
     REFRESH = "refresh"
 
+
 ALGORITHM = "HS256"
 
 # ── bcrypt cost factor ──────────────────────────────────────────────────

@@ -77,7 +77,7 @@ class S3Client:
             )
             endpoint = self._explicit_endpoint
             region = getattr(settings, "S3_REGION", "us-east-1")
-            
+
             # For AWS S3, don't set endpoint_url (let boto3 use default AWS endpoints)
             client_kwargs = {
                 "service_name": "s3",
@@ -91,11 +91,11 @@ class S3Client:
                     retries={"max_attempts": 2, "mode": "standard"},
                 ),
             }
-            
+
             # Only set endpoint_url for non-AWS S3-compatible services
             if endpoint:
                 client_kwargs["endpoint_url"] = endpoint
-            
+
             client = session.client(**client_kwargs)
             # Ensure bucket exists; create if missing in non-prod setups
             try:
@@ -207,11 +207,11 @@ class S3Client:
 
     def get_presigned_url(self, key: str, expires_in: int | None = None) -> str | None:
         """Generate a fresh presigned URL for an existing S3 object.
-        
+
         Args:
             key: The S3 object key (e.g., 'logos/user_34.png')
             expires_in: Optional TTL in seconds, defaults to S3_PRESIGN_TTL
-            
+
         Returns:
             Presigned URL or None if S3 client is not available
         """
@@ -247,10 +247,10 @@ class S3Client:
 
     def extract_key_from_url(self, url: str) -> str | None:
         """Extract S3 key from a presigned URL or stored URL.
-        
+
         Args:
             url: The full S3 URL (presigned or otherwise)
-            
+
         Returns:
             The S3 key (e.g., 'logos/user_34.png') or None if cannot parse
         """
@@ -260,6 +260,7 @@ class S3Client:
             # Handle presigned URLs: https://bucket.s3.region.amazonaws.com/key?X-Amz-...
             # or https://bucket.s3.amazonaws.com/key?X-Amz-...
             from urllib.parse import unquote, urlparse
+
             parsed = urlparse(url)
             # The path starts with /, so remove it
             key = unquote(parsed.path.lstrip("/"))

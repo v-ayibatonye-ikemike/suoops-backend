@@ -5,6 +5,7 @@ Each (product, platform) attempt is independent — one platform failing (or
 being unconfigured) never blocks or hides the other's result. Every attempt,
 successful or not, is recorded as a SocialPost row for auditability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +14,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.models import SocialPost
+
 from .caption_service import build_storefront_link, generate_caption
 from .eligibility_service import get_eligible_products
 from .meta_client import MetaGraphClient, MetaPostingError
@@ -61,7 +63,9 @@ def run_daily_social_promotion(db: Session, client: MetaGraphClient | None = Non
             except MetaPostingError as exc:
                 logger.warning(
                     "Social post failed | product=%s platform=%s error=%s",
-                    product.id, platform, exc,
+                    product.id,
+                    platform,
+                    exc,
                 )
                 db.add(
                     SocialPost(

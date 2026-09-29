@@ -11,10 +11,12 @@ for them. Existing orders default to ``true`` (physical) so nothing changes.
 
 NOTE: revision id kept <=32 chars — alembic_version.version_num is varchar(32).
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260723_escrow_reqdelivery"

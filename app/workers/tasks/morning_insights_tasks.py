@@ -7,6 +7,7 @@ cycle back to the beginning once exhausted.
 
 Schedule: 07:00 UTC (08:00 WAT) daily.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.config import settings
 from app.db.session import session_scope
+from app.utils.smtp import send_smtp_email as _send_smtp_email
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Send invoices the same day you deliver, add clear due dates, and follow up within 48 hours. "
             "The faster you invoice, the faster you get paid."
         ),
-        "tip": "Set a rule: invoice before the end of the day, every time. SuoOps even auto-sets a 3-day due date for you.",
+        "tip": (
+            "Set a rule: invoice before the end of the day, every time. "
+            "SuoOps even auto-sets a 3-day due date for you."
+        ),
     },
     {
         "subject": "Stop chasing payments — automate reminders",
@@ -75,7 +80,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Bank transfer, POS, mobile money — give them choices. "
             "Include your bank details right on the invoice so there's zero friction."
         ),
-        "tip": "Go to Settings → Business Profile and add your bank name + account number. It shows up on every invoice.",
+        "tip": (
+            "Go to Settings → Business Profile and add your bank name + account number. "
+            "It shows up on every invoice."
+        ),
     },
     {
         "subject": "Why you should always set a due date",
@@ -106,7 +114,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "makes your business feel personal and professional. "
             "Customers remember how you made them feel — not just what you sold them."
         ),
-        "tip": "SuoOps sends payment receipts automatically. Add a personal touch by following up with a thank-you message.",
+        "tip": (
+            "SuoOps sends payment receipts automatically. "
+            "Add a personal touch by following up with a thank-you message."
+        ),
     },
     {
         "subject": "Handle complaints before they become bad reviews",
@@ -126,7 +137,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Ask your happy customers to refer you. Offer a small discount or bonus for referrals. "
             "Word-of-mouth is free and powerful — especially in Nigeria."
         ),
-        "tip": "After a successful delivery, simply ask: 'Do you know anyone else who might need this?' You'll be surprised.",
+        "tip": (
+            "After a successful delivery, simply ask: "
+            "'Do you know anyone else who might need this?' You'll be surprised."
+        ),
     },
     {
         "subject": "Know your customer like family",
@@ -147,7 +161,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "then add at least 30% margin. If customers never complain about your price, "
             "you're probably too cheap."
         ),
-        "tip": "Track both revenue and expenses in SuoOps to see your actual profit margin. If it's under 20%, review your pricing.",
+        "tip": (
+            "Track both revenue and expenses in SuoOps to see your actual profit margin. "
+            "If it's under 20%, review your pricing."
+        ),
     },
     {
         "subject": "The hidden cost that kills profit",
@@ -188,7 +205,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Don't wait until tax season to organize your books. "
             "Record transactions daily and you'll never scramble when FIRS comes calling."
         ),
-        "tip": "Every invoice you send through SuoOps is automatically stored. Your tax report generates with one click.",
+        "tip": (
+            "Every invoice you send through SuoOps is automatically stored. "
+            "Your tax report generates with one click."
+        ),
     },
     {
         "subject": "VAT registration: do you need it?",
@@ -198,7 +218,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Even if you're below the threshold, voluntary registration can make you look more professional "
             "and let you reclaim input VAT on purchases."
         ),
-        "tip": "SuoOps tracks your monthly revenue automatically. Check your dashboard to see if you're approaching the threshold.",
+        "tip": (
+            "SuoOps tracks your monthly revenue automatically. "
+            "Check your dashboard to see if you're approaching the threshold."
+        ),
     },
     {
         "subject": "End-of-month ritual that saves hours at tax time",
@@ -259,7 +282,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "Share product updates, delivery confirmations, and payment reminders. "
             "Your customers are already on WhatsApp — meet them where they are."
         ),
-        "tip": "You can create and send invoices directly on WhatsApp with SuoOps. Just message us your invoice details!",
+        "tip": (
+            "You can create and send invoices directly on WhatsApp with SuoOps. "
+            "Just message us your invoice details!"
+        ),
     },
     {
         "subject": "Consistency beats intensity — every time",
@@ -321,7 +347,10 @@ MORNING_TIPS: list[dict[str, Any]] = [
             "How much did you make last month? What's your biggest expense? Which product sells most? "
             "If you can't answer these questions, it's time to start tracking."
         ),
-        "tip": "Your SuoOps dashboard shows revenue, expenses, and profit at a glance. Check it daily — it takes 30 seconds.",
+        "tip": (
+            "Your SuoOps dashboard shows revenue, expenses, and profit at a glance. "
+            "Check it daily — it takes 30 seconds."
+        ),
     },
     {
         "subject": "Protect your business from the unexpected",
@@ -350,10 +379,6 @@ TOTAL_TIPS = len(MORNING_TIPS)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
-
-from app.utils.smtp import send_smtp_email as _send_smtp_email
-
-
 def _get_next_tip_index(db, user_id: int) -> int:
     """Return the index of the next unsent morning insight for this user.
 
@@ -393,10 +418,12 @@ def _record_sent(db, user_id: int, tip_index: int) -> None:
     """Record that a morning insight was sent."""
     from app.models.models import UserEmailLog
 
-    db.add(UserEmailLog(
-        user_id=user_id,
-        email_type=f"{INSIGHT_PREFIX}{tip_index}",
-    ))
+    db.add(
+        UserEmailLog(
+            user_id=user_id,
+            email_type=f"{INSIGHT_PREFIX}{tip_index}",
+        )
+    )
     db.flush()
 
 
@@ -409,6 +436,7 @@ def _is_valid_phone(phone: str | None) -> bool:
 
 
 # ── Main Task ─────────────────────────────────────────────────────────
+
 
 @celery_app.task(
     name="insights.send_morning_insights",
@@ -494,9 +522,7 @@ def send_morning_insights() -> dict[str, Any]:
                                 stats["email_sent"] += 1
                                 delivered = True
                         except Exception as e:
-                            logger.warning(
-                                "Morning insight email failed for user %s: %s", user.id, e
-                            )
+                            logger.warning("Morning insight email failed for user %s: %s", user.id, e)
 
                     # ── WhatsApp fallback: only when there's no email on file ──
                     if not delivered and not user.email and has_phone and template_name:
@@ -517,16 +543,12 @@ def send_morning_insights() -> dict[str, Any]:
                                     ],
                                 }
                             ]
-                            ok = client.send_template(
-                                user.phone, template_name, template_lang, components
-                            )
+                            ok = client.send_template(user.phone, template_name, template_lang, components)
                             if ok:
                                 stats["whatsapp_sent"] += 1
                                 delivered = True
                         except Exception as e:
-                            logger.warning(
-                                "Morning insight WA failed for user %s: %s", user.id, e
-                            )
+                            logger.warning("Morning insight WA failed for user %s: %s", user.id, e)
 
                     if delivered:
                         _record_sent(db, user.id, tip_index)

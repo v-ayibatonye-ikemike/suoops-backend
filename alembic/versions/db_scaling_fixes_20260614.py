@@ -8,6 +8,7 @@ New indexes:
 Revision ID: db_scaling_fixes_20260614
 Revises: scalability_indexes_20260614
 """
+
 from alembic import op
 
 revision = "db_scaling_fixes_20260614"

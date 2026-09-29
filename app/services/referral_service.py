@@ -11,6 +11,7 @@ COMMISSION MODEL (Updated June 2026 — Influencer Program):
 - CASH PAYOUT: Commissions are paid out at the end of each month
 - Rewards expire after 90 days if not claimed for payout
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -22,7 +23,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.models import User
 from app.models.referral_models import (
-    REFERRAL_THRESHOLDS,
     REFERRAL_COMMISSION_AMOUNT,
     Referral,
     ReferralCode,
@@ -52,9 +52,7 @@ class ReferralService:
         Get user's referral code or create one if it doesn't exist.
         """
         # Check for existing code
-        existing = self.db.execute(
-            select(ReferralCode).where(ReferralCode.user_id == user_id)
-        ).scalar_one_or_none()
+        existing = self.db.execute(select(ReferralCode).where(ReferralCode.user_id == user_id)).scalar_one_or_none()
 
         if existing:
             return existing
@@ -63,9 +61,7 @@ class ReferralService:
         for _ in range(10):  # Max 10 attempts to avoid collision
             code = generate_referral_code()
             # Check uniqueness
-            exists = self.db.execute(
-                select(ReferralCode).where(ReferralCode.code == code)
-            ).scalar_one_or_none()
+            exists = self.db.execute(select(ReferralCode).where(ReferralCode.code == code)).scalar_one_or_none()
             if not exists:
                 break
         else:
@@ -84,9 +80,7 @@ class ReferralService:
         """Look up a referral code by its code string or custom vanity slug."""
         # Try exact code match first
         result = self.db.execute(
-            select(ReferralCode)
-            .where(ReferralCode.code == code.upper())
-            .where(ReferralCode.is_active.is_(True))
+            select(ReferralCode).where(ReferralCode.code == code.upper()).where(ReferralCode.is_active.is_(True))
         ).scalar_one_or_none()
         if result:
             return result
@@ -251,12 +245,15 @@ class ReferralService:
             return False
 
         # Count how many recurring/perpetual rewards have already been paid
-        past_rewards = self.db.execute(
-            select(func.count(ReferralReward.id))
-            .where(ReferralReward.user_id == referral.referrer_id)
-            .where(ReferralReward.reward_type.in_(["commission_recurring", "commission_perpetual"]))
-            .where(ReferralReward.reward_description.contains(f"user #{referred_user_id}"))
-        ).scalar() or 0
+        past_rewards = (
+            self.db.execute(
+                select(func.count(ReferralReward.id))
+                .where(ReferralReward.user_id == referral.referrer_id)
+                .where(ReferralReward.reward_type.in_(["commission_recurring", "commission_perpetual"]))
+                .where(ReferralReward.reward_description.contains(f"user #{referred_user_id}"))
+            ).scalar()
+            or 0
+        )
 
         # Determine which tier we're in
         max_recurring = code_obj.commission_months  # e.g. 2 (purchases 2-3)
@@ -280,17 +277,14 @@ class ReferralService:
             # No perpetual commission configured
             return False
 
-        referred_user = self.db.execute(
-            select(User).where(User.id == referred_user_id)
-        ).scalar_one_or_none()
+        referred_user = self.db.execute(select(User).where(User.id == referred_user_id)).scalar_one_or_none()
         referred_name = referred_user.name if referred_user else "a user"
 
         reward = ReferralReward(
             user_id=referral.referrer_id,
             reward_type=reward_type,
             reward_description=(
-                f"₦{commission_amount} commission for {referred_name}'s "
-                f"{desc_label} (user #{referred_user_id})"
+                f"₦{commission_amount} commission for {referred_name}'s " f"{desc_label} (user #{referred_user_id})"
             ),
             free_referrals_count=0,
             paid_referrals_count=0,
@@ -302,8 +296,11 @@ class ReferralService:
 
         logger.info(
             "Created %s commission ₦%s for referrer %s (referred user %s, %s)",
-            reward_type, commission_amount, referral.referrer_id,
-            referred_user_id, desc_label,
+            reward_type,
+            commission_amount,
+            referral.referrer_id,
+            referred_user_id,
+            desc_label,
         )
         return True
 
@@ -346,9 +343,7 @@ class ReferralService:
             self.db.commit()  # persist the conversion even if pct is 0
             return False
 
-        referred_user = self.db.execute(
-            select(User).where(User.id == referred_user_id)
-        ).scalar_one_or_none()
+        referred_user = self.db.execute(select(User).where(User.id == referred_user_id)).scalar_one_or_none()
         referred_name = referred_user.name if referred_user else "a user"
 
         reward = ReferralReward(
@@ -367,7 +362,11 @@ class ReferralService:
         self.db.commit()
         logger.info(
             "Referral top-up commission ₦%s (%s%%) for referrer %s from user %s top-up ₦%s",
-            commission_amount, pct, referral.referrer_id, referred_user_id, topup_naira,
+            commission_amount,
+            pct,
+            referral.referrer_id,
+            referred_user_id,
+            topup_naira,
         )
         return True
 
@@ -411,9 +410,7 @@ class ReferralService:
             self.db.commit()  # persist the conversion even if pct is 0
             return False
 
-        referred_user = self.db.execute(
-            select(User).where(User.id == referred_user_id)
-        ).scalar_one_or_none()
+        referred_user = self.db.execute(select(User).where(User.id == referred_user_id)).scalar_one_or_none()
         referred_name = referred_user.name if referred_user else "a user"
 
         reward = ReferralReward(
@@ -432,7 +429,11 @@ class ReferralService:
         self.db.commit()
         logger.info(
             "Referral online commission ₦%s (%s%% of ₦%s fee) for referrer %s from user %s",
-            commission_amount, pct, suoops_fee_naira, referral.referrer_id, referred_user_id,
+            commission_amount,
+            pct,
+            suoops_fee_naira,
+            referral.referrer_id,
+            referred_user_id,
         )
         return True
 
@@ -445,10 +446,8 @@ class ReferralService:
         CASH PAYOUT: Commissions are paid out at the end of each month.
         """
         # Get referred user name for reward description
-        referred_user = self.db.execute(
-            select(User).where(User.id == referred_user_id)
-        ).scalar_one_or_none()
-        
+        referred_user = self.db.execute(select(User).where(User.id == referred_user_id)).scalar_one_or_none()
+
         referred_name = referred_user.name if referred_user else "a user"
 
         # Look up the referral code to get the per-code commission rate
@@ -462,7 +461,7 @@ class ReferralService:
             ).scalar_one_or_none()
             if code_obj:
                 commission_amount = code_obj.commission_first
-        
+
         # Create commission reward
         reward = ReferralReward(
             user_id=referrer_id,
@@ -478,9 +477,10 @@ class ReferralService:
         self.db.refresh(reward)
 
         logger.info(
-            "Created commission reward for user %s: ₦%s "
-            "(referred user %s subscribed to Pro)",
-            referrer_id, commission_amount, referred_user_id,
+            "Created commission reward for user %s: ₦%s " "(referred user %s subscribed to Pro)",
+            referrer_id,
+            commission_amount,
+            referred_user_id,
         )
         return reward
 
@@ -519,8 +519,7 @@ class ReferralService:
     def _get_rewards_count(self, user_id: int) -> int:
         """Get count of rewards earned by user."""
         result = self.db.execute(
-            select(func.count(ReferralReward.id))
-            .where(ReferralReward.user_id == user_id)
+            select(func.count(ReferralReward.id)).where(ReferralReward.user_id == user_id)
         ).scalar()
         return result or 0
 
@@ -532,10 +531,12 @@ class ReferralService:
                 .where(ReferralReward.user_id == user_id)
                 .where(ReferralReward.status == RewardStatus.PENDING)
                 .where(
-                        (ReferralReward.expires_at.is_(None)) |
-                    (ReferralReward.expires_at > dt.datetime.now(dt.timezone.utc))
+                    (ReferralReward.expires_at.is_(None))
+                    | (ReferralReward.expires_at > dt.datetime.now(dt.timezone.utc))
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     def apply_reward(self, user_id: int, reward_id: int) -> tuple[bool, str]:
@@ -590,11 +591,14 @@ class ReferralService:
         paid_completed = self._get_completed_referral_count(user_id, ReferralType.PAID_SIGNUP)
 
         # Get pending referrals count
-        pending_count = self.db.execute(
-            select(func.count(Referral.id))
-            .where(Referral.referrer_id == user_id)
-            .where(Referral.status == ReferralStatus.PENDING)
-        ).scalar() or 0
+        pending_count = (
+            self.db.execute(
+                select(func.count(Referral.id))
+                .where(Referral.referrer_id == user_id)
+                .where(Referral.status == ReferralStatus.PENDING)
+            ).scalar()
+            or 0
+        )
 
         # Get rewards
         pending_rewards = self.get_pending_rewards(user_id)
@@ -640,13 +644,17 @@ class ReferralService:
 
     def get_recent_referrals(self, user_id: int, limit: int = 10) -> list[dict]:
         """Get recent referrals for a user."""
-        referrals = self.db.execute(
-            select(Referral)
-            .options(joinedload(Referral.referred))
-            .where(Referral.referrer_id == user_id)
-            .order_by(Referral.created_at.desc())
-            .limit(limit)
-        ).scalars().all()
+        referrals = (
+            self.db.execute(
+                select(Referral)
+                .options(joinedload(Referral.referred))
+                .where(Referral.referrer_id == user_id)
+                .order_by(Referral.created_at.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
 
         return [
             {

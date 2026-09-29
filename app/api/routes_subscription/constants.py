@@ -12,9 +12,9 @@ from app.core.config import settings
 PLAN_PRICES = {
     "FREE": 0,
     # STARTER removed - users are FREE and buy invoice packs as needed
-    "PRO": 2000,            # Prepaid Pro Pack: ₦2,000 one-time (20 invoices + 30 days Pro features)
-    "PRO_FEATURES": 1500,   # Recurring Pro Features: ₦1,500/month (features only, auto-renew)
-    "BUSINESS": 10000,      # ₦10,000 - 50 invoices included + Photo OCR (15 max)
+    "PRO": 2000,  # Prepaid Pro Pack: ₦2,000 one-time (20 invoices + 30 days Pro features)
+    "PRO_FEATURES": 1500,  # Recurring Pro Features: ₦1,500/month (features only, auto-renew)
+    "BUSINESS": 10000,  # ₦10,000 - 50 invoices included + Photo OCR (15 max)
 }
 
 # Paystack Plan Codes.

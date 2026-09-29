@@ -11,49 +11,39 @@ Sub-modules:
 - expense_tasks: Expense summaries and reminders
 - engagement_tasks: Lifecycle email notifications
 """
+
 from __future__ import annotations
 
-from .engagement_tasks import (
-    send_engagement_emails,
-)
 from .announcement_tasks import (
     send_feature_announcement,
-)
-from .morning_insights_tasks import (
-    send_morning_insights,
 )
 from .customer_engagement_tasks import (
     send_dormant_customer_nudges,
     send_post_payment_referrals,
 )
-from .social_marketing_tasks import (
-    run_daily_promotion,
+from .engagement_tasks import (
+    send_engagement_emails,
+)
+from .escrow_tasks import (
+    release_due_escrow_orders,
+)
+from .expense_tasks import (
+    send_expense_reminders,
+    send_expense_summary,
 )
 from .feedback_tasks import (
     collect_user_feedback,
-)
-from .maintenance_tasks import (
-    cleanup_stale_webhooks,
-    delete_inactive_accounts,
-    downgrade_expired_subscriptions,
-    warn_inactive_accounts,
 )
 from .growth_tasks import (
     send_aggregate_unpaid_alerts,
     send_payment_upsells,
     send_weekly_free_summary,
 )
-from .welcome_tasks import (
-    broadcast_welcome,
-    send_activation_followup,
-    send_instant_welcome,
-)
-from .expense_tasks import (
-    send_expense_reminders,
-    send_expense_summary,
-)
-from .escrow_tasks import (
-    release_due_escrow_orders,
+from .maintenance_tasks import (
+    cleanup_stale_webhooks,
+    delete_inactive_accounts,
+    downgrade_expired_subscriptions,
+    warn_inactive_accounts,
 )
 from .messaging_tasks import (
     ocr_parse_image,
@@ -63,15 +53,26 @@ from .messaging_tasks import (
     send_overdue_reminders,
     sync_provider_status,
 )
+from .morning_insights_tasks import (
+    send_morning_insights,
+)
 
 # Re-export all tasks for backward compatibility
 from .pdf_tasks import (
     generate_invoice_pdf_async,
     generate_receipt_pdf_async,
 )
+from .social_marketing_tasks import (
+    run_daily_promotion,
+)
 from .tax_tasks import (
     generate_previous_month_reports,
     transmit_invoice,
+)
+from .welcome_tasks import (
+    broadcast_welcome,
+    send_activation_followup,
+    send_instant_welcome,
 )
 
 __all__ = [
@@ -93,6 +94,8 @@ __all__ = [
     "send_expense_reminders",
     # Engagement tasks
     "send_engagement_emails",
+    "collect_user_feedback",
+    "release_due_escrow_orders",
     # One-time announcements
     "send_feature_announcement",
     # Morning insights

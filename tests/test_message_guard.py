@@ -1,4 +1,5 @@
 """Order-messaging leak-detection / redaction rules."""
+
 from app.services.message_guard import MASK, scan_message
 
 

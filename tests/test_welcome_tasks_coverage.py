@@ -1,10 +1,8 @@
 """Coverage tests for app/workers/tasks/welcome_tasks.py."""
+
 from __future__ import annotations
 
 from decimal import Decimal
-from types import SimpleNamespace
-
-import pytest
 
 from app.core.config import settings
 from app.models import models
@@ -117,15 +115,11 @@ def test_instant_welcome_email_only(monkeypatch, db_session):
     assert "https://wa.me/2348106865807?text=Hi" in html
     assert "+234 818 376 3636" not in html
     # Log recorded so the daily activation sequence skips a duplicate welcome.
-    logged = (
-        db_session.query(models.UserEmailLog)
-        .filter_by(user_id=user.id, email_type="instant_welcome")
-        .first()
-    )
+    logged = db_session.query(models.UserEmailLog).filter_by(user_id=user.id, email_type="instant_welcome").first()
     assert logged is not None
 
 
-def test_instant_welcome_full_path(monkeypatch, db_session):
+def test_instant_welcome_phone_still_uses_email_only(monkeypatch, db_session):
     user = _make_user(db_session, 1, phone="+2348012345678")
     monkeypatch.setattr(welcome_tasks, "_send_email", lambda *a, **k: True)
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_ACTIVATION_WELCOME", "welcome_tpl")
@@ -135,19 +129,15 @@ def test_instant_welcome_full_path(monkeypatch, db_session):
     # Avoid the real 3s + 2s sleeps in the onboarding branch.
     monkeypatch.setattr("time.sleep", lambda *a, **k: None)
     monkeypatch.setattr("app.bot.onboarding_flow.start_onboarding", lambda phone, uid: None)
-    monkeypatch.setattr(
-        "app.bot.onboarding_flow.send_onboarding_prompt", lambda c, p, n: None
-    )
+    monkeypatch.setattr("app.bot.onboarding_flow.send_onboarding_prompt", lambda c, p, n: None)
     # Don't hit the Celery broker for the scheduled follow-up.
-    monkeypatch.setattr(
-        welcome_tasks.send_activation_followup, "apply_async", lambda *a, **k: None
-    )
+    monkeypatch.setattr(welcome_tasks.send_activation_followup, "apply_async", lambda *a, **k: None)
 
     result = welcome_tasks.send_instant_welcome(user.id)
     assert result["email_sent"] is True
-    assert result["whatsapp_sent"] is True
-    assert client.templates  # welcome template sent
-    assert client.texts      # demo preview text sent
+    assert result["whatsapp_sent"] is False
+    assert client.templates == []
+    assert client.texts == []
 
 
 def test_instant_welcome_whatsapp_exception(monkeypatch, db_session):
@@ -158,9 +148,7 @@ def test_instant_welcome_whatsapp_exception(monkeypatch, db_session):
     client = _FakeClient()
     client.raise_on_template = True
     monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: client)
-    monkeypatch.setattr(
-        welcome_tasks.send_activation_followup, "apply_async", lambda *a, **k: None
-    )
+    monkeypatch.setattr(welcome_tasks.send_activation_followup, "apply_async", lambda *a, **k: None)
 
     result = welcome_tasks.send_instant_welcome(user.id)
     assert result["email_sent"] is True
@@ -202,8 +190,8 @@ def test_broadcast_welcome_skips_signup_onboarding(monkeypatch, db_session):
 
     result = welcome_tasks.send_instant_welcome(user.id, broadcast=True)
 
-    assert result == {"email_sent": True, "whatsapp_sent": True}
-    assert client.templates
+    assert result == {"email_sent": True, "whatsapp_sent": False}
+    assert client.templates == []
     assert client.texts == []
     assert followups == []
     assert (
@@ -271,13 +259,13 @@ def test_send_email_smtp_raises(monkeypatch):
 # ═══════════════════ send_activation_followup ═══════════════════
 def test_followup_user_not_found(db_session):
     result = welcome_tasks.send_activation_followup(999999)
-    assert result["reason"] == "user_not_found"
+    assert result["reason"] == "in_app_only"
 
 
 def test_followup_no_phone(db_session):
     user = _make_user(db_session, 1, phone=None)
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["reason"] == "user_not_found"
+    assert result["reason"] == "in_app_only"
 
 
 def test_followup_already_activated(db_session):
@@ -285,24 +273,22 @@ def test_followup_already_activated(db_session):
     cust = _make_customer(db_session)
     _make_invoice(db_session, user.id, cust.id)
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["reason"] == "already_activated"
+    assert result["reason"] == "in_app_only"
 
 
 def test_followup_already_sent(db_session):
     user = _make_user(db_session, 1, phone="+2348012345678")
-    db_session.add(
-        models.UserEmailLog(user_id=user.id, email_type=welcome_tasks.FOLLOWUP_LOG_TYPE)
-    )
+    db_session.add(models.UserEmailLog(user_id=user.id, email_type=welcome_tasks.FOLLOWUP_LOG_TYPE))
     db_session.commit()
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["reason"] == "already_sent"
+    assert result["reason"] == "in_app_only"
 
 
 def test_followup_budget_exhausted(monkeypatch, db_session):
     user = _make_user(db_session, 1, phone="+2348012345678")
     monkeypatch.setattr("app.utils.whatsapp_budget.can_send_whatsapp", lambda priority=False: False)
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["reason"] == "daily_budget_exhausted"
+    assert result["reason"] == "in_app_only"
 
 
 def test_followup_text_success(monkeypatch, db_session):
@@ -313,13 +299,13 @@ def test_followup_text_success(monkeypatch, db_session):
     monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: client)
 
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["sent"] is True
+    assert result["sent"] is False
     logged = (
         db_session.query(models.UserEmailLog)
         .filter_by(user_id=user.id, email_type=welcome_tasks.FOLLOWUP_LOG_TYPE)
         .first()
     )
-    assert logged is not None
+    assert logged is None
 
 
 def test_followup_template_fallback(monkeypatch, db_session):
@@ -332,8 +318,8 @@ def test_followup_template_fallback(monkeypatch, db_session):
     monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: client)
 
     result = welcome_tasks.send_activation_followup(user.id)
-    assert result["sent"] is True
-    assert client.templates
+    assert result["sent"] is False
+    assert client.templates == []
 
 
 def test_followup_exception(monkeypatch, db_session):
@@ -346,25 +332,21 @@ def test_followup_exception(monkeypatch, db_session):
     monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", _boom)
     result = welcome_tasks.send_activation_followup(user.id)
     assert result["sent"] is False
-    assert "client boom" in result["reason"]
+    assert result["reason"] == "in_app_only"
 
 
 # ═══════════════════ send_first_paid_referral_nudge ═══════════════════
 def test_referral_no_user_or_phone(db_session):
     result = welcome_tasks.send_first_paid_referral_nudge(999999)
-    assert result["skipped_reason"] == "no_user_or_phone"
+    assert result["skipped_reason"] == "in_app_only"
 
 
 def test_referral_already_sent(db_session):
     user = _make_user(db_session, 1, phone="+2348012345678")
-    db_session.add(
-        models.UserEmailLog(
-            user_id=user.id, email_type=welcome_tasks.FIRST_PAID_REFERRAL_LOG_TYPE
-        )
-    )
+    db_session.add(models.UserEmailLog(user_id=user.id, email_type=welcome_tasks.FIRST_PAID_REFERRAL_LOG_TYPE))
     db_session.commit()
     result = welcome_tasks.send_first_paid_referral_nudge(user.id)
-    assert result["skipped_reason"] == "already_sent"
+    assert result["skipped_reason"] == "in_app_only"
 
 
 def test_referral_not_first_paid(db_session):
@@ -382,7 +364,7 @@ def test_referral_not_first_paid(db_session):
     db_session.commit()
 
     result = welcome_tasks.send_first_paid_referral_nudge(user.id)
-    assert result["skipped_reason"] == "not_first_paid"
+    assert result["skipped_reason"] == "in_app_only"
 
 
 def test_referral_success(monkeypatch, db_session):
@@ -406,8 +388,8 @@ def test_referral_success(monkeypatch, db_session):
     monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: client)
 
     result = welcome_tasks.send_first_paid_referral_nudge(user.id)
-    assert result["sent"] is True
-    assert len(client.texts) == 1  # single professionalism-score message
+    assert result["sent"] is False
+    assert client.texts == []
 
 
 def test_referral_exception(monkeypatch, db_session):
@@ -429,4 +411,4 @@ def test_referral_exception(monkeypatch, db_session):
     monkeypatch.setattr("app.services.analytics_service.calculate_professionalism_score", _boom)
     result = welcome_tasks.send_first_paid_referral_nudge(user.id)
     assert result["sent"] is False
-    assert "error:" in result["skipped_reason"]
+    assert result["skipped_reason"] == "in_app_only"

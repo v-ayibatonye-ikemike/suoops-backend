@@ -10,6 +10,7 @@ RESTful endpoints for inventory management:
 
 Refactored from monolithic routes_inventory.py for SRP compliance.
 """
+
 from fastapi import APIRouter
 
 from .analytics import router as analytics_router

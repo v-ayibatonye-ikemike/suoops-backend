@@ -14,8 +14,10 @@ router = APIRouter(prefix="/referrals", tags=["Referrals"])
 
 # ==================== SCHEMAS ====================
 
+
 class ReferralCodeResponse(BaseModel):
     """Response with user's referral code."""
+
     code: str
     referral_link: str
     is_active: bool
@@ -27,6 +29,7 @@ class MessageResponse(BaseModel):
 
 class ReferralStatsResponse(BaseModel):
     """Referral statistics for a user."""
+
     referral_code: str
     referral_link: str
     total_referrals: int
@@ -41,6 +44,7 @@ class ReferralStatsResponse(BaseModel):
 
 class RecentReferralResponse(BaseModel):
     """Recent referral entry."""
+
     id: int
     referred_name: str
     type: str
@@ -51,22 +55,26 @@ class RecentReferralResponse(BaseModel):
 
 class ApplyRewardRequest(BaseModel):
     """Request to apply a reward."""
+
     reward_id: int
 
 
 class ApplyRewardResponse(BaseModel):
     """Response after applying a reward."""
+
     success: bool
     message: str
 
 
 class ValidateCodeRequest(BaseModel):
     """Request to validate a referral code."""
+
     code: str = Field(..., min_length=3, max_length=50)
 
 
 class ValidateCodeResponse(BaseModel):
     """Response after validating a referral code."""
+
     valid: bool
     referrer_name: str | None = None
     error: str | None = None
@@ -74,6 +82,7 @@ class ValidateCodeResponse(BaseModel):
 
 class PayoutBankDetailsResponse(BaseModel):
     """Response with payout bank details."""
+
     bank_name: str | None = None
     account_number: str | None = None
     account_name: str | None = None
@@ -83,12 +92,14 @@ class PayoutBankDetailsResponse(BaseModel):
 
 class PayoutBankDetailsUpdate(BaseModel):
     """Request to update payout bank details."""
+
     bank_name: str = Field(..., min_length=2, max_length=100)
     account_number: str = Field(..., min_length=10, max_length=10, pattern=r"^\d{10}$")
     account_name: str = Field(..., min_length=2, max_length=255)
 
 
 # ==================== ENDPOINTS ====================
+
 
 @router.get("/code", response_model=ReferralCodeResponse)
 def get_referral_code(
@@ -97,12 +108,12 @@ def get_referral_code(
 ):
     """
     Get or create the current user's referral code.
-    
+
     Every user gets a unique referral code they can share.
     """
     service = ReferralService(db)
     referral_code = service.get_or_create_referral_code(user_id)
-    
+
     return ReferralCodeResponse(
         code=referral_code.code,
         referral_link=f"https://suoops.ng/register?ref={referral_code.code}",
@@ -117,7 +128,7 @@ def get_referral_stats(
 ):
     """
     Get referral statistics for the current user.
-    
+
     Includes:
     - Total referrals (completed)
     - Pending referrals (awaiting verification)
@@ -152,20 +163,20 @@ def apply_reward(
 ):
     """
     Apply a pending reward to the user's account.
-    
+
     This will:
     - Add bonus invoices to the user's balance
     - Add 1 month to their subscription (if Pro)
     """
     service = ReferralService(db)
     success, message = service.apply_reward(user_id, request.reward_id)
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=message,
         )
-    
+
     return ApplyRewardResponse(success=True, message=message)
 
 
@@ -178,7 +189,7 @@ def validate_referral_code(
 ):
     """
     Validate a referral code (public endpoint for signup form).
-    
+
     This endpoint is used to check if a referral code is valid
     before the user completes registration.
 
@@ -219,38 +230,41 @@ def get_payout_bank_details(
     db: DbDep,
 ):
     """
-        Get the current user's payout bank details for referral commissions.
+    Get the current user's payout bank details for referral commissions.
 
-        Behavior:
-        - If a dedicated payout account is set, return that (override)
-        - Otherwise, fall back to the user's business invoice bank account
-            so influencers don't have to set bank details twice
+    Behavior:
+    - If a dedicated payout account is set, return that (override)
+    - Otherwise, fall back to the user's business invoice bank account
+        so influencers don't have to set bank details twice
     """
     from sqlalchemy import select
-    from app.models.models import User
-    
-    user = db.execute(
-        select(User).where(User.id == user_id)
-    ).scalar_one()
-    
-    has_payout_account = all([
-        user.payout_bank_name,
-        user.payout_account_number,
-        user.payout_account_name,
-    ])
 
-    has_business_bank = all([
-        user.bank_name,
-        user.account_number,
-        user.account_name,
-    ])
+    from app.models.models import User
+
+    user = db.execute(select(User).where(User.id == user_id)).scalar_one()
+
+    has_payout_account = all(
+        [
+            user.payout_bank_name,
+            user.payout_account_number,
+            user.payout_account_name,
+        ]
+    )
+
+    has_business_bank = all(
+        [
+            user.bank_name,
+            user.account_number,
+            user.account_name,
+        ]
+    )
 
     using_business_bank = not has_payout_account and has_business_bank
 
     bank_name = user.payout_bank_name if has_payout_account else user.bank_name
     account_number = user.payout_account_number if has_payout_account else user.account_number
     account_name = user.payout_account_name if has_payout_account else user.account_name
-    
+
     return PayoutBankDetailsResponse(
         bank_name=bank_name,
         account_number=account_number,
@@ -268,25 +282,26 @@ def update_payout_bank_details(
 ):
     """
     Update the current user's payout bank details for referral commissions.
-    
+
     This is where commission payouts will be sent (weekly payout schedule).
     """
-    from sqlalchemy import select
-    from app.models.models import User
     import logging
+
+    from sqlalchemy import select
+
+    from app.models.models import User
+
     logger = logging.getLogger(__name__)
-    
+
     try:
-        user = db.execute(
-            select(User).where(User.id == user_id)
-        ).scalar_one()
-        
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one()
+
         had_payout = bool(user.payout_bank_name and user.payout_account_number)
         old_payout = (user.payout_bank_name, user.payout_account_number)
         user.payout_bank_name = request.bank_name
         user.payout_account_number = request.account_number
         user.payout_account_name = request.account_name
-        
+
         db.commit()
         db.refresh(user)
 
@@ -296,7 +311,7 @@ def update_payout_bank_details(
             from app.services.escrow_service import on_payout_details_changed
 
             on_payout_details_changed(db, user)
-        
+
         return PayoutBankDetailsResponse(
             bank_name=user.payout_bank_name,
             account_number=user.payout_account_number,
@@ -308,8 +323,7 @@ def update_payout_bank_details(
         logger.error(f"Error updating payout bank for user {user_id}: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not save payout account: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not save payout account: {str(e)}"
         )
 
 
@@ -321,29 +335,29 @@ def delete_payout_bank_details(
     """
     Clear the current user's payout bank details.
     """
-    from sqlalchemy import select
-    from app.models.models import User
     import logging
+
+    from sqlalchemy import select
+
+    from app.models.models import User
+
     logger = logging.getLogger(__name__)
-    
+
     try:
-        user = db.execute(
-            select(User).where(User.id == user_id)
-        ).scalar_one()
-        
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one()
+
         user.payout_bank_name = None
         user.payout_account_number = None
         user.payout_account_name = None
-        
+
         db.commit()
-        
+
         return {"message": "Payout bank details cleared"}
     except Exception as e:
         logger.error(f"Error deleting payout bank for user {user_id}: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not clear payout account: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not clear payout account: {str(e)}"
         )
 
 
@@ -353,6 +367,7 @@ def delete_payout_bank_details(
 class EarningsBreakdown(BaseModel):
     """Influencer earnings (flat-commission model: you earn a % of SuoOps' 3%
     on every referred business's activity, ongoing)."""
+
     total_earned: int
     online_earned: int  # commission from referred businesses' online/storefront sales
     topup_earned: int  # commission from referred businesses' wallet top-ups
@@ -375,9 +390,8 @@ def get_influencer_earnings(
     Only meaningful for users with is_influencer=True on their
     referral code, but any authenticated user can call it.
     """
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
 
-    from app.models.models import User
     from app.models.referral_models import (
         Referral,
         ReferralCode,
@@ -389,9 +403,7 @@ def get_influencer_earnings(
     from app.services.referral_share import build_referral_link
 
     # Get referral code
-    code_obj = db.execute(
-        select(ReferralCode).where(ReferralCode.user_id == user_id)
-    ).scalar_one_or_none()
+    code_obj = db.execute(select(ReferralCode).where(ReferralCode.user_id == user_id)).scalar_one_or_none()
 
     if not code_obj:
         return EarningsBreakdown(
@@ -413,27 +425,28 @@ def get_influencer_earnings(
         custom_link = build_referral_link(code_obj.code)
 
     # Count signups (all referrals)
-    total_signups = db.execute(
-        select(func.count(Referral.id))
-        .where(Referral.referrer_id == user_id)
-    ).scalar() or 0
+    total_signups = db.execute(select(func.count(Referral.id)).where(Referral.referrer_id == user_id)).scalar() or 0
 
     # Count conversions (paid signups)
-    total_conversions = db.execute(
-        select(func.count(Referral.id))
-        .where(
-            Referral.referrer_id == user_id,
-            Referral.referral_type == ReferralType.PAID_SIGNUP,
-            Referral.status == ReferralStatus.COMPLETED,
-        )
-    ).scalar() or 0
+    total_conversions = (
+        db.execute(
+            select(func.count(Referral.id)).where(
+                Referral.referrer_id == user_id,
+                Referral.referral_type == ReferralType.PAID_SIGNUP,
+                Referral.status == ReferralStatus.COMPLETED,
+            )
+        ).scalar()
+        or 0
+    )
 
     # Get all rewards to calculate earnings by type
-    rewards = db.execute(
-        select(ReferralReward)
-        .where(ReferralReward.user_id == user_id)
-        .order_by(ReferralReward.created_at.desc())
-    ).scalars().all()
+    rewards = (
+        db.execute(
+            select(ReferralReward).where(ReferralReward.user_id == user_id).order_by(ReferralReward.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
 
     online_earned = 0
     topup_earned = 0
@@ -459,13 +472,15 @@ def get_influencer_earnings(
     recent = []
     for r in rewards[:20]:
         amount = _extract_amount(r.reward_description)
-        recent.append({
-            "date": r.created_at.isoformat(),
-            "type": r.reward_type,
-            "amount": amount,
-            "description": r.reward_description,
-            "status": r.status.value,
-        })
+        recent.append(
+            {
+                "date": r.created_at.isoformat(),
+                "type": r.reward_type,
+                "amount": amount,
+                "description": r.reward_description,
+                "status": r.status.value,
+            }
+        )
 
     return EarningsBreakdown(
         total_earned=total_earned,
@@ -483,6 +498,7 @@ def get_influencer_earnings(
 def _extract_amount(description: str) -> int:
     """Extract naira amount from reward description like '₦500 commission...'."""
     import re
+
     match = re.search(r"[₦N]?([\d,]+)", description)
     if match:
         return int(match.group(1).replace(",", ""))

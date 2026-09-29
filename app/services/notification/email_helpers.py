@@ -129,9 +129,7 @@ async def send_receipt_email(
         business_name = None
         try:
             if hasattr(invoice, "issuer") and invoice.issuer:
-                business_name = getattr(invoice.issuer, "business_name", None) or getattr(
-                    invoice.issuer, "name", None
-                )
+                business_name = getattr(invoice.issuer, "business_name", None) or getattr(invoice.issuer, "name", None)
         except Exception:  # pragma: no cover
             business_name = None
         subject_business = f"{business_name} - " if business_name else ""
@@ -187,9 +185,7 @@ Powered by SuoOps
         return False
 
 
-async def send_simple_email(
-    service: NotificationService, to_email: str, subject: str, body: str
-) -> bool:
+async def send_simple_email(service: NotificationService, to_email: str, subject: str, body: str) -> bool:
     """Send a simple text email (helper)."""
     try:
         smtp_config = service._get_smtp_config()

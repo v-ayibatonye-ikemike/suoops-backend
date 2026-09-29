@@ -5,6 +5,7 @@ order 'sent out' with a courier tracking code + note, which persists dispatch
 fields, posts a system notice to the order thread, and surfaces the 'sent out'
 status to the buyer via the delivery-code thread view.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -117,9 +118,7 @@ def test_buyer_thread_shows_dispatch_status():
     client = TestClient(app)
     db = next(get_db())
     seller, inv, esc = _make_held_order(db)
-    esc.seller_dispatched_at = __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
-    )
+    esc.seller_dispatched_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
     esc.dispatch_tracking = "RIDER-77"
     db.commit()
     try:

@@ -1,4 +1,5 @@
 """Focused coverage for expense habit reminders."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

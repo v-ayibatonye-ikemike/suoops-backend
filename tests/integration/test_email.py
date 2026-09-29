@@ -23,12 +23,7 @@ def test_email():
     """
     if not os.getenv("INTEGRATION"):
         pytest.skip("Skipping SMTP connectivity test (set INTEGRATION=1 to run)")
-    if not (
-        settings.SMTP_HOST
-        and settings.SMTP_USER
-        and settings.SMTP_PASSWORD
-        and settings.FROM_EMAIL
-    ):
+    if not (settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD and settings.FROM_EMAIL):
         pytest.skip("SMTP credentials not configured; skipping")
 
     msg = MIMEMultipart()

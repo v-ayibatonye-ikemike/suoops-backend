@@ -3,6 +3,7 @@ Expense Tracking Tasks.
 
 Celery tasks for expense summaries and reminders.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,7 +14,6 @@ from typing import Any
 from celery import Task
 from sqlalchemy import func
 
-from app.core.config import settings
 from app.db.session import session_scope
 from app.models.models import User
 from app.workers.celery_app import celery_app
@@ -60,22 +60,24 @@ def send_expense_summary(
         # Expenses are unified invoices (invoice_type='expense'); filter on the
         # expense date (due_date) falling back to created_at, matching the app.
         expense_date_col = func.coalesce(Invoice.due_date, Invoice.created_at)
-        expenses = db.query(Invoice).filter(
-            Invoice.issuer_id == user_id,
-            Invoice.invoice_type == "expense",
-            Invoice.status == "paid",
-            func.date(expense_date_col) >= start_date,
-            func.date(expense_date_col) <= end_date,
-        ).all()
+        expenses = (
+            db.query(Invoice)
+            .filter(
+                Invoice.issuer_id == user_id,
+                Invoice.invoice_type == "expense",
+                Invoice.status == "paid",
+                func.date(expense_date_col) >= start_date,
+                func.date(expense_date_col) <= end_date,
+            )
+            .all()
+        )
 
         by_category, total_expenses = _aggregate_expenses(expenses)
         revenue = compute_revenue_by_date_range(db, user_id, start_date, end_date, "paid")
         profit = compute_actual_profit_by_date_range(db, user_id, start_date, end_date, "paid")
         pit_band = _get_pit_band(profit, period)
 
-        message = _format_summary_message(
-            period, revenue, total_expenses, profit, by_category, pit_band
-        )
+        message = _format_summary_message(period, revenue, total_expenses, profit, by_category, pit_band)
 
         if user.phone:
             _send_whatsapp_message(user.phone, message, user_id, period)
@@ -169,10 +171,9 @@ def send_expense_reminders(self: Task) -> dict[str, Any]:
         whatsapp_sent = 0
         failed = 0
         if pending_email:
-            results = send_smtp_batch([
-                (user.email, "Know what you actually earned this week", None, plain)
-                for user, plain in pending_email
-            ])
+            results = send_smtp_batch(
+                [(user.email, "Know what you actually earned this week", None, plain) for user, plain in pending_email]
+            )
             for (user, _), sent in zip(pending_email, results):
                 if sent:
                     db.add(UserEmailLog(user_id=user.id, email_type=email_type))
@@ -213,7 +214,10 @@ def send_expense_reminders(self: Task) -> dict[str, Any]:
         db.commit()
         logger.info(
             "Expense habit reminders: targeted=%d email=%d whatsapp=%d failed=%d",
-            len(users), email_sent, whatsapp_sent, failed,
+            len(users),
+            email_sent,
+            whatsapp_sent,
+            failed,
         )
 
         return {

@@ -7,6 +7,7 @@ to the new modular inventory package at app.services.inventory.
 DEPRECATED: Import directly from app.services.inventory instead:
     from app.services.inventory import InventoryService, build_inventory_service
 """
+
 from app.services.inventory import (
     CategoryService,
     InventoryAnalyticsService,

@@ -10,6 +10,7 @@ Sub-modules:
 - vat: VAT summary, calculation, return generation
 - fiscalization: Fiscalization status, invoice fiscalization, development levy
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter

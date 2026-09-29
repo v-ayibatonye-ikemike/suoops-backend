@@ -7,9 +7,11 @@ Revision ID: influencer_program_20260614
 Revises: 20260612_admin_ip_allowlist
 Create Date: 2026-06-14
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -25,9 +27,13 @@ def upgrade() -> None:
     op.add_column("referral_code", sa.Column("influencer_name", sa.String(100), nullable=True))
     op.add_column("referral_code", sa.Column("influencer_contact", sa.String(200), nullable=True))
     op.add_column("referral_code", sa.Column("commission_first", sa.Integer(), server_default="500", nullable=False))
-    op.add_column("referral_code", sa.Column("commission_recurring", sa.Integer(), server_default="200", nullable=False))
+    op.add_column(
+        "referral_code", sa.Column("commission_recurring", sa.Integer(), server_default="200", nullable=False)
+    )
     op.add_column("referral_code", sa.Column("commission_months", sa.Integer(), server_default="2", nullable=False))
-    op.add_column("referral_code", sa.Column("commission_perpetual_pct", sa.Integer(), server_default="5", nullable=False))
+    op.add_column(
+        "referral_code", sa.Column("commission_perpetual_pct", sa.Integer(), server_default="5", nullable=False)
+    )
     op.add_column("referral_code", sa.Column("bonus_invoices", sa.Integer(), server_default="3", nullable=False))
     op.add_column("referral_code", sa.Column("notes", sa.Text(), nullable=True))
     op.create_unique_constraint("uq_referral_code_custom_slug", "referral_code", ["custom_slug"])

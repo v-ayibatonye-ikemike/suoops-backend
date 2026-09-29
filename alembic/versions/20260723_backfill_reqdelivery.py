@@ -16,6 +16,7 @@ any physical item, or any ad-hoc line with no product link, are left untouched.
 
 NOTE: revision id kept <=32 chars — alembic_version.version_num is varchar(32).
 """
+
 from __future__ import annotations
 
 from alembic import op

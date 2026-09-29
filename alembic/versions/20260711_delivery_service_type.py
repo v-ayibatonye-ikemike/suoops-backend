@@ -8,10 +8,12 @@ Adds ``delivery_service_type`` ("pickup"/"dropoff") and ``delivery_dropoff_stati
 to ``storefront_order_escrow`` so the seller can be told whether a rider will
 collect from them or they must drop the package at a courier station.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260711_delivery_service_type"

@@ -1,6 +1,7 @@
 """SMTP provider fallback: a failed primary (ZeptoMail 535) must fall through to
 the next configured provider (Brevo) so transactional mail still sends.
 """
+
 import smtplib
 
 import pytest
@@ -86,9 +87,7 @@ def test_falls_back_to_brevo_when_zepto_auth_fails(two_providers, monkeypatch):
     sent: list[str] = []
     _install_fake_smtp(monkeypatch, sent, fail_hosts={"smtp.zeptomail.com"})
 
-    ok = smtp_mod.send_email_with_fallback(
-        "user@example.com", "Subject", "<b>hi</b>", "hi", check_suppression=False
-    )
+    ok = smtp_mod.send_email_with_fallback("user@example.com", "Subject", "<b>hi</b>", "hi", check_suppression=False)
     assert ok is True
     # ZeptoMail failed login (no send), Brevo delivered.
     assert sent == ["smtp-relay.brevo.com"]
@@ -98,21 +97,15 @@ def test_uses_primary_when_it_works(two_providers, monkeypatch):
     sent: list[str] = []
     _install_fake_smtp(monkeypatch, sent, fail_hosts=set())
 
-    ok = smtp_mod.send_email_with_fallback(
-        "user@example.com", "Subject", None, "hi", check_suppression=False
-    )
+    ok = smtp_mod.send_email_with_fallback("user@example.com", "Subject", None, "hi", check_suppression=False)
     assert ok is True
     assert sent == ["smtp.zeptomail.com"]  # no fallback needed
 
 
 def test_returns_false_when_all_providers_fail(two_providers, monkeypatch):
     sent: list[str] = []
-    _install_fake_smtp(
-        monkeypatch, sent, fail_hosts={"smtp.zeptomail.com", "smtp-relay.brevo.com"}
-    )
+    _install_fake_smtp(monkeypatch, sent, fail_hosts={"smtp.zeptomail.com", "smtp-relay.brevo.com"})
 
-    ok = smtp_mod.send_email_with_fallback(
-        "user@example.com", "Subject", None, "hi", check_suppression=False
-    )
+    ok = smtp_mod.send_email_with_fallback("user@example.com", "Subject", None, "hi", check_suppression=False)
     assert ok is False
     assert sent == []

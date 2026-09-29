@@ -5,6 +5,7 @@ compact, phone-friendly snapshot (1080px wide) that a merchant can glance at to
 understand their liquidity: money in, net, outstanding, overdue and expected
 inflow. Pure Pillow — no external services.
 """
+
 from __future__ import annotations
 
 import io
@@ -46,7 +47,7 @@ _FONT_PATHS_BOLD = [
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     """Load a scalable font, falling back to Pillow's bundled default."""
-    for path in (_FONT_PATHS_BOLD if bold else _FONT_PATHS_REGULAR):
+    for path in _FONT_PATHS_BOLD if bold else _FONT_PATHS_REGULAR:
         try:
             return ImageFont.truetype(path, size)
         except OSError:
@@ -121,9 +122,18 @@ def render_cash_dashboard_png(
     for i, hl in enumerate(highlights[:2]):
         x = x_left if i == 0 else x_right
         _card(
-            draw, x, content_top, col_w, HL_H,
-            hl.get("label", ""), hl.get("value", ""), hl.get("sub"),
-            hl.get("accent", TEAL), f_hl_value, f_hl_label, f_sub,
+            draw,
+            x,
+            content_top,
+            col_w,
+            HL_H,
+            hl.get("label", ""),
+            hl.get("value", ""),
+            hl.get("sub"),
+            hl.get("accent", TEAL),
+            f_hl_value,
+            f_hl_label,
+            f_sub,
         )
 
     # Card grid
@@ -132,9 +142,18 @@ def render_cash_dashboard_png(
         x = x_left if c == 0 else x_right
         y = after_hl + r * (CARD_H + GAP)
         _card(
-            draw, x, y, col_w, CARD_H,
-            card.get("label", ""), card.get("value", ""), card.get("sub"),
-            card.get("accent", TEAL), f_value, f_label, f_sub,
+            draw,
+            x,
+            y,
+            col_w,
+            CARD_H,
+            card.get("label", ""),
+            card.get("value", ""),
+            card.get("sub"),
+            card.get("accent", TEAL),
+            f_value,
+            f_label,
+            f_sub,
         )
 
     # Footer
@@ -169,16 +188,31 @@ def build_cash_snapshot_png(cash: dict, business_name: str, currency: str = "NGN
         {"label": "Net today (in − out)", "value": fmt(net), "accent": net_accent},
     ]
     cards = [
-        {"label": "Outstanding (unpaid)", "value": fmt(cash.get("total_outstanding")),
-         "sub": "Money owed to you", "accent": "#B45309"},
-        {"label": "Overdue", "value": fmt(cash.get("total_overdue")),
-         "sub": overdue_sub, "accent": "#B91C1C"},
-        {"label": "Expected in 7 days", "value": fmt(cash.get("expected_inflow_7_days")),
-         "sub": "Invoices due soon", "accent": TEAL},
-        {"label": "Collected this week", "value": fmt(cash.get("cash_collected_this_week")),
-         "sub": "Last 7 days", "accent": "#047857"},
-        {"label": "Expenses today", "value": fmt(cash.get("expenses_today")),
-         "sub": f"{cash.get('invoices_created_today', 0)} invoice(s) created today", "accent": "#6B7280"},
+        {
+            "label": "Outstanding (unpaid)",
+            "value": fmt(cash.get("total_outstanding")),
+            "sub": "Money owed to you",
+            "accent": "#B45309",
+        },
+        {"label": "Overdue", "value": fmt(cash.get("total_overdue")), "sub": overdue_sub, "accent": "#B91C1C"},
+        {
+            "label": "Expected in 7 days",
+            "value": fmt(cash.get("expected_inflow_7_days")),
+            "sub": "Invoices due soon",
+            "accent": TEAL,
+        },
+        {
+            "label": "Collected this week",
+            "value": fmt(cash.get("cash_collected_this_week")),
+            "sub": "Last 7 days",
+            "accent": "#047857",
+        },
+        {
+            "label": "Expenses today",
+            "value": fmt(cash.get("expenses_today")),
+            "sub": f"{cash.get('invoices_created_today', 0)} invoice(s) created today",
+            "accent": "#6B7280",
+        },
     ]
     return render_cash_dashboard_png(
         title=str(business_name or "Your Business"),

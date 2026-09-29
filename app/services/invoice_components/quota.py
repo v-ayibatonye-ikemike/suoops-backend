@@ -6,6 +6,7 @@ NEW BILLING MODEL:
 - All plans can purchase packs
 - Balance is decremented on revenue invoice creation
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,12 +74,7 @@ class InvoiceQuotaMixin:
         fee = platform_fee_kobo(amount, channel="manual")
         # Lock the user row to serialise concurrent invoice creation against the
         # wallet balance (race condition).
-        user = (
-            self.db.query(models.User)
-            .with_for_update()
-            .filter(models.User.id == issuer_id)
-            .one_or_none()
-        )
+        user = self.db.query(models.User).with_for_update().filter(models.User.id == issuer_id).one_or_none()
         if not user:
             raise UserNotFoundError()
         if self._wallet_kobo(user) < fee:
@@ -92,18 +88,15 @@ class InvoiceQuotaMixin:
         fee = platform_fee_kobo(amount, channel="manual")
         # Lock the user row so concurrent deductions serialise and cannot both
         # read the same balance and overdraw the wallet (race condition).
-        user = (
-            self.db.query(models.User)
-            .with_for_update()
-            .filter(models.User.id == issuer_id)
-            .one_or_none()
-        )
+        user = self.db.query(models.User).with_for_update().filter(models.User.id == issuer_id).one_or_none()
         if user and self._wallet_kobo(user) >= fee:
             user.wallet_balance_kobo = self._wallet_kobo(user) - fee
             self.db.commit()
             logger.info(
                 "Charged ₦%.2f from user %s wallet (remaining ₦%.2f)",
-                fee / 100, issuer_id, self._wallet_kobo(user) / 100,
+                fee / 100,
+                issuer_id,
+                self._wallet_kobo(user) / 100,
             )
 
             # Sync low balance status to Brevo (best-effort, fire-and-forget)

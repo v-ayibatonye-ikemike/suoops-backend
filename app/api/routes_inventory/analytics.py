@@ -1,4 +1,5 @@
 """Analytics endpoints."""
+
 import logging
 
 from fastapi import APIRouter

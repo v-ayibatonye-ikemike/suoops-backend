@@ -15,10 +15,12 @@ under the previous flat model (3%, min ₦20, tiered ₦2,000-per-₦500,000 cap
 which applied to BOTH manual and storefront invoices before this release.
 Expenses carry no fee and stay NULL.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260721_invoice_fee_ledger"

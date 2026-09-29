@@ -4,6 +4,7 @@ Stock Movement Service.
 Handles all stock movement operations including adjustments, sales, purchases,
 and COGS calculations. Follows SRP by focusing solely on stock movements.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,9 +36,7 @@ class StockMovementService(InventoryServiceBase):
     # Stock Adjustment
     # ========================================================================
 
-    def adjust_stock(
-        self, data: StockAdjustmentCreate, created_by: str = "user"
-    ) -> StockMovement:
+    def adjust_stock(self, data: StockAdjustmentCreate, created_by: str = "user") -> StockMovement:
         """
         Adjust stock for a product.
 
@@ -181,9 +180,7 @@ class StockMovementService(InventoryServiceBase):
                 # Small delay so the caller's transaction is committed first.
                 notify_back_in_stock.apply_async(args=[product.id], countdown=15)
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "Failed to enqueue back-in-stock notify for product %s", product.id
-                )
+                logger.exception("Failed to enqueue back-in-stock notify for product %s", product.id)
 
     # ========================================================================
     # Invoice Line Processing
@@ -282,10 +279,7 @@ class StockMovementService(InventoryServiceBase):
     def _calculate_cogs_at_cost(self, start_date, end_date) -> Decimal:
         """Calculate COGS at cost for period."""
         return self._db.query(
-            func.sum(
-                func.abs(StockMovement.quantity)
-                * func.coalesce(StockMovement.unit_cost, Decimal(0))
-            )
+            func.sum(func.abs(StockMovement.quantity) * func.coalesce(StockMovement.unit_cost, Decimal(0)))
         ).filter(
             StockMovement.user_id == self._user_id,
             StockMovement.movement_type == StockMovementType.SALE,
@@ -295,9 +289,7 @@ class StockMovementService(InventoryServiceBase):
 
     def _calculate_purchases(self, start_date, end_date) -> Decimal:
         """Calculate total purchases for period."""
-        return self._db.query(
-            func.sum(StockMovement.total_cost)
-        ).filter(
+        return self._db.query(func.sum(StockMovement.total_cost)).filter(
             StockMovement.user_id == self._user_id,
             StockMovement.movement_type == StockMovementType.PURCHASE,
             StockMovement.created_at >= start_date,
@@ -326,9 +318,11 @@ class StockMovementService(InventoryServiceBase):
         page_size: int = 50,
     ) -> tuple[Sequence[StockMovement], int]:
         """List stock movements with filtering."""
-        query = self._db.query(StockMovement).options(
-            joinedload(StockMovement.product)
-        ).filter(StockMovement.user_id == self._user_id)
+        query = (
+            self._db.query(StockMovement)
+            .options(joinedload(StockMovement.product))
+            .filter(StockMovement.user_id == self._user_id)
+        )
 
         if product_id:
             query = query.filter(StockMovement.product_id == product_id)
@@ -348,10 +342,14 @@ class StockMovementService(InventoryServiceBase):
 
     def _get_product(self, product_id: int) -> Product | None:
         """Get product by ID."""
-        return self._db.query(Product).filter(
-            Product.id == product_id,
-            Product.user_id == self._user_id,
-        ).first()
+        return (
+            self._db.query(Product)
+            .filter(
+                Product.id == product_id,
+                Product.user_id == self._user_id,
+            )
+            .first()
+        )
 
     def _get_product_for_update(self, product_id: int) -> Product | None:
         """Like _get_product but locks the row (SELECT ... FOR UPDATE) so two paid

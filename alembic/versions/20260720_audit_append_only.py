@@ -13,6 +13,7 @@ superuser-level act, not a silent programmatic edit.
 Postgres-only; a no-op on other dialects (e.g. the SQLite test DB), which never
 runs migrations anyway.
 """
+
 from __future__ import annotations
 
 from alembic import op

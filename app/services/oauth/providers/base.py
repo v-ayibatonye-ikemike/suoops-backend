@@ -3,6 +3,7 @@
 Implements the OAuth 2.0 authorization code flow.
 Subclasses must implement provider-specific details.
 """
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class OAuthProvider(ABC):
     """
     Abstract base class for OAuth 2.0 providers.
-    
+
     Implements the OAuth 2.0 authorization code flow.
     Subclasses must implement provider-specific details.
     """
@@ -26,7 +27,7 @@ class OAuthProvider(ABC):
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str):
         """
         Initialize OAuth provider.
-        
+
         Args:
             client_id: OAuth client ID from provider
             client_secret: OAuth client secret from provider
@@ -63,10 +64,10 @@ class OAuthProvider(ABC):
     def get_authorization_url(self, state: str) -> str:
         """
         Generate authorization URL for OAuth flow.
-        
+
         Args:
             state: CSRF protection token
-            
+
         Returns:
             Full authorization URL with query parameters
         """
@@ -79,19 +80,19 @@ class OAuthProvider(ABC):
             "access_type": "offline",  # Request refresh token
             "prompt": "consent",  # Force consent to get refresh token
         }
-        
+
         return f"{self.authorization_url}?{urlencode(params)}"
 
     async def exchange_code_for_token(self, code: str) -> dict[str, Any]:
         """
         Exchange authorization code for access token.
-        
+
         Args:
             code: Authorization code from OAuth callback
-            
+
         Returns:
             Token response with access_token, refresh_token, etc.
-            
+
         Raises:
             OAuthTokenError: If token exchange fails
         """
@@ -102,7 +103,7 @@ class OAuthProvider(ABC):
             "grant_type": "authorization_code",
             "redirect_uri": self.redirect_uri,
         }
-        
+
         # Log sanitized exchange metadata (no secrets)
         code_hash = abs(hash(code))
         logger.info(
@@ -134,13 +135,13 @@ class OAuthProvider(ABC):
     async def get_user_info(self, access_token: str) -> dict[str, Any]:
         """
         Fetch user information using access token.
-        
+
         Args:
             access_token: OAuth access token
-            
+
         Returns:
             User profile information
-            
+
         Raises:
             OAuthUserInfoError: If fetching user info fails
         """
@@ -162,10 +163,10 @@ class OAuthProvider(ABC):
     def extract_user_data(self, user_info: dict[str, Any]) -> dict[str, str]:
         """
         Extract standardized user data from provider response.
-        
+
         Args:
             user_info: Raw user info from provider
-            
+
         Returns:
             Standardized user data with keys: email, name, picture
         """

@@ -8,6 +8,7 @@ Celery tasks for lifecycle email notifications:
   commission (manual 0.5%, storefront 3%). No plans/subscriptions.
 - Education: Tips every 2 days for active users
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ from sqlalchemy import func
 
 from app.core.config import settings
 from app.db.session import session_scope
+from app.utils.smtp import send_smtp_email as _send_smtp_email
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,7 @@ TIPS = [
         "subject": "Get paid faster with payment verification",
         "headline": "Tip: Get Paid Faster",
         "body": "When a customer says they've paid, verify it instantly on SuoOps. "
-                "Mark invoices as paid and your records stay accurate — no more guessing.",
+        "Mark invoices as paid and your records stay accurate — no more guessing.",
         "tip": "Go to any pending invoice → Mark as Paid. Your cash position updates automatically.",
         "cta_url": "https://suoops.com/dashboard",
         "cta_label": "Check Your Invoices →",
@@ -66,7 +68,7 @@ TIPS = [
         "subject": "Your professionalism score matters",
         "headline": "Tip: Look Professional",
         "body": "Businesses that add their logo and bank details to invoices get paid 40% faster. "
-                "Your professionalism score shows how complete your setup is.",
+        "Your professionalism score shows how complete your setup is.",
         "tip": "Upload your logo in Settings → Business Profile to boost your score.",
         "cta_url": "https://suoops.com/dashboard/settings",
         "cta_label": "Update Your Profile →",
@@ -75,8 +77,8 @@ TIPS = [
         "subject": "Send invoices via WhatsApp — it's faster",
         "headline": "Tip: WhatsApp Delivery",
         "body": "You can create and send invoices right from WhatsApp. "
-                "Just message your SuoOps number with the customer name, item, and amount.",
-        "tip": "Try it: Send \"Invoice Amina ₦5000 for consulting\" to your SuoOps WhatsApp.",
+        "Just message your SuoOps number with the customer name, item, and amount.",
+        "tip": 'Try it: Send "Invoice Amina ₦5000 for consulting" to your SuoOps WhatsApp.',
         "cta_url": None,
         "cta_label": None,
     },
@@ -84,7 +86,7 @@ TIPS = [
         "subject": "Track your expenses alongside revenue",
         "headline": "Tip: Track Expenses Too",
         "body": "SuoOps isn't just for invoices. Record your business expenses so you can see "
-                "your true profit — not just revenue.",
+        "your true profit — not just revenue.",
         "tip": "Go to Dashboard → Expenses → Add Expense to start tracking.",
         "cta_url": "https://suoops.com/dashboard/expenses",
         "cta_label": "Add an Expense →",
@@ -93,7 +95,7 @@ TIPS = [
         "subject": "Beware of fake payment alerts",
         "headline": "Tip: Spot Fake Alerts",
         "body": "Fake bank alerts are everywhere. Always verify payments through your actual bank app "
-                "before releasing goods. SuoOps helps you track what's truly paid vs. pending.",
+        "before releasing goods. SuoOps helps you track what's truly paid vs. pending.",
         "tip": "Never rely on screenshots alone. Check your bank, then mark it paid on SuoOps.",
         "cta_url": "https://suoops.com/dashboard",
         "cta_label": "Review Pending Invoices →",
@@ -101,17 +103,12 @@ TIPS = [
 ]
 
 
-from app.utils.smtp import send_smtp_email as _send_smtp_email
-
-
 def _was_sent(db, user_id: int, email_type: str) -> bool:
     """Check if this email type was already sent to this user."""
     from app.models.models import UserEmailLog
 
     return (
-        db.query(UserEmailLog.id)
-        .filter(UserEmailLog.user_id == user_id, UserEmailLog.email_type == email_type)
-        .first()
+        db.query(UserEmailLog.id).filter(UserEmailLog.user_id == user_id, UserEmailLog.email_type == email_type).first()
         is not None
     )
 
@@ -130,6 +127,7 @@ def _get_user_name(user) -> str:
 
 
 # ── WhatsApp template helper ─────────────────────────────────────────
+
 
 def _send_wa_template(
     phone: str | None,
@@ -154,6 +152,7 @@ def _send_wa_template(
 
     # Check daily WhatsApp budget before sending
     from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
+
     if not can_send_whatsapp(priority=priority):
         logger.debug("WhatsApp daily budget exceeded, skipping %s for user %s", wa_type, user_id)
         return False
@@ -191,6 +190,7 @@ def _send_wa_template(
 
 # ── Main scheduled task ──────────────────────────────────────────────
 
+
 @celery_app.task(
     name="engagement.send_lifecycle_emails",
     autoretry_for=(Exception,),
@@ -227,13 +227,19 @@ def send_engagement_emails() -> dict[str, Any]:
 
     try:
         with session_scope() as db:
-            total_users = db.query(func.count(User.id)).filter(
-                User.email != None,  # noqa: E711
-            ).scalar() or 0
+            total_users = (
+                db.query(func.count(User.id))
+                .filter(
+                    User.email != None,  # noqa: E711
+                )
+                .scalar()
+                or 0
+            )
 
             # Pre-fetch invoice counts for all users in one query
             # (eliminates per-user invoice count query — saves 50K queries at scale)
             from app.models.models import Invoice
+
             invoice_count_map: dict[int, int] = {}
             for row in (
                 db.query(Invoice.issuer_id, func.count(Invoice.id))
@@ -265,7 +271,8 @@ def send_engagement_emails() -> dict[str, Any]:
                 db.expire_all()
 
         logger.info(
-            "Engagement emails complete: activation=%d monetization=%d tips=%d phone_nudge=%d whatsapp=%d skipped=%d failed=%d",
+            "Engagement emails complete: activation=%d monetization=%d tips=%d "
+            "phone_nudge=%d whatsapp=%d skipped=%d failed=%d",
             stats["activation_sent"],
             stats["monetization_sent"],
             stats["tips_sent"],
@@ -281,12 +288,16 @@ def send_engagement_emails() -> dict[str, Any]:
         raise
 
 
-def _process_user(db, user, now: datetime, stats: dict[str, int], invoice_count_map: dict[int, int] | None = None) -> None:
+def _process_user(
+    db, user, now: datetime, stats: dict[str, int], invoice_count_map: dict[int, int] | None = None
+) -> None:
     """Determine which email (if any) to send to a single user."""
     from app.models.models import Invoice
 
     name = _get_user_name(user)
-    signup_age = now - user.created_at.replace(tzinfo=timezone.utc) if user.created_at.tzinfo is None else now - user.created_at
+    signup_age = (
+        now - user.created_at.replace(tzinfo=timezone.utc) if user.created_at.tzinfo is None else now - user.created_at
+    )
 
     # Use pre-fetched count if available, otherwise query (fallback)
     if invoice_count_map is not None:
@@ -320,22 +331,9 @@ def _process_user(db, user, now: datetime, stats: dict[str, int], invoice_count_
             _send_activation(db, user, name, signup_age.days, stats)
         return
 
-    # ── 2. FIRST INVOICE FOLLOW-UP (WhatsApp-only, email fallback) ─────
+    # ── 2. FIRST INVOICE FOLLOW-UP (limited, deduplicated email) ───────
     if invoice_count >= 1 and not _was_sent(db, user.id, "wa_first_invoice"):
-        # WhatsApp first — this is a celebration, single channel is enough.
-        wa_sent = _send_wa_template(
-            user.phone,
-            settings.WHATSAPP_TEMPLATE_FIRST_INVOICE,
-            [name],
-            "wa_first_invoice",
-            db,
-            user.id,
-        )
-        if wa_sent:
-            stats["whatsapp_sent"] += 1
-        # Email ONLY as a fallback when WhatsApp couldn't be delivered
-        # (no phone, missing template, or send failure) — avoids double-send.
-        if not wa_sent and user.email and not _was_sent(db, user.id, "email_first_invoice"):
+        if user.email and not _was_sent(db, user.id, "email_first_invoice"):
             try:
                 tpl = _jinja_env.get_template("engagement_first_invoice.html")
                 html = tpl.render(
@@ -371,32 +369,11 @@ def _process_user(db, user, now: datetime, stats: dict[str, int], invoice_count_
         stats["skipped"] += 1
         return
 
-    # ── 6. WIN-BACK (any user inactive 7+ days, WhatsApp only) ───────
-    if invoice_count > 0 and not _was_sent(db, user.id, "wa_win_back"):
-        last_invoice_at = (
-            db.query(func.max(Invoice.created_at))
-            .filter(Invoice.issuer_id == user.id, Invoice.invoice_type == "revenue")
-            .scalar()
-        )
-        if last_invoice_at:
-            if last_invoice_at.tzinfo is None:
-                last_invoice_at = last_invoice_at.replace(tzinfo=timezone.utc)
-            if (now - last_invoice_at).days >= 7:
-                if _send_wa_template(
-                    user.phone,
-                    settings.WHATSAPP_TEMPLATE_WIN_BACK,
-                    [name],
-                    "wa_win_back",
-                    db,
-                    user.id,
-                ):
-                    stats["whatsapp_sent"] += 1
-                    return
-
     stats["skipped"] += 1
 
 
 # ── Phone-verification nudge ─────────────────────────────────────────
+
 
 def _send_phone_nudge(db, user, name: str, days_since_signup: int, stats: dict[str, int]) -> None:
     """Email users who haven't verified a phone number to connect WhatsApp.
@@ -464,10 +441,8 @@ def _send_phone_nudge(db, user, name: str, days_since_signup: int, stats: dict[s
 def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int]) -> None:
     """Send a re-engagement nudge to zero-invoice users on Day 7 or Day 14.
 
-    Uses email + free WhatsApp plain text (within 24h window).
+    Uses the existing limited, deduplicated email channel only.
     """
-    from app.bot.conversation_window import is_window_open
-
     nudge_map = {
         7: (
             EMAIL_NUDGE_DAY7,
@@ -476,7 +451,7 @@ def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int
                 f"Hi {name},\n\n"
                 "You signed up for SuoOps a week ago but haven't sent your first invoice yet.\n\n"
                 "It takes 30 seconds — just text our WhatsApp bot:\n"
-                "\"Invoice Joy 5000 wig\"\n\n"
+                '"Invoice Joy 5000 wig"\n\n'
                 "...and your invoice goes out instantly with a payment link!\n\n"
                 "Your 2 free invoices are ready to use.\n\n"
                 "Create your first invoice: https://suoops.com/dashboard\n\n"
@@ -498,7 +473,7 @@ def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int
                 "It's been 2 weeks since you signed up for SuoOps.\n\n"
                 "Your 2 free invoices are still waiting. Here's what you can do in 30 seconds:\n\n"
                 "1. Open WhatsApp\n"
-                "2. Text: \"Invoice Joy 5000 wig\"\n"
+                '2. Text: "Invoice Joy 5000 wig"\n'
                 "3. Done — your customer gets a professional invoice\n\n"
                 "No forms, no complexity. Just text and send.\n\n"
                 "Create your first invoice: https://suoops.com/dashboard\n\n"
@@ -519,7 +494,7 @@ def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int
         stats["skipped"] += 1
         return
 
-    email_type, subject, plain_email, wa_message = entry
+    email_type, subject, plain_email, _wa_message = entry
 
     if _was_sent(db, user.id, email_type):
         stats["skipped"] += 1
@@ -530,34 +505,6 @@ def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int
     # Email
     if user.email:
         if _send_smtp_email(user.email, subject, None, plain_email):
-            sent = True
-
-    # WhatsApp: only if no email (save budget) and within daily cap
-    if user.phone and not sent:
-        from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
-        wa_sent = False
-        if can_send_whatsapp() and is_window_open(user.phone):
-            try:
-                from app.core.whatsapp import get_whatsapp_client
-                client = get_whatsapp_client()
-                if client.send_text(user.phone, wa_message):
-                    record_whatsapp_send()
-                    wa_sent = True
-            except Exception as e:
-                logger.warning("Day %d WhatsApp nudge failed for user %s: %s", day, user.id, e)
-
-        # Fall back to win_back_reminder template (outside 24h window)
-        if not wa_sent and can_send_whatsapp():
-            win_back_tpl = getattr(settings, "WHATSAPP_TEMPLATE_WIN_BACK", None)
-            if win_back_tpl:
-                if _send_wa_template(
-                    user.phone, win_back_tpl, [name],
-                    f"wa_nudge_day{day}", db, user.id,
-                ):
-                    wa_sent = True
-
-        if wa_sent:
-            stats["whatsapp_sent"] = stats.get("whatsapp_sent", 0) + 1
             sent = True
 
     if sent:
@@ -655,18 +602,6 @@ def _send_activation(db, user, name: str, days_since_signup: int, stats: dict[st
     else:
         stats["failed"] += 1
 
-    # Also send WhatsApp activation template (once, on first eligible day)
-    if user.phone:
-        if _send_wa_template(
-            user.phone,
-            settings.WHATSAPP_TEMPLATE_ACTIVATION_WELCOME,
-            [name],
-            "wa_activation_welcome",
-            db,
-            user.id,
-        ):
-            stats["whatsapp_sent"] += 1
-
 
 def _send_monetization(db, user, name: str, invoice_count: int, stats: dict[str, int]) -> bool:
     """Send monetization email if user hits a threshold. Returns True if sent."""
@@ -721,8 +656,12 @@ def _send_monetization(db, user, name: str, invoice_count: int, stats: dict[str,
 
     template = _jinja_env.get_template("engagement_tip.html")
     html = template.render(
-        name=name, headline=headline, body_text=body,
-        tip_text=tip, cta_url=cta_url, cta_label=cta_label,
+        name=name,
+        headline=headline,
+        body_text=body,
+        tip_text=tip,
+        cta_url=cta_url,
+        cta_label=cta_label,
     )
     plain = f"Hi {name},\n\n{body}\n\n{'💡 ' + tip if tip else ''}\n\n{cta_url}\n\n— SuoOps"
 

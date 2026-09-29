@@ -4,8 +4,10 @@ Revision ID: 20260612_admin_ip_allowlist
 Revises: 20260612_admin_login_audit
 Create Date: 2026-06-12
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers
 revision = "20260612_admin_ip_allowlist"
@@ -28,12 +30,8 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index(
-        "ix_admin_ip_allowlist_cidr", "admin_ip_allowlist", ["cidr"], unique=True
-    )
-    op.create_index(
-        "ix_admin_ip_allowlist_created_by_id", "admin_ip_allowlist", ["created_by_id"]
-    )
+    op.create_index("ix_admin_ip_allowlist_cidr", "admin_ip_allowlist", ["cidr"], unique=True)
+    op.create_index("ix_admin_ip_allowlist_created_by_id", "admin_ip_allowlist", ["created_by_id"])
 
 
 def downgrade() -> None:

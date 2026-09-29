@@ -27,10 +27,10 @@ if TYPE_CHECKING:
 class OAuthToken(Base):
     """
     Encrypted OAuth tokens for user accounts.
-    
+
     Stores refresh tokens and access tokens obtained from OAuth providers.
     Enables offline access, token refresh, and proper revocation handling.
-    
+
     Attributes:
         id: Primary key
         user_id: Foreign key to users table
@@ -44,9 +44,9 @@ class OAuthToken(Base):
         updated_at: When token was last refreshed
         revoked_at: When token was revoked (NULL if active)
     """
-    
+
     __tablename__ = "oauth_tokens"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
         Integer,
@@ -55,15 +55,15 @@ class OAuthToken(Base):
         index=True,
     )
     provider = Column(String(50), nullable=False, index=True)
-    
+
     # Encrypted with Fernet (see app.utils.token_encryption)
     access_token_encrypted = Column(Text, nullable=False)
     refresh_token_encrypted = Column(Text, nullable=False)
-    
+
     token_type = Column(String(50), default="bearer", nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     scopes = Column(JSON, nullable=True)  # ["openid", "email", "profile"]
-    
+
     # Timestamps
     created_at = Column(
         DateTime(timezone=True),
@@ -76,10 +76,10 @@ class OAuthToken(Base):
         nullable=True,
     )
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Relationships
     user = relationship("User", back_populates="oauth_tokens")
-    
+
     # Indexes
     __table_args__ = (
         # One token set per user per provider
@@ -94,21 +94,17 @@ class OAuthToken(Base):
         # Query expiring tokens for refresh
         Index("ix_oauth_tokens_expires", "expires_at"),
     )
-    
+
     def __repr__(self) -> str:
         """String representation (no sensitive data)."""
         revoked = " (REVOKED)" if self.revoked_at else ""
-        return (
-            f"<OAuthToken(id={self.id}, "
-            f"user_id={self.user_id}, "
-            f"provider={self.provider}{revoked})>"
-        )
-    
+        return f"<OAuthToken(id={self.id}, " f"user_id={self.user_id}, " f"provider={self.provider}{revoked})>"
+
     @property
     def is_revoked(self) -> bool:
         """Check if token has been revoked."""
         return self.revoked_at is not None
-    
+
     @property
     def is_expired(self) -> bool:
         """Check if access token has expired (if expires_at is set)."""

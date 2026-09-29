@@ -31,7 +31,7 @@ class PendingPriceSession:
 
     user_id: int
     lines: list[dict[str, Any]]  # [{description, quantity}, ...]
-    data: dict[str, Any]         # original parsed data (name, phone, etc.)
+    data: dict[str, Any]  # original parsed data (name, phone, etc.)
     created_at: float = field(default_factory=time.time)
 
     @property
@@ -79,10 +79,10 @@ class InvoiceIntentProcessor:
                 "📲 *Already have an account?*\n"
                 "Make sure this WhatsApp number is added "
                 "in your profile at suoops.com/dashboard/settings\n\n"
-                    "🆕 *New to SuoOps?*\n"
-                    "Register free at suoops.com — start sending invoices "
-                    "via WhatsApp in under 2 minutes!",
-                )
+                "🆕 *New to SuoOps?*\n"
+                "Register free at suoops.com — start sending invoices "
+                "via WhatsApp in under 2 minutes!",
+            )
             return
 
         invoice_service = build_invoice_service(self.db, user_id=issuer_id)
@@ -132,23 +132,24 @@ class InvoiceIntentProcessor:
         try:
             send_buttons = getattr(self.client, "send_interactive_buttons", None)
             if callable(send_buttons):
-                sent_buttons = bool(send_buttons(
-                    sender,
-                    body,
-                    [
-                        {"id": "quota_topup", "title": "💳 Top up"},
-                        {"id": "quota_store", "title": "🛒 My storefront"},
-                        {"id": "quota_later", "title": "⏰ Later"},
-                    ],
-                ))
+                sent_buttons = bool(
+                    send_buttons(
+                        sender,
+                        body,
+                        [
+                            {"id": "quota_topup", "title": "💳 Top up"},
+                            {"id": "quota_store", "title": "🛒 My storefront"},
+                            {"id": "quota_later", "title": "⏰ Later"},
+                        ],
+                    )
+                )
         except Exception:
             logger.exception("failed to send wallet top-up buttons")
             sent_buttons = False
         if not sent_buttons:
             self.client.send_text(
                 sender,
-                body
-                + "\n\n• *Top up:* suoops.com/dashboard/billing/purchase\n"
+                body + "\n\n• *Top up:* suoops.com/dashboard/billing/purchase\n"
                 "• *Storefront:* suoops.com/dashboard/settings",
             )
         return False
@@ -164,21 +165,21 @@ class InvoiceIntentProcessor:
         # ── Resolve prices from inventory for quantity-only items ──
         amount = data.get("amount", 0)
         lines = data.get("lines", [])
-        needs_price = any(l.get("unit_price") is None for l in lines)
+        needs_price = any(line.get("unit_price") is None for line in lines)
 
         if needs_price and lines:
             resolved = self._resolve_prices_from_inventory(
-                issuer_id, lines, sender, data=data,
+                issuer_id,
+                lines,
+                sender,
+                data=data,
             )
             if resolved is None:
                 return  # error already sent to user
             data["lines"] = resolved
             from decimal import Decimal
 
-            amount = sum(
-                Decimal(str(l["unit_price"])) * l.get("quantity", 1)
-                for l in resolved
-            )
+            amount = sum(Decimal(str(line["unit_price"])) * line.get("quantity", 1) for line in resolved)
             data["amount"] = amount
 
         # ── Guard: reject zero / trivially-small amounts early ──
@@ -252,12 +253,12 @@ class InvoiceIntentProcessor:
 
         # Check for potentially malformed amounts BEFORE creating invoice
         lines = data.get("lines", [])
-        
+
         # Detect suspicious patterns that suggest parsing errors
         # Thresholds are currency-aware (USD amounts are much smaller than NGN)
         is_suspicious = False
         suspicious_reason = ""
-        
+
         low_multi = 5 if inv_currency == "USD" else 500
         low_single_lo = 1 if inv_currency == "USD" else 100
         low_single_hi = 10 if inv_currency == "USD" else 1000
@@ -267,23 +268,28 @@ class InvoiceIntentProcessor:
         if amount < low_multi and len(lines) >= 2:
             is_suspicious = True
             suspicious_reason = "very small total with multiple items"
-        
+
         # 2. Amount that looks like a partial number
         if low_single_lo <= amount < low_single_hi and len(lines) == 1:
             # Could be intentional or parsing error - just log
-            logger.info("Small invoice amount %s%s - may be intentional or parsing issue",
-                        "$" if inv_currency == "USD" else "₦", amount)
-        
+            logger.info(
+                "Small invoice amount %s%s - may be intentional or parsing issue",
+                "$" if inv_currency == "USD" else "₦",
+                amount,
+            )
+
         # 3. Suspiciously large amounts (possible concatenation error)
         if amount > high_cap:
             is_suspicious = True
             suspicious_reason = "unusually large amount"
-        
+
         if is_suspicious:
             logger.warning(
                 "Suspicious invoice amount %s%s (%s) - raw data: %s",
                 "$" if inv_currency == "USD" else "₦",
-                amount, suspicious_reason, data
+                amount,
+                suspicious_reason,
+                data,
             )
             currency = get_user_currency(self.db, issuer_id)
             # Send format reminder but continue with creation (user may know what they're doing)
@@ -299,9 +305,9 @@ class InvoiceIntentProcessor:
                 "• `Invoice Joy 08012345678 11000 Design, 10000 Printing, 1000 Delivery`\n"
                 "• `Invoice Ada 08098765432 5000 braids, 2000 gel`\n\n"
                 "💡 *TIP:* Put amount BEFORE item name, separate items with commas\n\n"
-                "Creating invoice anyway..."
+                "Creating invoice anyway...",
             )
-        
+
         try:
             data["channel"] = "whatsapp"
             invoice = invoice_service.create_invoice(issuer_id=issuer_id, data=data)
@@ -337,7 +343,7 @@ class InvoiceIntentProcessor:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to create invoice")
             error_msg = str(exc).lower()
-            
+
             # Invoice balance exhausted (fallback string check)
             if "invoice_balance_exhausted" in error_msg or "inv005" in error_msg:
                 self.client.send_text(
@@ -363,7 +369,7 @@ class InvoiceIntentProcessor:
                     "📝 *WITHOUT PHONE:*\n"
                     "• `Invoice Joy 12000 wig`\n"
                     "• `Invoice Mike 8000 shirt`\n\n"
-                    "💡 *TIP:* The amount must be at least ₦100"
+                    "💡 *TIP:* The amount must be at least ₦100",
                 )
             # Missing customer name
             elif (
@@ -383,7 +389,7 @@ class InvoiceIntentProcessor:
                     "• `Invoice Joy 08012345678, 12000 wig`\n"
                     "• `Invoice Ada 5000 braids` (no phone)\n"
                     "• `Invoice Mike 08091234567, 25000 consulting`\n\n"
-                    "💡 *TIP:* Customer name should come right after 'Invoice'"
+                    "💡 *TIP:* Customer name should come right after 'Invoice'",
                 )
             # Database errors
             elif "not-null" in error_msg or "constraint" in error_msg:
@@ -398,14 +404,11 @@ class InvoiceIntentProcessor:
                     "• `Invoice Joy 08012345678, 12000 wig`\n"
                     "• `Invoice Ada 08098765432, 5000 braids, 2000 gel`\n"
                     "• `Invoice Mike 25000 consulting`\n\n"
-                    "💡 *TIP:* Type *help* to see the full guide"
+                    "💡 *TIP:* Type *help* to see the full guide",
                 )
             # Connection errors
             elif "connection" in error_msg or "timeout" in error_msg:
-                self.client.send_text(
-                    sender,
-                    "❌ Network issue. Please try again in a moment."
-                )
+                self.client.send_text(sender, "❌ Network issue. Please try again in a moment.")
             # Missing bank details (fallback string check)
             elif "bank" in error_msg or "inv004" in error_msg:
                 self.client.send_text(
@@ -443,22 +446,23 @@ class InvoiceIntentProcessor:
                     "• Use the word 'Invoice' to start\n"
                     "• Include customer name, amount, and item description\n"
                     "• Phone number is optional but needed for WhatsApp notifications\n"
-                    "• Type *help* anytime for the full guide"
+                    "• Type *help* anytime for the full guide",
                 )
             return
 
         # Send notifications via all channels (Email only - WhatsApp handled separately by _notify_customer)
         customer_email = data.get("customer_email")
         customer_phone = data.get("customer_phone")
-        
+
         # Track if there's no contact info at all
         no_contact_info = not customer_email and not customer_phone
-        
+
         # Only send email notification here - WhatsApp is handled by _notify_customer to avoid duplicates
         results = {"email": False, "whatsapp": False}
         if customer_email:
             try:
                 from app.services.notification.service import NotificationService
+
                 service = NotificationService()
                 results["email"] = await service.send_invoice_email(invoice, customer_email, invoice.pdf_url)
             except Exception as exc:
@@ -469,7 +473,9 @@ class InvoiceIntentProcessor:
         # the PDF, or a full message was sent), record it as a completed channel.
         if customer_phone and not whatsapp_pending:
             results["whatsapp"] = True
-        self._notify_business(sender, invoice, invoice_service, issuer_id, customer_email, results, whatsapp_pending, no_contact_info)
+        self._notify_business(
+            sender, invoice, invoice_service, issuer_id, customer_email, results, whatsapp_pending, no_contact_info
+        )
 
     def _notify_business(
         self,
@@ -480,7 +486,7 @@ class InvoiceIntentProcessor:
         customer_email: str | None = None,
         notification_results: dict[str, bool] | None = None,
         whatsapp_pending: bool = False,
-        no_contact_info: bool = False
+        no_contact_info: bool = False,
     ) -> None:
         customer_name = getattr(invoice.customer, "name", "N/A") if invoice.customer else "N/A"
 
@@ -503,7 +509,7 @@ class InvoiceIntentProcessor:
             short_id = f"{full_id[:4]}{full_id[4:10]}"
         else:
             short_id = full_id[:10] or full_id
-        
+
         # Get the business's wallet balance (Naira) for a post-creation nudge.
         wallet_naira = None
         quota_check = None
@@ -512,7 +518,7 @@ class InvoiceIntentProcessor:
             wallet_naira = quota_check.get("wallet_balance_naira", 0)
         except Exception:
             pass
-        
+
         # Format due date for display
         due_display = ""
         if invoice.due_date:
@@ -528,12 +534,12 @@ class InvoiceIntentProcessor:
             f"{due_display}"
             f"📊 Status: {status_display}\n"
         )
-        
+
         # Show the wallet balance
         if wallet_naira is not None:
             icon = "📉" if wallet_naira < 500 else "👛"
             business_message += f"{icon} Wallet: ₦{wallet_naira:,.0f}\n"
-        
+
         # Show notification status
         if no_contact_info:
             business_message += (
@@ -550,6 +556,7 @@ class InvoiceIntentProcessor:
                 invoice_has_contact,
                 is_online_only,
             )
+
             issuer = getattr(invoice, "issuer", None)
             online_only = (
                 is_online_only(
@@ -578,19 +585,18 @@ class InvoiceIntentProcessor:
                 sent_channels.append("📧 Email")
             if notification_results.get("whatsapp"):
                 sent_channels.append("💬 WhatsApp")
-            
+
             if sent_channels:
                 business_message += f"\n✉️ Sent via: {', '.join(sent_channels)}"
         elif customer_email:
             business_message += "\n📧 Notifications sent to customer!"
         else:
             business_message += "\n✅ Full invoice sent to customer via WhatsApp!"
-        
+
         # Append low-wallet nudge to the same message (saves an API call)
         if wallet_naira is not None and wallet_naira < 500:
             business_message += (
-                f"\n⚠️ Wallet low: ₦{wallet_naira:,.0f}.\n"
-                "💳 Top up → suoops.com/dashboard/billing/purchase"
+                f"\n⚠️ Wallet low: ₦{wallet_naira:,.0f}.\n" "💳 Top up → suoops.com/dashboard/billing/purchase"
             )
 
         # Inline the "create another?" hint to avoid splitting the
@@ -623,7 +629,9 @@ class InvoiceIntentProcessor:
         Returns True when a template was sent, False otherwise.
         """
         customer_phone = data.get("customer_phone")
-        logger.info("[NOTIFY] customer_phone from data: %s, invoice: %s", mask_phone(customer_phone), invoice.invoice_id)
+        logger.info(
+            "[NOTIFY] customer_phone from data: %s, invoice: %s", mask_phone(customer_phone), invoice.invoice_id
+        )
         if not customer_phone:
             logger.warning("No customer phone for invoice %s", invoice.invoice_id)
             return False
@@ -697,11 +705,7 @@ class InvoiceIntentProcessor:
         pdf_url = invoice.pdf_url if (invoice.pdf_url or "").startswith("http") else None
         if payment_template and pdf_url:
             issuer = self._load_issuer(issuer_id)
-            business_name = (
-                getattr(issuer, "business_name", None)
-                or getattr(issuer, "name", None)
-                or "your business"
-            )
+            business_name = getattr(issuer, "business_name", None) or getattr(issuer, "name", None) or "your business"
             if self._send_invoice_doc_template(
                 customer_phone,
                 customer_name,
@@ -732,8 +736,7 @@ class InvoiceIntentProcessor:
             # directly so the customer isn't left with nothing (this reaches
             # opted-in / in-window customers; first-timers get it when they reply).
             logger.info(
-                "[TEMPLATE] No basic template; sending full invoice + PDF directly to %s "
-                "for invoice %s",
+                "[TEMPLATE] No basic template; sending full invoice + PDF directly to %s " "for invoice %s",
                 customer_phone,
                 invoice.invoice_id,
             )
@@ -817,7 +820,7 @@ class InvoiceIntentProcessor:
 
     def _send_full_invoice(self, invoice, customer_phone: str, issuer_id: int) -> None:
         """Send full invoice with payment details to opted-in customers.
-        
+
         Sends only 2 messages:
         1. Payment link with bank details
         2. Invoice PDF document
@@ -825,12 +828,14 @@ class InvoiceIntentProcessor:
         issuer = self._load_issuer(issuer_id)
         amount_text = fmt_money_full(invoice.amount, getattr(invoice, "currency", "NGN") or "NGN", convert=False)
 
-        logger.info("[NOTIFY] Sending full invoice to %s for invoice %s", mask_phone(customer_phone), invoice.invoice_id)
-        
+        logger.info(
+            "[NOTIFY] Sending full invoice to %s for invoice %s", mask_phone(customer_phone), invoice.invoice_id
+        )
+
         # Message 1: Payment link with bank details
         payment_link = self._build_payment_link_message(invoice, issuer)
         self.client.send_text(customer_phone, payment_link)
-        
+
         # Message 2: Invoice PDF document
         if invoice.pdf_url and invoice.pdf_url.startswith("http"):
             self.client.send_document(
@@ -839,7 +844,7 @@ class InvoiceIntentProcessor:
                 f"Invoice_{invoice.invoice_id}.pdf",
                 f"Invoice {invoice.invoice_id} - {amount_text}",
             )
-        
+
         # Clear pending flag if it was set
         if invoice.whatsapp_delivery_pending:
             invoice.whatsapp_delivery_pending = False
@@ -849,30 +854,25 @@ class InvoiceIntentProcessor:
         """
         Handle when a customer replies to opt-in for WhatsApp messages.
         Marks customer as opted-in and sends payment details for recent invoices.
-        
+
         Returns True if the sender is a customer with recent invoices.
         """
-        import datetime as dt
 
         from app.models import models
         from app.utils.phone import get_phone_variants
-        
+
         # Normalize phone number for lookup - handle all Nigerian formats
         candidates = get_phone_variants(customer_phone)
-        
+
         logger.info("[OPTIN] Looking up customer with phone candidates: %s", candidates)
-        
+
         # Find ALL customers matching any phone format (might have duplicates from before normalization)
-        customers = (
-            self.db.query(models.Customer)
-            .filter(models.Customer.phone.in_(list(candidates)))
-            .all()
-        )
-        
+        customers = self.db.query(models.Customer).filter(models.Customer.phone.in_(list(candidates))).all()
+
         if not customers:
             logger.info("[OPTIN] No customer found for phone %s", mask_phone(customer_phone))
             return False
-        
+
         # Get all customer IDs
         customer_ids = [c.id for c in customers]
         logger.info(
@@ -881,46 +881,40 @@ class InvoiceIntentProcessor:
             customer_phone,
             customer_ids,
         )
-        
+
         # Mark all matching customers as opted in
         for customer in customers:
             if not customer.whatsapp_opted_in:
                 customer.whatsapp_opted_in = True
         self.db.commit()
         logger.info("[OPTIN] Customer(s) %s opted in to WhatsApp", customer_phone)
-        
+
         # Check if this phone also belongs to a registered business (issuer)
         # We'll exclude invoices where they're BOTH the issuer and customer (self-invoices/tests)
         issuer_id = self._resolve_issuer_id(customer_phone)
-        
+
         # Find invoices with whatsapp_delivery_pending=True - these are the ones just sent
         # via template that the customer is replying "OK" to
-        recent_invoices_query = (
-            self.db.query(models.Invoice)
-            .filter(
-                models.Invoice.customer_id.in_(customer_ids),
-                models.Invoice.status.in_(["pending", "awaiting_confirmation"]),
-                models.Invoice.whatsapp_delivery_pending == True,  # noqa: E712
-            )
+        recent_invoices_query = self.db.query(models.Invoice).filter(
+            models.Invoice.customer_id.in_(customer_ids),
+            models.Invoice.status.in_(["pending", "awaiting_confirmation"]),
+            models.Invoice.whatsapp_delivery_pending == True,  # noqa: E712
         )
-        
+
         # Exclude self-invoices: where the issuer is the same person messaging
         if issuer_id is not None:
-            recent_invoices_query = recent_invoices_query.filter(
-                models.Invoice.issuer_id != issuer_id
-            )
+            recent_invoices_query = recent_invoices_query.filter(models.Invoice.issuer_id != issuer_id)
             logger.info("[OPTIN] Excluding self-invoices for issuer_id=%s", issuer_id)
-        
+
         recent_invoices = (
-            recent_invoices_query
-            .order_by(models.Invoice.created_at.desc())
+            recent_invoices_query.order_by(models.Invoice.created_at.desc())
             .limit(1)  # Only the most recent invoice awaiting PDF delivery
             .all()
         )
-        
+
         if not recent_invoices:
             logger.info("[OPTIN] No recent unpaid invoices for customer %s", mask_phone(customer_phone))
-            
+
             # issuer_id already resolved above
             if issuer_id is not None:
                 # They're a registered business - let the greeting handler deal with them
@@ -933,21 +927,22 @@ class InvoiceIntentProcessor:
                     customer_phone,
                     "👋 Thanks for your message!\n\n"
                     "No pending invoices right now. You'll get a notification here when a "
-                    "business sends you one."
+                    "business sends you one.",
                 )
             return True
-        
+
         # Send the invoice PDF - customer already has payment details from template
         invoice = recent_invoices[0]  # We only query 1 now
         amount_text = fmt_money_full(invoice.amount, getattr(invoice, "currency", "NGN") or "NGN", convert=False)
-        
+
         logger.info("[OPTIN] Sending PDF for invoice %s", invoice.invoice_id)
-        
+
         # Send PDF with caption (single API call instead of text + document)
         if invoice.pdf_url and invoice.pdf_url.startswith("http"):
             tip_suffix = (
                 "\n\n💡 You're also a registered business! Type *help* to create your own invoices."
-                if issuer_id is not None else ""
+                if issuer_id is not None
+                else ""
             )
             self.client.send_document(
                 customer_phone,
@@ -959,18 +954,19 @@ class InvoiceIntentProcessor:
             # No PDF available - just acknowledge
             tip_suffix = (
                 "\n\n💡 You're also a registered business! Type *help* to create your own invoices."
-                if issuer_id is not None else ""
+                if issuer_id is not None
+                else ""
             )
             self.client.send_text(
                 customer_phone,
                 f"✅ Thanks! Invoice {invoice.invoice_id} for {amount_text} is ready.\n\n"
-                f"Use the payment link above to pay.{tip_suffix}"
+                f"Use the payment link above to pay.{tip_suffix}",
             )
-        
+
         # Mark as delivered
         invoice.whatsapp_delivery_pending = False
         self.db.commit()
-        
+
         # Check for OTHER unpaid invoices from any business
         other_pending = (
             self.db.query(models.Invoice)
@@ -990,7 +986,7 @@ class InvoiceIntentProcessor:
                 customer_phone,
                 f"📌 By the way, you also have *{count} other invoice{s}* "
                 f"pending — totalling *₦{total:,.0f}*.\n\n"
-                f"Reply *paid* when you've made payment."
+                f"Reply *paid* when you've made payment.",
             )
 
         return True
@@ -999,26 +995,22 @@ class InvoiceIntentProcessor:
         """
         Handle when a customer replies 'PAID' to confirm payment.
         Changes invoice status to awaiting_confirmation and notifies business.
-        
+
         Returns True if handled (even if no invoice found - to prevent other processors).
         """
 
         from app.models import models
         from app.services.invoice_service import build_invoice_service
         from app.utils.phone import get_phone_variants
-        
+
         # Normalize phone number for lookup - build all possible formats
         candidates = get_phone_variants(customer_phone)
-        
+
         logger.info("[PAID] Looking for customer with phone variants: %s", candidates)
-        
+
         # Find ALL customers matching any phone format (might have duplicates)
-        customers = (
-            self.db.query(models.Customer)
-            .filter(models.Customer.phone.in_(list(candidates)))
-            .all()
-        )
-        
+        customers = self.db.query(models.Customer).filter(models.Customer.phone.in_(list(candidates))).all()
+
         if not customers:
             logger.info("[PAID] No customer found for phone %s", mask_phone(customer_phone))
             # Send helpful message and return True to prevent other processors
@@ -1026,13 +1018,13 @@ class InvoiceIntentProcessor:
                 customer_phone,
                 "ℹ️ I couldn't find any invoices associated with your number.\n\n"
                 "If you received an invoice, please use the payment link provided, "
-                "or contact the business directly."
+                "or contact the business directly.",
             )
             return True  # Return True to stop other processors
-        
+
         # Get all customer IDs
         customer_ids = [c.id for c in customers]
-        
+
         # Find the most recent pending invoice for ANY of these customers
         pending_invoice = (
             self.db.query(models.Invoice)
@@ -1043,7 +1035,7 @@ class InvoiceIntentProcessor:
             .order_by(models.Invoice.created_at.desc())
             .first()
         )
-        
+
         if not pending_invoice:
             # Check if they have an awaiting_confirmation invoice already
             awaiting = (
@@ -1055,32 +1047,39 @@ class InvoiceIntentProcessor:
                 .order_by(models.Invoice.created_at.desc())
                 .first()
             )
-            
+
             if awaiting:
                 self.client.send_text(
                     customer_phone,
                     f"✅ Your payment for invoice {awaiting.invoice_id} is already being verified.\n\n"
-                    "The business will confirm and send your receipt shortly."
+                    "The business will confirm and send your receipt shortly.",
                 )
                 return True
-            
+
             self.client.send_text(
                 customer_phone,
                 "ℹ️ You don't have any pending invoices at the moment.\n\n"
-                "If you just made a payment, please wait for the business to send an invoice."
+                "If you just made a payment, please wait for the business to send an invoice.",
             )
             return True
-        
+
         # Use the invoice service to confirm transfer (same as clicking the button)
         status_component = build_invoice_service(self.db)
         try:
             status_component.confirm_transfer(pending_invoice.invoice_id)
-            
+            currency = getattr(pending_invoice, "currency", "NGN") or "NGN"
+            amount_text = fmt_money_full(
+                pending_invoice.amount,
+                currency,
+                convert=False,
+            )
+
             self.client.send_text(
                 customer_phone,
                 f"✅ Thank you! Your payment confirmation for invoice {pending_invoice.invoice_id} "
-                f"({fmt_money_full(pending_invoice.amount, getattr(pending_invoice, 'currency', 'NGN') or 'NGN', convert=False)}) has been sent to the business.\n\n"
-                "📧 You'll receive your receipt once they verify the payment."
+                f"({amount_text}) "
+                "has been sent to the business.\n\n"
+                "📧 You'll receive your receipt once they verify the payment.",
             )
             logger.info(
                 "[PAID] Customer %s confirmed payment for invoice %s",
@@ -1088,7 +1087,7 @@ class InvoiceIntentProcessor:
                 pending_invoice.invoice_id,
             )
             return True
-            
+
         except Exception as exc:
             logger.error("[PAID] Failed to confirm transfer: %s", exc)
             self.client.send_text(
@@ -1111,7 +1110,7 @@ class InvoiceIntentProcessor:
             # Fallback if no lines - use customer name or generic
             customer_name = getattr(invoice.customer, "name", "Service") if invoice.customer else "Service"
             return f"Service for {customer_name}"
-        
+
         # Build items list (limit to avoid WhatsApp character limits)
         items = []
         for line in invoice.lines[:3]:  # Max 3 items to keep message short
@@ -1120,10 +1119,10 @@ class InvoiceIntentProcessor:
                 items.append(f"{line.quantity}x {desc}")
             else:
                 items.append(desc)
-        
+
         if len(invoice.lines) > 3:
             items.append(f"...and {len(invoice.lines) - 3} more")
-        
+
         return ", ".join(items)
 
     def _build_payment_link_message(self, invoice, issuer) -> str:
@@ -1137,7 +1136,7 @@ class InvoiceIntentProcessor:
         items_summary = ""
         inv_lines = getattr(invoice, "lines", None) or []
         if inv_lines:
-            summaries = [f"  • {l.description}" for l in inv_lines[:3]]
+            summaries = [f"  • {line.description}" for line in inv_lines[:3]]
             if len(inv_lines) > 3:
                 summaries.append(f"  … and {len(inv_lines) - 3} more")
             items_summary = "\n".join(summaries)
@@ -1150,6 +1149,7 @@ class InvoiceIntentProcessor:
         # Add bank transfer details if available (unless online-only — then the
         # customer must pay via the link so the payment flows through Paystack).
         from app.utils.invoice_delivery import invoice_has_contact, is_online_only
+
         online_only = is_online_only(
             issuer,
             has_contact=invoice_has_contact(invoice),
@@ -1157,15 +1157,13 @@ class InvoiceIntentProcessor:
         )
         if issuer and issuer.bank_name and issuer.account_number and not online_only:
             message += (
-                f"\n\n💳 Or pay via Bank Transfer:\n"
-                f"Bank: {issuer.bank_name}\n"
-                f"Account: {issuer.account_number}"
+                f"\n\n💳 Or pay via Bank Transfer:\n" f"Bank: {issuer.bank_name}\n" f"Account: {issuer.account_number}"
             )
             if getattr(issuer, "account_name", None):
                 message += f"\nName: {issuer.account_name}"
 
         message += "\n\n📝 After transfer, tap the link above and click 'I've sent the transfer'."
-        message += f"\n\n🔒 _Powered by Suoops — suoops.com_"
+        message += "\n\n🔒 _Powered by Suoops — suoops.com_"
 
         return message
 
@@ -1242,9 +1240,7 @@ class InvoiceIntentProcessor:
             if data is not None:
                 self._start_pending_price_session(sender, issuer_id, lines, data)
             else:
-                item_names = ", ".join(
-                    l.get("description", "item") for l in lines
-                )
+                item_names = ", ".join(line.get("description", "item") for line in lines)
                 self.client.send_text(
                     sender,
                     f"❌ I see quantities for *{item_names}* but no prices.\n\n"
@@ -1253,9 +1249,7 @@ class InvoiceIntentProcessor:
                 )
             return None
 
-        product_cache: list[tuple[str, Any]] = [
-            (p.name.lower(), p) for p in products
-        ]
+        product_cache: list[tuple[str, Any]] = [(p.name.lower(), p) for p in products]
 
         resolved: list[dict[str, Any]] = []
         unmatched: list[str] = []
@@ -1266,12 +1260,14 @@ class InvoiceIntentProcessor:
 
             match = _fuzzy_match_product(desc, product_cache)
             if match and match.selling_price:
-                resolved.append({
-                    "description": match.name,
-                    "quantity": qty,
-                    "unit_price": Decimal(str(match.selling_price)),
-                    "product_id": match.id,
-                })
+                resolved.append(
+                    {
+                        "description": match.name,
+                        "quantity": qty,
+                        "unit_price": Decimal(str(match.selling_price)),
+                        "product_id": match.id,
+                    }
+                )
             else:
                 unmatched.append(line.get("description", "item"))
 
@@ -1323,18 +1319,17 @@ class InvoiceIntentProcessor:
             user_id=issuer_id,
             lines=[
                 {
-                    "description": l.get("description", "item"),
-                    "quantity": l.get("quantity", 1),
+                    "description": line.get("description", "item"),
+                    "quantity": line.get("quantity", 1),
                 }
-                for l in lines
+                for line in lines
             ],
             data={k: v for k, v in data.items() if k not in ("lines", "amount")},
         )
         _pending_prices[sender] = session
 
         items_list = "\n".join(
-            f"  {i + 1}. {l['description'].title()} (×{l['quantity']})"
-            for i, l in enumerate(session.lines)
+            f"  {i + 1}. {line['description'].title()} (×{line['quantity']})" for i, line in enumerate(session.lines)
         )
         customer = data.get("customer_name", "your customer")
         n = len(session.lines)
@@ -1364,8 +1359,8 @@ class InvoiceIntentProcessor:
         if prices is None:
             n = len(session.lines)
             items_list = "\n".join(
-                f"  {i + 1}. {l['description'].title()} (×{l['quantity']})"
-                for i, l in enumerate(session.lines)
+                f"  {i + 1}. {line['description'].title()} (×{line['quantity']})"
+                for i, line in enumerate(session.lines)
             )
             self.client.send_text(
                 sender,
@@ -1408,9 +1403,7 @@ class InvoiceIntentProcessor:
         return True
 
     @staticmethod
-    def _parse_price_reply(
-        text: str, lines: list[dict[str, Any]]
-    ) -> list[float] | None:
+    def _parse_price_reply(text: str, lines: list[dict[str, Any]]) -> list[float] | None:
         """Extract prices from a user's reply.
 
         Handles:
@@ -1466,7 +1459,7 @@ class InvoiceIntentProcessor:
         candidates = get_phone_variants(sender_phone)
         if not candidates:
             return None
-        
+
         logger.info("[RESOLVE_ISSUER] Looking for user with phone candidates: %s", candidates)
 
         # First try verified phones

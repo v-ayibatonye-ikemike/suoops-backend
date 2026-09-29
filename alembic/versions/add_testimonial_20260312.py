@@ -5,12 +5,13 @@ Revises: fix_email_as_phone_20260304
 Create Date: 2026-03-12
 """
 
+import sqlalchemy as sa
+
+from alembic import op
+
 # revision identifiers
 revision = "add_testimonial_20260312"
 down_revision = "fix_email_as_phone_20260304"
-
-from alembic import op
-import sqlalchemy as sa
 
 
 def upgrade() -> None:

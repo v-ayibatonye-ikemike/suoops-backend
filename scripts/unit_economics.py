@@ -17,6 +17,7 @@ Read-only (SELECT only). Run on the Render shell:
 Override the acquisition denominator if you know it:
     ... --new-users 50
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,12 +38,7 @@ def _excluded_ids(db) -> list[int]:
     emails = {e.strip().lower() for e in raw.split(",") if e.strip()}
     if not emails:
         return []
-    return [
-        uid
-        for (uid,) in db.query(models.User.id)
-        .filter(func.lower(models.User.email).in_(emails))
-        .all()
-    ]
+    return [uid for (uid,) in db.query(models.User.id).filter(func.lower(models.User.email).in_(emails)).all()]
 
 
 def _naira(v) -> str:
@@ -60,8 +56,7 @@ def main() -> None:
     ap.add_argument("--marketing-usd", type=float, default=200)
     ap.add_argument("--infra-usd", type=float, default=222)
     ap.add_argument("--fx", type=float, default=1600, help="NGN per USD")
-    ap.add_argument("--new-users", type=float, default=0,
-                    help="override new-users/month (else uses 6-mo average)")
+    ap.add_argument("--new-users", type=float, default=0, help="override new-users/month (else uses 6-mo average)")
     args = ap.parse_args()
 
     Invoice = models.Invoice
@@ -95,9 +90,7 @@ def main() -> None:
         months_counted = 0
         for i, ms in enumerate(starts):
             me = (ms + dt.timedelta(days=32)).replace(day=1)
-            n = db.query(func.count(User.id)).filter(
-                User.created_at >= ms, User.created_at < me
-            ).scalar() or 0
+            n = db.query(func.count(User.id)).filter(User.created_at >= ms, User.created_at < me).scalar() or 0
             tag = " (partial, current month)" if i == len(starts) - 1 else ""
             print(f"  {ms.strftime('%Y-%m')}: {n:>4}{tag}")
             if not tag:  # only full months feed the average
@@ -112,7 +105,8 @@ def main() -> None:
 
         # ── Active sellers (revenue invoice in last 30d) ──
         active_now = {
-            r[0] for r in not_excl(
+            r[0]
+            for r in not_excl(
                 db.query(func.distinct(Invoice.issuer_id)).filter(
                     Invoice.invoice_type == "revenue",
                     Invoice.created_at >= d30,
@@ -121,7 +115,8 @@ def main() -> None:
             ).all()
         }
         active_prev = {
-            r[0] for r in not_excl(
+            r[0]
+            for r in not_excl(
                 db.query(func.distinct(Invoice.issuer_id)).filter(
                     Invoice.invoice_type == "revenue",
                     Invoice.created_at >= d60,
@@ -135,26 +130,31 @@ def main() -> None:
         churn_rate = (churned / len(active_prev)) if active_prev else 0
 
         # ── Commission last 30 days (same logic as app) ──
-        manual = cap(not_excl(
-            db.query(Invoice.amount).filter(
-                Invoice.invoice_type == "revenue",
-                Invoice.created_at >= d30,
-                ((Invoice.channel != "storefront") | (Invoice.channel.is_(None))),
+        manual = cap(
+            not_excl(
+                db.query(Invoice.amount).filter(
+                    Invoice.invoice_type == "revenue",
+                    Invoice.created_at >= d30,
+                    ((Invoice.channel != "storefront") | (Invoice.channel.is_(None))),
+                ),
+                Invoice.issuer_id,
             ),
-            Invoice.issuer_id,
-        ), Invoice.amount).all()
-        online = cap(not_excl(
-            db.query(Invoice.amount).filter(
-                Invoice.invoice_type == "revenue",
-                Invoice.channel == "storefront",
-                Invoice.status == "paid",
-                Invoice.paid_at >= d30,
+            Invoice.amount,
+        ).all()
+        online = cap(
+            not_excl(
+                db.query(Invoice.amount).filter(
+                    Invoice.invoice_type == "revenue",
+                    Invoice.channel == "storefront",
+                    Invoice.status == "paid",
+                    Invoice.paid_at >= d30,
+                ),
+                Invoice.issuer_id,
             ),
-            Invoice.issuer_id,
-        ), Invoice.amount).all()
+            Invoice.amount,
+        ).all()
         commission_30d = (
-            sum(platform_fee_kobo(a) for (a,) in manual)
-            + sum(platform_fee_kobo(a) for (a,) in online)
+            sum(platform_fee_kobo(a) for (a,) in manual) + sum(platform_fee_kobo(a) for (a,) in online)
         ) / 100
         arpu = (commission_30d / active) if active else 0
 
@@ -200,20 +200,19 @@ def main() -> None:
             return "∞" if x == float("inf") else f"{x:.1f} mo"
 
         print("\n" + "=" * 64)
-        print(f"UNIT ECONOMICS  (new users/mo = {new_users:.1f}"
-              f"{' [override]' if args.new_users > 0 else ' [6-mo avg]'})")
+        print(
+            f"UNIT ECONOMICS  (new users/mo = {new_users:.1f}"
+            f"{' [override]' if args.new_users > 0 else ' [6-mo avg]'})"
+        )
         print("-" * 64)
         print(f"  Fully-loaded CAC                  : {_naira(cac_full)}")
         print(f"  Marketing-only CAC                : {_naira(cac_mkt)}")
         print(f"  Est. customer lifetime            : {months(lifetime_months)}")
-        print(f"  Est. LTV (ARPU / churn)           : "
-              f"{'∞' if ltv==float('inf') else _naira(ltv)}")
+        print(f"  Est. LTV (ARPU / churn)           : " f"{'∞' if ltv==float('inf') else _naira(ltv)}")
         print(f"  Payback (fully-loaded)            : {months(payback_full)}")
         print(f"  Payback (marketing-only)          : {months(payback_mkt)}")
-        print(f"  LTV : CAC (fully-loaded)          : "
-              f"{'∞' if ltv_cac==float('inf') else f'{ltv_cac:.2f}x'}")
-        print(f"  Monthly net (commission - cost)   : {_naira(burn)}"
-              f"  ({'BURN' if burn < 0 else 'PROFIT'})")
+        print(f"  LTV : CAC (fully-loaded)          : " f"{'∞' if ltv_cac==float('inf') else f'{ltv_cac:.2f}x'}")
+        print(f"  Monthly net (commission - cost)   : {_naira(burn)}" f"  ({'BURN' if burn < 0 else 'PROFIT'})")
         print("=" * 64)
         print("Rule of thumb: LTV:CAC >= 3x is healthy; payback <= 12 mo is good.")
 

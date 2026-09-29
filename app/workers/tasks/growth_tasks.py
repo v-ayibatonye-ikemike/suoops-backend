@@ -5,6 +5,7 @@ Three tasks that target the key funnel gaps:
 - Weekly free-user summary: Same as daily Pro summary, but weekly for free users
 - Payment-triggered upsell: After collecting ≥₦50K, nudge toward Pro
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,6 +33,7 @@ def _is_valid_phone(phone: str | None) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 1: AGGREGATE UNPAID AMOUNT NOTIFICATION
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="growth.send_aggregate_unpaid_alerts",
@@ -79,8 +81,8 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
                 logger.info("No users with significant unpaid invoices")
                 return {"success": True, **stats}
 
-            from app.core.whatsapp import get_whatsapp_client
             from app.bot.conversation_window import is_window_open
+            from app.core.whatsapp import get_whatsapp_client
 
             client = get_whatsapp_client()
 
@@ -89,10 +91,7 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
 
             # Pre-fetch all users in one query (avoid N+1)
             issuer_ids = [row.issuer_id for row in unpaid_data]
-            users_by_id = {
-                u.id: u
-                for u in db.query(User).filter(User.id.in_(issuer_ids)).all()
-            }
+            users_by_id = {u.id: u for u in db.query(User).filter(User.id.in_(issuer_ids)).all()}
 
             for row in unpaid_data:
                 user = users_by_id.get(row.issuer_id)
@@ -139,7 +138,8 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
                     db.rollback()
                     logger.warning(
                         "aggregate_unpaid: dedup commit failed for user %s (%s); skipping",
-                        user.id, commit_exc,
+                        user.id,
+                        commit_exc,
                     )
                     stats["skipped"] += 1
                     continue
@@ -164,6 +164,7 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
                 # unpaid alerts are high value.
                 if not sent and has_phone:
                     from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
+
                     if can_send_whatsapp(priority=True):
                         template_name = getattr(settings, "WHATSAPP_TEMPLATE_UNPAID_ALERT", None)
                         if template_name:
@@ -172,14 +173,16 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
                                 user.phone,
                                 template_name,
                                 lang,
-                                components=[{
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": name},
-                                        {"type": "text", "text": f"₦{total:,.0f}"},
-                                        {"type": "text", "text": str(count)},
-                                    ],
-                                }],
+                                components=[
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                            {"type": "text", "text": name},
+                                            {"type": "text", "text": f"₦{total:,.0f}"},
+                                            {"type": "text", "text": str(count)},
+                                        ],
+                                    }
+                                ],
                             )
                             if ok:
                                 record_whatsapp_send(priority=True)
@@ -207,8 +210,10 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
 
         logger.info(
             "Aggregate unpaid alerts: wa=%d email=%d skipped=%d failed=%d",
-            stats["whatsapp_sent"], stats["email_sent"],
-            stats["skipped"], stats["failed"],
+            stats["whatsapp_sent"],
+            stats["email_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 
@@ -220,6 +225,7 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 2: WEEKLY FREE-USER SUMMARY
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="growth.send_weekly_free_summary",
@@ -262,8 +268,8 @@ def send_weekly_free_summary() -> dict[str, Any]:
                 logger.info("No free users with invoices for weekly summary")
                 return {"success": True, **stats}
 
-            from app.core.whatsapp import get_whatsapp_client
             from app.bot.conversation_window import is_window_open
+            from app.core.whatsapp import get_whatsapp_client
 
             client = get_whatsapp_client()
 
@@ -361,7 +367,7 @@ def send_weekly_free_summary() -> dict[str, Any]:
 
                     net = revenue_week - expenses_week
 
-                    message = f"📊 *Your Weekly Summary*\n\n"
+                    message = "📊 *Your Weekly Summary*\n\n"
                     message += f"Hi {name}, here's your week:\n\n"
 
                     if revenue_week > 0:
@@ -395,6 +401,7 @@ def send_weekly_free_summary() -> dict[str, Any]:
                         pass
                     elif has_phone and is_window_open(user.phone):
                         from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
+
                         if can_send_whatsapp():
                             if client.send_text(user.phone, message):
                                 record_whatsapp_send()
@@ -417,8 +424,10 @@ def send_weekly_free_summary() -> dict[str, Any]:
 
         logger.info(
             "Weekly free summary: wa=%d email=%d skipped=%d failed=%d",
-            stats["whatsapp_sent"], stats["email_sent"],
-            stats["skipped"], stats["failed"],
+            stats["whatsapp_sent"],
+            stats["email_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 
@@ -430,6 +439,7 @@ def send_weekly_free_summary() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # TASK 3: PAYMENT-TRIGGERED UPSELL
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @celery_app.task(
     name="growth.send_payment_upsells",
@@ -467,21 +477,13 @@ def send_payment_upsells() -> dict[str, Any]:
                     Invoice.status == "paid",
                 )
                 .group_by(Invoice.issuer_id)
-                .having(
-                    (sqlfunc.count(Invoice.id) >= 2)
-                    | (sqlfunc.sum(Invoice.amount) >= 50000)
-                )
+                .having((sqlfunc.count(Invoice.id) >= 2) | (sqlfunc.sum(Invoice.amount) >= 50000))
                 .all()
             )
 
             if not paid_data:
                 logger.info("No users qualify for payment upsell")
                 return {"success": True, **stats}
-
-            from app.core.whatsapp import get_whatsapp_client
-            from app.bot.conversation_window import is_window_open
-
-            client = get_whatsapp_client()
 
             for row in paid_data:
                 user = db.query(User).filter(User.id == row.issuer_id).first()
@@ -510,54 +512,10 @@ def send_payment_upsells() -> dict[str, Any]:
                 count = int(row.paid_count)
                 name = (user.name or "").split()[0] or "there"
 
-                message = (
-                    f"🎉 *You've collected ₦{total:,.0f}!*\n\n"
-                    f"Hi {name}, you've received {count} payment{'s' if count != 1 else ''} "
-                    f"through SuoOps — your business is growing!\n\n"
-                    f"Everything's included, free — tax reports, inventory, daily "
-                    f"summaries & customer insights. Fees as low as 0.5% — and on your "
-                    f"storefront, customers pay the 3%, so you keep your full price.\n\n"
-                    f"💡 Get paid faster: share your storefront so customers order and "
-                    f"pay online, or top up your wallet for more manual invoices.\n\n"
-                    f"🔗 suoops.com/dashboard"
-                )
-
                 sent = False
-                has_phone = _is_valid_phone(user.phone)
 
-                # Upsell = marketing spend. Prefer email; only use WhatsApp
-                # if no email and within budget.
-                if has_phone and not user.email:
-                    from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
-                    if can_send_whatsapp():
-                        template_name = getattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_UPSELL", None)
-                        if template_name:
-                            lang = settings.WHATSAPP_TEMPLATE_LANGUAGE or "en"
-                            ok = client.send_template(
-                                user.phone,
-                                template_name,
-                                lang,
-                                components=[{
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": name},
-                                        {"type": "text", "text": f"₦{total:,.0f}"},
-                                    ],
-                                }],
-                            )
-                            if ok:
-                                record_whatsapp_send()
-                                stats["whatsapp_sent"] += 1
-                                sent = True
-
-                        if not sent and is_window_open(user.phone):
-                            if client.send_text(user.phone, message):
-                                record_whatsapp_send()
-                                stats["whatsapp_sent"] += 1
-                                sent = True
-
-                # Email fallback
-                if not sent and user.email:
+                # Promotional upsells use the existing deduplicated email only.
+                if user.email:
                     subject = f"You've collected ₦{total:,.0f} through SuoOps 🎉"
                     plain = (
                         f"Hi {name},\n\n"
@@ -582,8 +540,10 @@ def send_payment_upsells() -> dict[str, Any]:
 
         logger.info(
             "Payment upsells: wa=%d email=%d skipped=%d failed=%d",
-            stats["whatsapp_sent"], stats["email_sent"],
-            stats["skipped"], stats["failed"],
+            stats["whatsapp_sent"],
+            stats["email_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 
@@ -700,7 +660,7 @@ def send_storefront_completion_nudges() -> dict[str, Any]:
                 db.query(User)
                 .filter(
                     User.created_at <= cutoff,
-                    or_(User.phone_verified.is_(True), User.email.isnot(None)),
+                    User.email.isnot(None),
                     or_(
                         User.id.in_(db.query(product_owners)),
                         User.id.in_(db.query(invoice_owners)),
@@ -711,17 +671,11 @@ def send_storefront_completion_nudges() -> dict[str, Any]:
             if not candidates:
                 return {"success": True, **stats}
 
-            from app.bot.conversation_window import is_window_open
-            from app.core.whatsapp import get_whatsapp_client
-            from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
-
-            client = get_whatsapp_client()
-
             for user in candidates:
                 nudge = _storefront_nudge_for(db, user)
                 if not nudge:
                     continue
-                type_key, wa_msg, subject, plain = nudge
+                type_key, _wa_msg, subject, plain = nudge
                 email_type = STOREFRONT_NUDGE_TYPES[type_key]
 
                 # Dedup: at most once per user per milestone (ever).
@@ -748,17 +702,7 @@ def send_storefront_completion_nudges() -> dict[str, Any]:
                     continue
 
                 sent = False
-                if (
-                    _is_valid_phone(user.phone)
-                    and is_window_open(user.phone)
-                    and can_send_whatsapp()
-                ):
-                    if client.send_text(user.phone, wa_msg):
-                        record_whatsapp_send()
-                        stats["whatsapp_sent"] += 1
-                        sent = True
-
-                if not sent and user.email:
+                if user.email:
                     if _send_smtp_email(user.email, subject, None, plain):
                         stats["email_sent"] += 1
                         sent = True
@@ -774,8 +718,10 @@ def send_storefront_completion_nudges() -> dict[str, Any]:
 
         logger.info(
             "Storefront completion nudges: wa=%d email=%d skipped=%d failed=%d",
-            stats["whatsapp_sent"], stats["email_sent"],
-            stats["skipped"], stats["failed"],
+            stats["whatsapp_sent"],
+            stats["email_sent"],
+            stats["skipped"],
+            stats["failed"],
         )
         return {"success": True, **stats}
 

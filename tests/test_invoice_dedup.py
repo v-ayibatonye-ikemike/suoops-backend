@@ -1,4 +1,5 @@
 """Regression: invoice creation is idempotent against accidental double-submits."""
+
 from __future__ import annotations
 
 from app.models import models
@@ -30,11 +31,7 @@ def test_identical_create_is_deduped(db_session):
 
     # Second identical submit reuses the first invoice — no duplicate row.
     assert i1.invoice_id == i2.invoice_id
-    count = (
-        db_session.query(models.Invoice)
-        .filter(models.Invoice.issuer_id == user.id)
-        .count()
-    )
+    count = db_session.query(models.Invoice).filter(models.Invoice.issuer_id == user.id).count()
     assert count == 1
 
 

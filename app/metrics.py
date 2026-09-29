@@ -27,9 +27,7 @@ try:  # pragma: no cover - import guard
 
     _INVOICE_CREATED = Counter("invoice_created_total", "Invoices successfully created")
     _INVOICE_PAID = Counter("invoice_paid_total", "Invoices marked paid")
-    _WHATSAPP_PARSE_UNKNOWN = Counter(
-        "whatsapp_parse_unknown_total", "Inbound WhatsApp messages with unknown intent"
-    )
+    _WHATSAPP_PARSE_UNKNOWN = Counter("whatsapp_parse_unknown_total", "Inbound WhatsApp messages with unknown intent")
     _PAYMENT_CONFIRM_LATENCY = Histogram(
         "payment_confirmation_latency_seconds", "Latency from creation to payment confirmation"
     )
@@ -38,13 +36,9 @@ try:  # pragma: no cover - import guard
     _VAT_CALCULATIONS = Counter("vat_calculations_total", "VAT calculations or summaries served")
     _COMPLIANCE_CHECKS = Counter("compliance_checks_total", "Tax compliance summary checks served")
     _OTP_SIGNUP_REQUESTS = Counter("otp_signup_requests_total", "OTP signup requests initiated")
-    _OTP_SIGNUP_VERIFICATIONS = Counter(
-        "otp_signup_verifications_total", "Successful OTP signup verifications"
-    )
+    _OTP_SIGNUP_VERIFICATIONS = Counter("otp_signup_verifications_total", "Successful OTP signup verifications")
     _OTP_LOGIN_REQUESTS = Counter("otp_login_requests_total", "OTP login requests initiated")
-    _OTP_LOGIN_VERIFICATIONS = Counter(
-        "otp_login_verifications_total", "Successful OTP login verifications"
-    )
+    _OTP_LOGIN_VERIFICATIONS = Counter("otp_login_verifications_total", "Successful OTP login verifications")
     _OTP_RESENDS = Counter("otp_resends_total", "OTP resend attempts")
     _OTP_RESEND_BLOCKED = Counter("otp_resends_blocked_total", "Resend attempts blocked by cooldown")
     _OTP_INVALID_ATTEMPTS = Counter("otp_invalid_attempts_total", "Invalid or expired OTP attempts")
@@ -64,12 +58,8 @@ try:  # pragma: no cover - import guard
     _OTP_WHATSAPP_DELIVERY_FAILURE = Counter(
         "otp_whatsapp_delivery_failure_total", "Failed WhatsApp OTP message deliveries"
     )
-    _OTP_EMAIL_DELIVERY_SUCCESS = Counter(
-        "otp_email_delivery_success_total", "Successful Email OTP deliveries"
-    )
-    _OTP_EMAIL_DELIVERY_FAILURE = Counter(
-        "otp_email_delivery_failure_total", "Failed Email OTP deliveries"
-    )
+    _OTP_EMAIL_DELIVERY_SUCCESS = Counter("otp_email_delivery_success_total", "Successful Email OTP deliveries")
+    _OTP_EMAIL_DELIVERY_FAILURE = Counter("otp_email_delivery_failure_total", "Failed Email OTP deliveries")
     _OTP_RESEND_SUCCESS_CONVERSION = Counter(
         "otp_resend_success_conversion_total",
         "Successful OTP verifications that followed at least one resend",
@@ -340,6 +330,7 @@ class PaymentLatencyTimer:
         dur = time.perf_counter() - self.start
         invoice_paid(latency_seconds=dur)
         return dur
+
 
 __all__ = [
     "invoice_created",

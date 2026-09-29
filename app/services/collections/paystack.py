@@ -1,4 +1,5 @@
 """Paystack collector — the default rail (collects to the SuoOps balance)."""
+
 from __future__ import annotations
 
 import logging
@@ -82,9 +83,7 @@ class PaystackCollectionProvider(CollectionProvider):
     def verify_charge(self, reference: str) -> ChargeStatus:
         try:
             with paystack_client(timeout=15) as client:
-                resp = client.get(
-                    f"{_PAYSTACK_BASE}/transaction/verify/{reference}", headers=_headers()
-                )
+                resp = client.get(f"{_PAYSTACK_BASE}/transaction/verify/{reference}", headers=_headers())
             data = resp.json()
         except Exception:  # noqa: BLE001 — transport error → indeterminate
             return ChargeStatus(status="unknown")
@@ -101,8 +100,6 @@ class PaystackCollectionProvider(CollectionProvider):
 
     def refund(self, *, reference: str, amount_kobo: int, note: str) -> dict:
         try:
-            return paystack_refund(
-                charge_reference=reference, amount_kobo=amount_kobo, note=note
-            )
+            return paystack_refund(charge_reference=reference, amount_kobo=amount_kobo, note=note)
         except Exception as exc:  # noqa: BLE001 — surface as CollectionError
             raise CollectionError(str(exc)) from exc

@@ -5,6 +5,7 @@ Handles purchase order operations including auto-generation
 for low stock reordering. Follows SRP by focusing solely on
 purchase order management.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -93,10 +94,14 @@ class PurchaseOrderService(InventoryServiceBase):
 
     def get(self, order_id: int) -> PurchaseOrder | None:
         """Get a purchase order by ID."""
-        return self._db.query(PurchaseOrder).filter(
-            PurchaseOrder.id == order_id,
-            PurchaseOrder.user_id == self._user_id,
-        ).first()
+        return (
+            self._db.query(PurchaseOrder)
+            .filter(
+                PurchaseOrder.id == order_id,
+                PurchaseOrder.user_id == self._user_id,
+            )
+            .first()
+        )
 
     def list(
         self,
@@ -141,15 +146,17 @@ class PurchaseOrderService(InventoryServiceBase):
 
     def _get_valid_products(self, product_ids: list[int]) -> list[Product]:
         """Get valid, active products for the given IDs."""
-        return self._db.query(Product).filter(
-            Product.id.in_(product_ids),
-            Product.user_id == self._user_id,
-              Product.is_active.is_(True),
-        ).all()
+        return (
+            self._db.query(Product)
+            .filter(
+                Product.id.in_(product_ids),
+                Product.user_id == self._user_id,
+                Product.is_active.is_(True),
+            )
+            .all()
+        )
 
-    def _create_purchase_order(
-        self, trigger_invoice_id: str | None
-    ) -> PurchaseOrder:
+    def _create_purchase_order(self, trigger_invoice_id: str | None) -> PurchaseOrder:
         """Create a new purchase order instance."""
         notes = (
             f"Auto-generated due to low stock after invoice {trigger_invoice_id}"

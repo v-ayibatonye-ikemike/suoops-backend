@@ -6,6 +6,7 @@ transfer. These tests assert it keeps every guarantee of the per-order
 of in-flight transfers (never double-pay), the T+1 settle gate, and clean retry
 after a confirmed failure.
 """
+
 import datetime as dt
 from decimal import Decimal
 
@@ -27,9 +28,7 @@ def _fake_provider(transfer_status="successful"):
         def transfer(self, db, *, seller, amount_kobo, reference, reason):
             self.sent.append((reference, amount_kobo))
             self.status_map.setdefault(reference, transfer_status)
-            return PayoutResult(
-                ok=True, reference=reference, provider=self.name, status=transfer_status
-            )
+            return PayoutResult(ok=True, reference=reference, provider=self.name, status=transfer_status)
 
         def transfer_status(self, reference):
             return self.status_map.get(reference, "unknown")
@@ -111,9 +110,7 @@ def test_batch_pays_one_summed_transfer_and_releases_all(monkeypatch):
         seller, escrows = _seller_with_orders(s, count=3, gross_kobo=300000)
         payout_each = int(300000 * 0.97)
 
-        released = es.release_seller_batch(
-            s, escrows, provider_name="fake", reason="window elapsed"
-        )
+        released = es.release_seller_batch(s, escrows, provider_name="fake", reason="window elapsed")
 
         assert released == 3
         assert len(fake.sent) == 1  # exactly ONE transfer, not three

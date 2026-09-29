@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -15,7 +16,6 @@ from app.api.dependencies import get_data_owner_id
 from app.api.routes_auth import get_current_user_id
 from app.db.session import get_db
 from app.models import models
-from app.utils.feature_gate import require_plan_feature
 from app.models.schemas import AnalyticsDashboard, BusinessSnapshotOut
 from app.services.analytics_service import (
     calculate_aging_report,
@@ -33,8 +33,7 @@ from app.services.analytics_service import (
     get_conversion_rate,
     get_date_range,
 )
-
-from pydantic import BaseModel
+from app.utils.feature_gate import require_plan_feature
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,6 +45,7 @@ DbDep = Annotated[Session, Depends(get_db)]
 
 
 # ── Analytics response schemas ─────────────────────────────────────────
+
 
 class CustomerRevenueItem(BaseModel):
     name: str
@@ -116,7 +116,7 @@ def get_analytics_dashboard(
 ) -> AnalyticsDashboard:
     """
     Get comprehensive analytics dashboard with revenue, invoices, customers, and aging.
-    
+
     Requires a paid plan (Pro or higher).
     """
     require_plan_feature(db, current_user_id, "cash_dashboard", "Analytics Dashboard")
@@ -124,28 +124,18 @@ def get_analytics_dashboard(
     # Calculate date range and conversion rate
     start_date, end_date = get_date_range(period)
     conversion_rate = get_conversion_rate(currency)
-    
+
     # Calculate all metrics using data_owner_id for team context
-    revenue_metrics = calculate_revenue_metrics(
-        db, data_owner_id, start_date, end_date, conversion_rate
-    )
-    
-    invoice_metrics = calculate_invoice_metrics(
-        db, data_owner_id, start_date, end_date
-    )
-    
-    customer_metrics = calculate_customer_metrics(
-        db, data_owner_id, start_date, end_date
-    )
-    
-    aging_report = calculate_aging_report(
-        db, data_owner_id, end_date, conversion_rate
-    )
-    
-    monthly_trends = calculate_monthly_trends(
-        db, data_owner_id, end_date, conversion_rate
-    )
-    
+    revenue_metrics = calculate_revenue_metrics(db, data_owner_id, start_date, end_date, conversion_rate)
+
+    invoice_metrics = calculate_invoice_metrics(db, data_owner_id, start_date, end_date)
+
+    customer_metrics = calculate_customer_metrics(db, data_owner_id, start_date, end_date)
+
+    aging_report = calculate_aging_report(db, data_owner_id, end_date, conversion_rate)
+
+    monthly_trends = calculate_monthly_trends(db, data_owner_id, end_date, conversion_rate)
+
     return AnalyticsDashboard(
         period=period,
         currency=currency,
@@ -173,7 +163,7 @@ def get_revenue_by_customer(
 
     start_date, _ = get_date_range(period)
     conversion_rate = get_conversion_rate(currency)
-    
+
     # Query top customers using data_owner_id
     top_customers = (
         db.query(
@@ -193,15 +183,13 @@ def get_revenue_by_customer(
         .limit(limit)
         .all()
     )
-    
+
     return {
         "period": period,
         "customers": [
             {
                 "name": customer.name,
-                "total_revenue": float(
-                    Decimal(str(customer.total_revenue)) / conversion_rate
-                ),
+                "total_revenue": float(Decimal(str(customer.total_revenue)) / conversion_rate),
                 "invoice_count": customer.invoice_count,
             }
             for customer in top_customers
@@ -220,7 +208,7 @@ def get_conversion_funnel(
     require_plan_feature(db, current_user_id, "cash_dashboard", "Conversion Funnel")
 
     start_date, _ = get_date_range(period)
-    
+
     # Count invoices by status using data_owner_id
     stats = (
         db.query(
@@ -239,12 +227,12 @@ def get_conversion_funnel(
         )
         .first()
     )
-    
+
     total = stats.total or 0
     paid = stats.paid or 0
     awaiting = stats.awaiting or 0
     cancelled = stats.cancelled or 0
-    
+
     return {
         "period": period,
         "funnel": {

@@ -3,6 +3,7 @@
 Single source of truth for phone number formatting and variant generation.
 Used across auth, bot, invoicing, and notification modules.
 """
+
 from __future__ import annotations
 
 

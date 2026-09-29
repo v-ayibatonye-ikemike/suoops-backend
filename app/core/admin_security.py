@@ -7,6 +7,7 @@ These utilities back two admin-protection features:
 * A persisted audit trail of admin authentication events so suspicious logins
   (e.g. from unexpected IPs) are visible in the admin panel.
 """
+
 from __future__ import annotations
 
 import ipaddress

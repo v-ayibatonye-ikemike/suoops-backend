@@ -4,7 +4,9 @@ Revision ID: tax_profile_fields_20260220
 Revises: 20260219_add_missing_indexes
 Create Date: 2026-02-20
 """
+
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "tax_profile_fields_20260220"

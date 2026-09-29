@@ -32,10 +32,10 @@ def verify_whatsapp_webhook(
     verify_token = settings.WHATSAPP_VERIFY_TOKEN
     if not verify_token:
         raise HTTPException(status_code=503, detail="Webhook verification not configured")
-    
+
     if hub_mode == "subscribe" and hub_verify_token == verify_token:
         return PlainTextResponse(hub_challenge)
-    
+
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
@@ -43,12 +43,12 @@ def verify_whatsapp_webhook(
 @limiter.limit(RATE_LIMITS["webhook_whatsapp_inbound"])
 async def whatsapp_webhook(request: Request):
     """Handle incoming WhatsApp messages.
-    
+
     Messages are enqueued for async processing via Celery worker.
     Verifies X-Hub-Signature-256 header from Meta to prevent spoofing.
     """
     raw_body = await request.body()
-    
+
     # Verify Meta's webhook signature (X-Hub-Signature-256)
     app_secret = getattr(settings, "WHATSAPP_APP_SECRET", None)
     if app_secret:
@@ -56,14 +56,14 @@ async def whatsapp_webhook(request: Request):
         if not signature_header.startswith("sha256="):
             logger.warning("WhatsApp webhook missing or malformed signature")
             raise HTTPException(status_code=401, detail="Missing signature")
-        
+
         expected_sig = hmac.new(
             app_secret.encode(),
             raw_body,
             hashlib.sha256,
         ).hexdigest()
         received_sig = signature_header.removeprefix("sha256=")
-        
+
         if not hmac.compare_digest(expected_sig, received_sig):
             logger.warning("WhatsApp webhook signature verification failed")
             raise HTTPException(status_code=401, detail="Invalid signature")
@@ -77,12 +77,12 @@ async def whatsapp_webhook(request: Request):
             "WHATSAPP_APP_SECRET not configured — webhook signature verification SKIPPED. "
             "Set this in production to prevent spoofed messages."
         )
-    
+
     try:
         payload = json.loads(raw_body)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
-    
+
     # enqueue for async processing via Celery worker
     whatsapp_queue.enqueue_message(payload)
     return {"ok": True, "queued": True}
@@ -137,16 +137,16 @@ def _handle_paystack_subscription(payload: dict, db: Session, signature: str | N
     """Handle Paystack subscription and charge events for recurring billing."""
     event_type = (payload.get("event") or "").lower()
     data = payload.get("data") or {}
-    
+
     # Get reference - could be transaction reference or subscription code
     reference = data.get("reference") or data.get("subscription_code") or data.get("id")
     subscription_code = data.get("subscription_code")
-    
+
     # For subscription.create events, get subscription code from data
     if event_type == "subscription.create":
         subscription_code = data.get("subscription_code")
         reference = subscription_code
-    
+
     duplicate = False
     if reference:
         duplicate = _record_webhook(db, "paystack:subscription", f"{event_type}:{reference}", signature)
@@ -182,7 +182,7 @@ def _handle_subscription_created(data: dict, db: Session) -> dict:
     customer_email = customer.get("email")
     plan = data.get("plan") or {}
     plan_name = plan.get("name", "").upper()
-    
+
     # Map plan name to our plan enum
     if "PRO" in plan_name:
         target_plan = "PRO"
@@ -192,31 +192,31 @@ def _handle_subscription_created(data: dict, db: Session) -> dict:
         logger.warning("Unknown plan in subscription.create: %s", plan_name)
         db.commit()
         return {"status": "error", "message": f"Unknown plan: {plan_name}"}
-    
+
     # Find user by email
-    user = db.query(models.User).filter(
-        (models.User.email == customer_email) | 
-        (models.User.email == customer_email.lower())
-    ).first()
-    
+    user = (
+        db.query(models.User)
+        .filter((models.User.email == customer_email) | (models.User.email == customer_email.lower()))
+        .first()
+    )
+
     if not user:
         logger.error("Subscription created but user not found: %s", mask_email(customer_email))
         db.commit()
         return {"status": "error", "message": "User not found"}
-    
+
     # Store subscription code on user (we'll add this field)
-    if hasattr(user, 'paystack_subscription_code'):
+    if hasattr(user, "paystack_subscription_code"):
         user.paystack_subscription_code = subscription_code
-    if hasattr(user, 'paystack_customer_code'):
+    if hasattr(user, "paystack_customer_code"):
         user.paystack_customer_code = customer.get("customer_code")
-    
+
     db.commit()
-    
+
     logger.info(
-        "✅ Subscription created: user %s, plan %s, subscription_code %s",
-        user.id, target_plan, subscription_code
+        "✅ Subscription created: user %s, plan %s, subscription_code %s", user.id, target_plan, subscription_code
     )
-    
+
     return {
         "status": "success",
         "event": "subscription.create",
@@ -232,23 +232,24 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
     metadata = data.get("metadata") or {}
     user_id = metadata.get("user_id")
     plan = metadata.get("plan")
-    
+
     # Check if this is a subscription payment
     subscription_code = data.get("subscription_code")
     is_subscription = subscription_code is not None or metadata.get("subscription_type") == "recurring"
-    
+
     # If no user_id in metadata, try to find by email
     if not user_id:
         customer = data.get("customer") or {}
         customer_email = customer.get("email")
         if customer_email:
-            user = db.query(models.User).filter(
-                (models.User.email == customer_email) | 
-                (models.User.email == customer_email.lower())
-            ).first()
+            user = (
+                db.query(models.User)
+                .filter((models.User.email == customer_email) | (models.User.email == customer_email.lower()))
+                .first()
+            )
             if user:
                 user_id = user.id
-    
+
     if not user_id:
         logger.error("Paystack charge.success webhook missing user_id: %s", metadata)
         db.commit()
@@ -264,6 +265,7 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
     # Each successful charge (initial or auto-renewal) extends Pro features by 30
     # days. We do NOT add invoices here (unlike the generic plan-upgrade path).
     from app.api.routes_subscription.constants import PAYSTACK_PLAN_CODES
+
     plan_obj = data.get("plan") or {}
     plan_code_in = plan_obj.get("plan_code")
     plan_name_in = (plan_obj.get("name") or "").upper()
@@ -274,23 +276,24 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
         or ("FEATURES" in plan_name_in)
     )
     if is_pro_features:
-        from app.utils.feature_gate import grant_pro_features, PRO_FEATURES_DAYS
+        from app.utils.feature_gate import PRO_FEATURES_DAYS, grant_pro_features
+
         grant_pro_features(user, PRO_FEATURES_DAYS)
         if subscription_code and hasattr(user, "paystack_subscription_code"):
             user.paystack_subscription_code = subscription_code
         from app.models.payment_models import PaymentStatus, PaymentTransaction
-        txn = (
-            db.query(PaymentTransaction)
-            .filter(PaymentTransaction.reference == reference)
-            .one_or_none()
-        )
+
+        txn = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
         if txn:
             txn.status = PaymentStatus.SUCCESS
             txn.plan_after = user.plan.value
         db.commit()
         logger.info(
             "✅ Pro Features recurring charge: user %s +%d days Pro (ref: %s, sub: %s)",
-            user_id, PRO_FEATURES_DAYS, reference, subscription_code,
+            user_id,
+            PRO_FEATURES_DAYS,
+            reference,
+            subscription_code,
         )
         return {
             "status": "success",
@@ -318,40 +321,41 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
         return {"status": "error", "message": "Invalid plan"}
 
     old_plan = user.plan.value
-    old_balance = getattr(user, 'invoice_balance', 5)
-    
+    old_balance = getattr(user, "invoice_balance", 5)
+
     # Update user plan
     user.plan = new_plan
-    
+
     # Store subscription code if available
-    if subscription_code and hasattr(user, 'paystack_subscription_code'):
+    if subscription_code and hasattr(user, "paystack_subscription_code"):
         user.paystack_subscription_code = subscription_code
-    
+
     # Set subscription dates
-    from datetime import datetime, timedelta, timezone as tz
+    from datetime import datetime, timedelta
+    from datetime import timezone as tz
+
     now = datetime.now(tz.utc)
     user.subscription_started_at = now
     user.subscription_expires_at = now + timedelta(days=32)  # ~1 month buffer
-    
+
     # Add invoices included with plan
     invoices_added = new_plan.invoices_included
-    if invoices_added > 0 and hasattr(user, 'invoice_balance'):
+    if invoices_added > 0 and hasattr(user, "invoice_balance"):
         user.invoice_balance += invoices_added
         logger.info(
             "Adding %d invoices to user %s balance (now %d)",
-            invoices_added, user_id, getattr(user, 'invoice_balance', 0)
+            invoices_added,
+            user_id,
+            getattr(user, "invoice_balance", 0),
         )
-    
+
     # Update payment transaction if exists
     from app.models.payment_models import PaymentStatus, PaymentTransaction
-    transaction = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == reference)
-        .one_or_none()
-    )
+
+    transaction = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     if transaction:
         transaction.status = PaymentStatus.SUCCESS
-    
+
     db.commit()
 
     logger.info(
@@ -370,7 +374,7 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
         "old_plan": old_plan,
         "new_plan": new_plan.value,
         "invoices_added": invoices_added,
-        "invoice_balance": getattr(user, 'invoice_balance', old_balance),
+        "invoice_balance": getattr(user, "invoice_balance", old_balance),
         "reference": reference,
         "is_recurring": is_subscription,
     }
@@ -378,44 +382,44 @@ def _handle_charge_success(data: dict, db: Session) -> dict:
 
 def _handle_subscription_disabled(data: dict, db: Session) -> dict:
     """Handle subscription.disable event - subscription cancelled."""
-    subscription_code = data.get("subscription_code")
     customer = data.get("customer") or {}
     customer_email = customer.get("email")
-    
-    user = db.query(models.User).filter(
-        (models.User.email == customer_email) | 
-        (models.User.email == customer_email.lower())
-    ).first()
-    
+
+    user = (
+        db.query(models.User)
+        .filter((models.User.email == customer_email) | (models.User.email == customer_email.lower()))
+        .first()
+    )
+
     if user:
         # Clear subscription code but keep plan until expiry
-        if hasattr(user, 'paystack_subscription_code'):
+        if hasattr(user, "paystack_subscription_code"):
             user.paystack_subscription_code = None
-        
+
         db.commit()
         logger.info("Subscription disabled for user %s (keeps plan until expiry)", user.id)
         return {"status": "success", "event": "subscription.disable", "user_id": user.id}
-    
+
     db.commit()
     return {"status": "ignored", "event": "subscription.disable", "reason": "user not found"}
 
 
 def _handle_subscription_not_renew(data: dict, db: Session) -> dict:
     """Handle subscription.not_renew event - subscription will not auto-renew."""
-    subscription_code = data.get("subscription_code")
     customer = data.get("customer") or {}
     customer_email = customer.get("email")
-    
-    user = db.query(models.User).filter(
-        (models.User.email == customer_email) | 
-        (models.User.email == customer_email.lower())
-    ).first()
-    
+
+    user = (
+        db.query(models.User)
+        .filter((models.User.email == customer_email) | (models.User.email == customer_email.lower()))
+        .first()
+    )
+
     if user:
         logger.info("Subscription will not renew for user %s", user.id)
         db.commit()
         return {"status": "success", "event": "subscription.not_renew", "user_id": user.id}
-    
+
     db.commit()
     return {"status": "ignored", "event": "subscription.not_renew", "reason": "user not found"}
 
@@ -426,22 +430,20 @@ def _handle_invoice_payment_failed(data: dict, db: Session) -> dict:
     subscription_code = subscription.get("subscription_code")
     customer = data.get("customer") or {}
     customer_email = customer.get("email")
-    
-    user = db.query(models.User).filter(
-        (models.User.email == customer_email) | 
-        (models.User.email == customer_email.lower())
-    ).first()
-    
+
+    user = (
+        db.query(models.User)
+        .filter((models.User.email == customer_email) | (models.User.email == customer_email.lower()))
+        .first()
+    )
+
     if user:
-        logger.warning(
-            "⚠️ Payment failed for user %s subscription %s - Paystack will retry",
-            user.id, subscription_code
-        )
+        logger.warning("⚠️ Payment failed for user %s subscription %s - Paystack will retry", user.id, subscription_code)
         # Paystack will retry, so we don't immediately downgrade
         # They handle dunning (retry attempts) automatically
         db.commit()
         return {"status": "success", "event": "invoice.payment_failed", "user_id": user.id}
-    
+
     db.commit()
     return {"status": "ignored", "event": "invoice.payment_failed", "reason": "user not found"}
 
@@ -468,10 +470,7 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
     user_id = metadata.get("user_id")
     # New model: top-ups credit the prepaid wallet (kobo). Legacy in-flight
     # purchases carried invoices_to_add (bought at ₦25) — convert those too.
-    wallet_credit_kobo = int(
-        metadata.get("wallet_credit_kobo")
-        or int(metadata.get("invoices_to_add", 0) or 0) * 2500
-    )
+    wallet_credit_kobo = int(metadata.get("wallet_credit_kobo") or int(metadata.get("invoices_to_add", 0) or 0) * 2500)
     invoices_to_add = 0  # legacy count field, no longer credited
     pro_days = int(metadata.get("pro_days", 0) or 0)
 
@@ -488,26 +487,20 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
 
     # Wallet top-ups don't change plan; in-flight Pro packs still grant their
     # prepaid Pro days (Pro is no longer sold, but honour pending purchases).
-    old_plan = user.plan.value
-
     # Credit the prepaid wallet with the purchased top-up.
-    old_balance = getattr(user, 'invoice_balance', 0)
+    old_balance = getattr(user, "invoice_balance", 0)
     if wallet_credit_kobo > 0:
-        user.wallet_balance_kobo = (
-            int(getattr(user, "wallet_balance_kobo", 0) or 0) + wallet_credit_kobo
-        )
+        user.wallet_balance_kobo = int(getattr(user, "wallet_balance_kobo", 0) or 0) + wallet_credit_kobo
 
     if pro_days > 0:
         from app.utils.feature_gate import grant_pro_features
+
         grant_pro_features(user, pro_days)
 
     # Update payment transaction if exists
     from app.models.payment_models import PaymentStatus, PaymentTransaction
-    transaction = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == reference)
-        .one_or_none()
-    )
+
+    transaction = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     if transaction:
         transaction.status = PaymentStatus.SUCCESS
         if pro_days > 0:
@@ -515,7 +508,7 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
 
     db.commit()
 
-    new_balance = getattr(user, 'invoice_balance', old_balance + invoices_to_add)
+    new_balance = getattr(user, "invoice_balance", old_balance + invoices_to_add)
     pro_until = (
         user.subscription_expires_at.isoformat()
         if pro_days > 0 and getattr(user, "subscription_expires_at", None)
@@ -525,6 +518,7 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
     # Referral settlement: pay the referrer a share of this wallet top-up.
     try:
         from app.services.referral_service import ReferralService
+
         ref_svc = ReferralService(db)
         topup_naira = wallet_credit_kobo // 100
         if topup_naira > 0:
@@ -533,8 +527,7 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
         logger.warning("Failed to process referral commission for top-up: %s", e)
 
     logger.info(
-        "✅ Invoice pack purchased: user %s added %d invoices (balance: %d → %d)"
-        " pro_days=%d pro_until=%s ref: %s",
+        "✅ Invoice pack purchased: user %s added %d invoices (balance: %d → %d)" " pro_days=%d pro_until=%s ref: %s",
         user_id,
         invoices_to_add,
         old_balance,
@@ -553,7 +546,7 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
         "pro_features_until": pro_until,
         "reference": reference,
     }
-    
+
     return result
 
 
@@ -634,11 +627,7 @@ def _handle_paystack_invoice_payment(payload: dict, db: Session, signature: str 
     if event_type != "charge.success":
         return {"status": "ignored", "event": event_type}
 
-    transaction = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == reference)
-        .one_or_none()
-    )
+    transaction = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     metadata = data.get("metadata") or {}
     invoice_id = metadata.get("invoice_id") or (
         (transaction.payment_metadata or {}).get("invoice_id") if transaction else None
@@ -660,14 +649,12 @@ def _handle_paystack_invoice_payment(payload: dict, db: Session, signature: str 
         return {"status": "error", "message": "verify failed"}
     if status.status != "successful":
         return {"status": "ignored", "reason": "charge not successful on verify"}
-    if (
-        transaction is not None
-        and status.amount_kobo is not None
-        and int(status.amount_kobo) < int(transaction.amount)
-    ):
+    if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) < int(transaction.amount):
         logger.error(
             "Paystack webhook amount mismatch ref=%s verify=%s expected=%s",
-            reference, status.amount_kobo, transaction.amount,
+            reference,
+            status.amount_kobo,
+            transaction.amount,
         )
         return {"status": "error", "message": "amount mismatch"}
 
@@ -706,11 +693,7 @@ def _handle_flutterwave_invoice_payment(payload: dict, db: Session, signature: s
     if event_type != "charge.completed" or (data.get("status") or "").lower() != "successful":
         return {"status": "ignored", "event": event_type, "charge_status": data.get("status")}
 
-    transaction = (
-        db.query(PaymentTransaction)
-        .filter(PaymentTransaction.reference == reference)
-        .one_or_none()
-    )
+    transaction = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     meta = data.get("meta") or {}
     invoice_id = meta.get("invoice_id") or (
         (transaction.payment_metadata or {}).get("invoice_id") if transaction else None
@@ -729,26 +712,22 @@ def _handle_flutterwave_invoice_payment(payload: dict, db: Session, signature: s
         return {"status": "error", "message": "verify failed"}
     if status.status != "successful":
         return {"status": "ignored", "reason": f"verify={status.status}"}
-    if (
-        transaction is not None
-        and status.amount_kobo is not None
-        and int(status.amount_kobo) < int(transaction.amount)
-    ):
+    if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) < int(transaction.amount):
         logger.error(
             "FLW webhook amount mismatch (ref=%s): verified %s < expected %s",
-            reference, status.amount_kobo, transaction.amount,
+            reference,
+            status.amount_kobo,
+            transaction.amount,
         )
         return {"status": "error", "message": "amount mismatch"}
-    if (
-        transaction is not None
-        and status.amount_kobo is not None
-        and int(status.amount_kobo) > int(transaction.amount)
-    ):
+    if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) > int(transaction.amount):
         # Overpayment: accept it (the buyer paid) but audit it — the excess sits
         # in the hold and should be reconciled/refunded manually.
         logger.warning(
             "FLW webhook OVERPAYMENT (ref=%s): verified %s > expected %s — accepting, needs review",
-            reference, status.amount_kobo, transaction.amount,
+            reference,
+            status.amount_kobo,
+            transaction.amount,
         )
 
     # Confirmed successful — record the dedup key and finalize atomically. A repeat
@@ -769,7 +748,6 @@ def _handle_flutterwave_invoice_payment(payload: dict, db: Session, signature: s
         provider_label="Flutterwave",
         card_fingerprint=extract_fingerprint("flutterwave", status.raw),
     )
-
 
 
 @router.post("/paystack")
@@ -808,15 +786,15 @@ async def paystack_webhook(
     # Check reference to determine payment type
     data = payload.get("data") or {}
     reference = data.get("reference") or ""
-    
+
     # Route to appropriate handler based on reference or event type
     if reference.startswith("INVPAY-"):
         return _handle_paystack_invoice_payment(payload, db, signature)
     if reference.startswith("INVPACK-"):
         return _handle_paystack_invoice_pack(payload, db, signature)
     elif event_type in [
-        "subscription.create", 
-        "subscription.disable", 
+        "subscription.create",
+        "subscription.disable",
         "subscription.not_renew",
         "invoice.payment_failed",
         "charge.success",
@@ -905,9 +883,7 @@ async def shipbubble_webhook(
 
     # Dedup / audit — (order_id, status, event) is a stable idempotency key.
     if order_id:
-        if _record_webhook(
-            db, "shipbubble", f"{order_id}:{order_status}:{event}", signature
-        ):
+        if _record_webhook(db, "shipbubble", f"{order_id}:{order_status}:{event}", signature):
             logger.info("Shipbubble webhook duplicate for %s (%s)", order_id, order_status)
             return {"status": "duplicate", "order_id": order_id}
 
@@ -922,7 +898,10 @@ async def shipbubble_webhook(
     db.commit()
     logger.info(
         "Shipbubble webhook: event=%s order=%s status=%s tracking=%s",
-        event, order_id, order_status, courier.get("tracking_code"),
+        event,
+        order_id,
+        order_status,
+        courier.get("tracking_code"),
     )
     return {"status": "ok", "order_id": order_id}
 
@@ -985,9 +964,7 @@ def _apply_shipbubble_update(
 
         escrow.courier_delivered_at = now
         if escrow.status == "held":
-            escrow.release_due_at = now + _dt.timedelta(
-                hours=settings.ESCROW_POST_DELIVERY_INSPECTION_HOURS
-            )
+            escrow.release_due_at = now + _dt.timedelta(hours=settings.ESCROW_POST_DELIVERY_INSPECTION_HOURS)
         # Let the buyer know it's delivered so they can confirm or report a problem.
         try:
             from app.api.routes_storefront import _store_system_message

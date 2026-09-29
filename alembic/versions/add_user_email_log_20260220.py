@@ -7,7 +7,9 @@ Revision ID: user_email_log_20260220
 Revises: user_pro_override_20260220
 Create Date: 2026-02-20
 """
+
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "user_email_log_20260220"

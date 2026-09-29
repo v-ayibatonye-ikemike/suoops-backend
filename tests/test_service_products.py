@@ -1,4 +1,5 @@
 """Service/digital storefront orders: skip delivery, use the fast escrow window."""
+
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -46,12 +47,8 @@ def test_service_order_skips_delivery_and_uses_fast_window(db_session, client, m
     owner, prod = _seed_service_store(db_session)
     monkeypatch.setattr(settings, "ESCROW_ENABLED", True, raising=False)
     monkeypatch.setattr("app.services.escrow_service.is_trusted_seller", lambda db, u: False)
-    monkeypatch.setattr(
-        "app.services.escrow_service.detect_order_collusion", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        "app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None
-    )
+    monkeypatch.setattr("app.services.escrow_service.detect_order_collusion", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None)
     monkeypatch.setattr(
         "app.services.invoice_payment_service.start_invoice_payment",
         AsyncMock(return_value={"authorization_url": "http://pay"}),
@@ -72,9 +69,7 @@ def test_service_order_skips_delivery_and_uses_fast_window(db_session, client, m
 
     inv = db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
     assert inv.amount == Decimal("20000")  # goods only
-    escrow = (
-        db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
-    )
+    escrow = db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
     # Nothing ships → fast (same-state) buyer-protection window + no delivery.
     assert escrow.same_state is True
     assert escrow.requires_delivery is False

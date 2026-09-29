@@ -8,6 +8,7 @@ is patched so nothing hits the network.
 The task functions open their OWN DB session internally via SessionLocal, which
 conftest rebinds to the test engine — so committed seed data is visible.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -100,18 +101,10 @@ def patch_externals(monkeypatch):
     client.send_template.return_value = True
     client.send_text.return_value = True
 
-    monkeypatch.setattr(
-        "app.core.whatsapp.get_whatsapp_client", lambda: client, raising=True
-    )
-    monkeypatch.setattr(
-        "app.bot.conversation_window.is_window_open", lambda phone: True, raising=True
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.can_send_whatsapp", lambda priority=False: True, raising=True
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.record_whatsapp_send", lambda priority=False: 1, raising=True
-    )
+    monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: client, raising=True)
+    monkeypatch.setattr("app.bot.conversation_window.is_window_open", lambda phone: True, raising=True)
+    monkeypatch.setattr("app.utils.whatsapp_budget.can_send_whatsapp", lambda priority=False: True, raising=True)
+    monkeypatch.setattr("app.utils.whatsapp_budget.record_whatsapp_send", lambda priority=False: 1, raising=True)
     # growth_tasks imports _send_smtp_email at module import time.
     smtp = MagicMock(return_value=True)
     monkeypatch.setattr(growth_tasks, "_send_smtp_email", smtp, raising=True)
@@ -199,11 +192,7 @@ def test_aggregate_unpaid_all_channels_fail(db_session, patch_externals):
 
     assert result["failed"] == 1
     # Dedup row should have been deleted so next run can retry.
-    remaining = (
-        db_session.query(models.UserEmailLog)
-        .filter(models.UserEmailLog.user_id == user.id)
-        .count()
-    )
+    remaining = db_session.query(models.UserEmailLog).filter(models.UserEmailLog.user_id == user.id).count()
     assert remaining == 0
 
 
@@ -237,11 +226,19 @@ def test_weekly_free_summary_email_path(db_session, patch_externals):
     cust = _make_customer(db_session)
     now = datetime.now(timezone.utc)
     _make_invoice(
-        db_session, user, cust, amount=15000, status="paid",
+        db_session,
+        user,
+        cust,
+        amount=15000,
+        status="paid",
         paid_at=now - timedelta(days=1),
     )
     _make_invoice(
-        db_session, user, cust, amount=3000, invoice_type="expense",
+        db_session,
+        user,
+        cust,
+        amount=3000,
+        invoice_type="expense",
         created_at=now - timedelta(days=2),
     )
     _make_invoice(db_session, user, cust, amount=9000, status="pending")
@@ -309,15 +306,10 @@ def test_payment_upsell_email_path(db_session, patch_externals):
 
     assert result["email_sent"] == 1
     # dedup row created
-    assert (
-        db_session.query(models.UserEmailLog)
-        .filter(models.UserEmailLog.email_type == "payment_upsell")
-        .count()
-        == 1
-    )
+    assert db_session.query(models.UserEmailLog).filter(models.UserEmailLog.email_type == "payment_upsell").count() == 1
 
 
-def test_payment_upsell_whatsapp_path(db_session, patch_externals, monkeypatch):
+def test_payment_upsell_phone_only_does_not_use_whatsapp(db_session, patch_externals, monkeypatch):
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_UPSELL", "upsell_tpl", raising=False)
     # Free user, phone only, >=2 payments.
     user = _make_user(db_session, email=None)
@@ -327,11 +319,12 @@ def test_payment_upsell_whatsapp_path(db_session, patch_externals, monkeypatch):
 
     result = growth_tasks.send_payment_upsells()
 
-    assert result["whatsapp_sent"] == 1
-    patch_externals["client"].send_template.assert_called_once()
+    assert result["whatsapp_sent"] == 0
+    assert result["failed"] == 1
+    patch_externals["client"].send_template.assert_not_called()
 
 
-def test_payment_upsell_whatsapp_text_no_template(db_session, patch_externals, monkeypatch):
+def test_payment_upsell_has_no_whatsapp_text_fallback(db_session, patch_externals, monkeypatch):
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_UPSELL", None, raising=False)
     user = _make_user(db_session, email=None)
     cust = _make_customer(db_session, email=None)
@@ -340,8 +333,9 @@ def test_payment_upsell_whatsapp_text_no_template(db_session, patch_externals, m
 
     result = growth_tasks.send_payment_upsells()
 
-    assert result["whatsapp_sent"] == 1
-    patch_externals["client"].send_text.assert_called_once()
+    assert result["whatsapp_sent"] == 0
+    assert result["failed"] == 1
+    patch_externals["client"].send_text.assert_not_called()
 
 
 def test_payment_upsell_skip_non_free(db_session, patch_externals):

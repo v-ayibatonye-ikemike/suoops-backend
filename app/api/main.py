@@ -68,9 +68,7 @@ class ResilientSlowAPIMiddleware(SlowAPIMiddleware):
             )
             return await call_next(request)
         except redis.exceptions.RedisError:
-            logging.getLogger("app.rate_limit").warning(
-                "Redis error in rate limiting — allowing request through"
-            )
+            logging.getLogger("app.rate_limit").warning("Redis error in rate limiting — allowing request through")
             return await call_next(request)
 
 
@@ -156,9 +154,7 @@ class AdminIPAllowlistMiddleware(BaseHTTPMiddleware):
                 if admin_ip_allowlist_enabled(db):
                     client_ip = get_client_ip(request)
                     if not is_admin_ip_allowed(client_ip, db):
-                        self.logger.warning(
-                            "Blocked admin access from disallowed IP %s (%s)", client_ip, path
-                        )
+                        self.logger.warning("Blocked admin access from disallowed IP %s (%s)", client_ip, path)
                         # Respond exactly like a route that does not exist so a
                         # disallowed visitor learns nothing about the admin panel
                         # or the allowlist (no 403, no descriptive message).
@@ -171,24 +167,25 @@ class AdminIPAllowlistMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-
 def create_app() -> FastAPI:
     init_logging()
     # Sentry is initialized exactly once inside init_monitoring(). A second
     # sentry_sdk.init() here previously double-patched RedisIntegration and
     # caused a RecursionError on every Redis command in the web process.
     init_monitoring()
-    
+
     # Lifespan replaces deprecated on_event startup/shutdown
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         from app.api.routes_admin_auth import init_default_admin
+
         init_default_admin()
         try:
             yield
         finally:
             try:
                 from app.db.redis_client import close_redis_pool
+
                 close_redis_pool()
             except Exception:
                 pass
@@ -259,7 +256,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_auth_router, tags=["admin-auth"])
     app.include_router(admin_router)
     app.include_router(health_router)
-    
+
     return app
 
 

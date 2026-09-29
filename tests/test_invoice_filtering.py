@@ -1,4 +1,5 @@
 """Server-side invoice filtering: status, search (id/amount/customer), counts."""
+
 from __future__ import annotations
 
 from app.models import models

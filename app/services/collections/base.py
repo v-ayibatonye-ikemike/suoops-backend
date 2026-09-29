@@ -6,6 +6,7 @@ always settle through the issuer's Paystack subaccount. Select the active
 collector with ``settings.ESCROW_COLLECTOR_PROVIDER``. Refunds follow the
 provider that collected each order (recorded in the payment metadata).
 """
+
 from __future__ import annotations
 
 import abc

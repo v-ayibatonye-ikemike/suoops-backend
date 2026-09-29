@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.bot.conversation_window import mark_conversation_active
 from app.bot.expense_intent_processor import ExpenseIntentProcessor
 from app.bot.invoice_intent_processor import (
     InvoiceIntentProcessor,
@@ -22,14 +23,13 @@ from app.bot.product_invoice_flow import ProductInvoiceFlow, get_cart
 from app.bot.support_handler import SupportHandler
 from app.bot.voice_message_processor import VoiceMessageProcessor
 from app.bot.whatsapp_client import WhatsAppClient
-from app.bot.conversation_window import mark_conversation_active
 from app.core.config import settings
 from app.models import models
 from app.services.analytics_service import (
+    calculate_cash_position,
     calculate_customer_metrics,
     calculate_invoice_metrics,
     calculate_revenue_metrics,
-    calculate_cash_position,
     get_conversion_rate,
     get_date_range,
 )
@@ -71,7 +71,7 @@ class WhatsAppHandler:
             self.client.send_text(
                 sender,
                 "❌ Your WhatsApp number isn't linked to a business account.\n"
-                "Register at suoops.com to start invoicing!"
+                "Register at suoops.com to start invoicing!",
             )
             return False
 
@@ -113,7 +113,7 @@ class WhatsAppHandler:
             if msg_type == "text":
                 await self._handle_text_message(sender, message)
                 return
-            
+
             if msg_type == "interactive":
                 # Handle button clicks
                 await self._handle_interactive_message(sender, message)
@@ -124,7 +124,7 @@ class WhatsAppHandler:
                 if media_id:
                     await self.voice_processor.process(sender, media_id, message)
                 return
-            
+
             if msg_type == "image":
                 # Handle image messages (receipts)
                 await self._handle_image_message(sender, message)
@@ -158,7 +158,9 @@ class WhatsAppHandler:
                 logger.exception("Failed to send error message to user")
 
     def _auto_create_support_ticket(
-        self, sender: str | None, exc: BaseException,
+        self,
+        sender: str | None,
+        exc: BaseException,
     ) -> str | None:
         """Open a support ticket for a bot-side failure so the team can
         triage. Returns a short reference like 'BOT-123', or None on
@@ -178,28 +180,17 @@ class WhatsAppHandler:
             try:
                 issuer_id = self.invoice_processor._resolve_issuer_id(sender)
                 if issuer_id:
-                    user = (
-                        self.db.query(models.User)
-                        .filter(models.User.id == issuer_id)
-                        .first()
-                    )
+                    user = self.db.query(models.User).filter(models.User.id == issuer_id).first()
             except Exception:
                 user = None
 
             email = (getattr(user, "email", None) or "").strip() or "noreply@suoops.com"
-            name = (
-                getattr(user, "business_name", None)
-                or getattr(user, "name", None)
-                or sender
-            )
+            name = getattr(user, "business_name", None) or getattr(user, "name", None) or sender
             ticket = SupportTicket(
                 name=name,
                 email=email,
                 subject="WhatsApp bot error (auto-logged)",
-                message=(
-                    f"WhatsApp sender: {sender}\n"
-                    f"Exception: {type(exc).__name__}: {exc}\n"
-                ),
+                message=(f"WhatsApp sender: {sender}\n" f"Exception: {type(exc).__name__}: {exc}\n"),
                 category=TicketCategory.TECHNICAL,
                 priority=TicketPriority.HIGH,
             )
@@ -222,7 +213,7 @@ class WhatsAppHandler:
             return
 
         text_lower = text.lower()
-        
+
         # ── Guided onboarding flow (new users creating first invoice) ──
         onboarding = get_onboarding_session(sender)
         if onboarding:
@@ -232,7 +223,11 @@ class WhatsAppHandler:
                 # Fall through to normal processing
             else:
                 invoice_data = handle_onboarding_reply(
-                    onboarding, self.client, sender, text, db=self.db,
+                    onboarding,
+                    self.client,
+                    sender,
+                    text,
+                    db=self.db,
                 )
                 if invoice_data:
                     await self._finalize_onboarded_invoice(sender, invoice_data)
@@ -252,9 +247,14 @@ class WhatsAppHandler:
         if message.get("context_id"):
             try:
                 from app.bot.inline_edit import try_handle_inline_edit
+
                 issuer_id = self.invoice_processor._resolve_issuer_id(sender)
                 if try_handle_inline_edit(
-                    self.db, self.client, sender, text, issuer_id=issuer_id,
+                    self.db,
+                    self.client,
+                    sender,
+                    text,
+                    issuer_id=issuer_id,
                 ):
                     return
             except Exception:
@@ -266,8 +266,8 @@ class WhatsAppHandler:
         if len(text) >= 10 and text_lower not in {"help", "menu", "hi", "hello", "hey", "start", "invoice", "report"}:
             from app.workers.tasks.feedback_tasks import (
                 is_feedback_pending,
-                clear_feedback_pending,
             )
+
             if is_feedback_pending(sender):
                 if self._save_feedback(sender, text):
                     return
@@ -275,12 +275,22 @@ class WhatsAppHandler:
         # Separate help vs greeting for different responses
         help_keywords = {"help", "menu", "guide", "how", "instructions", "commands"}
         greeting_keywords = {
-            "hi", "hello", "hey", "good morning", "good afternoon",
-            "good evening", "start", "yo", "sup", "what's up",
-            "whats up", "howdy", "hiya",
+            "hi",
+            "hello",
+            "hey",
+            "good morning",
+            "good afternoon",
+            "good evening",
+            "start",
+            "yo",
+            "sup",
+            "what's up",
+            "whats up",
+            "howdy",
+            "hiya",
         }
         optin_keywords = {"ok", "yes", "sure", "yea", "yeah", "yep", "👍", "okay"}
-        
+
         is_help = text_lower in help_keywords
         is_greeting = text_lower in greeting_keywords
         is_optin = text_lower in optin_keywords
@@ -292,17 +302,36 @@ class WhatsAppHandler:
         # off a guided slot-fill flow with whatever we can extract.
         intent_phrases = (
             # invoice synonyms
-            "create an invoice", "create invoice", "make an invoice",
-            "make invoice", "send an invoice", "send invoice",
-            "new invoice", "i want to invoice", "want to invoice",
-            "want to create an invoice", "want to make an invoice",
-            "how do i create", "how to create an invoice", "how to invoice",
-            "i want to create", "raise an invoice", "raise invoice",
-            "issue an invoice", "issue invoice", "generate invoice",
+            "create an invoice",
+            "create invoice",
+            "make an invoice",
+            "make invoice",
+            "send an invoice",
+            "send invoice",
+            "new invoice",
+            "i want to invoice",
+            "want to invoice",
+            "want to create an invoice",
+            "want to make an invoice",
+            "how do i create",
+            "how to create an invoice",
+            "how to invoice",
+            "i want to create",
+            "raise an invoice",
+            "raise invoice",
+            "issue an invoice",
+            "issue invoice",
+            "generate invoice",
             # bill / charge synonyms
-            "bill someone", "i want to bill", "want to bill", "bill a customer",
-            "charge someone", "i want to charge", "want to charge",
-            "send a bill", "send bill",
+            "bill someone",
+            "i want to bill",
+            "want to bill",
+            "bill a customer",
+            "charge someone",
+            "i want to charge",
+            "want to charge",
+            "send a bill",
+            "send bill",
         )
         # Only treat as "intent" if there's no digit/amount in the message
         has_digit = any(ch.isdigit() for ch in text)
@@ -311,10 +340,14 @@ class WhatsAppHandler:
             if issuer_id is not None:
                 # Start guided slot-fill — friendlier than a format dump.
                 from app.bot.onboarding_flow import start_guided_invoice
+
                 user_currency = get_user_currency(self.db, issuer_id)
                 start_guided_invoice(
-                    self.client, sender, issuer_id,
-                    db=self.db, currency=user_currency,
+                    self.client,
+                    sender,
+                    issuer_id,
+                    db=self.db,
+                    currency=user_currency,
                 )
             else:
                 # Not a registered business — gentle nudge to sign up.
@@ -368,7 +401,8 @@ class WhatsAppHandler:
                 # fall through → NLP will handle the new invoice
             else:
                 handled = await self.invoice_processor.handle_price_reply(
-                    sender, text,
+                    sender,
+                    text,
                 )
                 if handled:
                     return
@@ -386,7 +420,7 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
                 return
 
@@ -397,7 +431,7 @@ class WhatsAppHandler:
                 return
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
             if issuer_id is not None:
-                query = text[len(text_lower.split()[0]) + 1:].strip()
+                query = text[len(text_lower.split()[0]) + 1 :].strip()
                 if query:
                     self.product_flow.handle_search(sender, issuer_id, query)
                     return
@@ -413,15 +447,20 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End status check ──────────────────────────────────────
 
         # ── "Who owes me money?" — numbered list with quick actions ──
         owed_keywords = {
-            "owed", "pending", "unpaid", "outstanding",
-            "who owes me", "who owes me money", "owes me",
+            "owed",
+            "pending",
+            "unpaid",
+            "outstanding",
+            "who owes me",
+            "who owes me money",
+            "owes me",
         }
         if text_lower in owed_keywords:
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
@@ -431,7 +470,7 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End owed list ──────────────────────────────────────────
@@ -452,15 +491,20 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End account status ─────────────────────────────────────
 
         # ── Undo last invoice (5-minute window) ────────────────────
         undo_keywords = {
-            "undo", "undo last", "undo invoice", "cancel last",
-            "cancel last invoice", "delete last", "delete last invoice",
+            "undo",
+            "undo last",
+            "undo invoice",
+            "cancel last",
+            "cancel last invoice",
+            "delete last",
+            "delete last invoice",
         }
         if text_lower in undo_keywords:
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
@@ -470,13 +514,22 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End undo ───────────────────────────────────────────────
 
         # ── Analytics / Insights command (Pro only) ──────────────
-        analytics_keywords = {"report", "analytics", "insights", "summary", "dashboard", "stats", "my stats", "my report"}
+        analytics_keywords = {
+            "report",
+            "analytics",
+            "insights",
+            "summary",
+            "dashboard",
+            "stats",
+            "my stats",
+            "my report",
+        }
         if text_lower in analytics_keywords:
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
             if issuer_id is not None:
@@ -485,7 +538,7 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End analytics ─────────────────────────────────────────
@@ -500,13 +553,23 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End tax report ────────────────────────────────────────
 
         # ── Currency toggle (USD / Naira) ─────────────────────────
-        currency_keywords = {"currency", "usd", "dollar", "dollars", "naira", "ngn", "show usd", "show naira", "show dollars"}
+        currency_keywords = {
+            "currency",
+            "usd",
+            "dollar",
+            "dollars",
+            "naira",
+            "ngn",
+            "show usd",
+            "show naira",
+            "show dollars",
+        }
         if text_lower in currency_keywords:
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
             if issuer_id is not None:
@@ -515,7 +578,7 @@ class WhatsAppHandler:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
             return
         # ── End currency toggle ───────────────────────────────────
@@ -537,10 +600,10 @@ class WhatsAppHandler:
                     "━━━━━━━━━━━━━━━━━━━━━\n"
                     "🚀 Type *get started* for setup guide\n"
                     "❓ *Ask me anything* — pricing, how it works, etc.\n"
-                    "🆘 Type *support* to reach our team"
+                    "🆘 Type *support* to reach our team",
                 )
             return
-        
+
         # CUSTOMER OPT-IN CHECK FIRST: A person can be BOTH a business AND a customer
         # who received an invoice. Check for pending invoices first!
         if is_greeting or is_optin:
@@ -549,8 +612,8 @@ class WhatsAppHandler:
             if self.invoice_processor.handle_customer_optin(sender):
                 logger.info("Handled opt-in from customer %s", sender)
                 return  # Successfully handled, don't process further
-        
-        # If they're a registered business with NO pending customer invoices, 
+
+        # If they're a registered business with NO pending customer invoices,
         # show business welcome (short version for greetings)
         if is_greeting or is_optin:
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
@@ -568,7 +631,7 @@ class WhatsAppHandler:
                     "📥 *Got an invoice?* I'll send you the payment details.\n\n"
                     "📤 *Run a business?* Register free at suoops.com and "
                     "start invoicing in seconds!\n\n"
-                    "Just ask me anything — I'm here to help 😊"
+                    "Just ask me anything — I'm here to help 😊",
                 )
                 return
 
@@ -578,32 +641,30 @@ class WhatsAppHandler:
         caller_currency = "NGN"
         issuer_id_for_currency = self.invoice_processor._resolve_issuer_id(sender)
         if issuer_id_for_currency is not None:
-            user_row = (
-                self.db.query(models.User)
-                .filter(models.User.id == issuer_id_for_currency)
-                .first()
-            )
+            user_row = self.db.query(models.User).filter(models.User.id == issuer_id_for_currency).first()
             if user_row:
                 caller_currency = getattr(user_row, "preferred_currency", "NGN") or "NGN"
 
         parse = self.nlp.parse_text(text, is_speech=False, caller_currency=caller_currency)
-        
+
         # Check if user is trying to create an invoice but format is wrong
         # NLP will return "unknown" intent if the keyword is missing or format is too off
-        if parse.intent == "unknown" and any(
-            kw in text_lower for kw in ("invoice", "bill", "charge")
-        ):
+        if parse.intent == "unknown" and any(kw in text_lower for kw in ("invoice", "bill", "charge")):
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
             if issuer_id is not None:
                 # Drop into a guided slot-fill instead of dumping the
                 # rigid format guide.
                 from app.bot.onboarding_flow import start_guided_invoice
+
                 start_guided_invoice(
-                    self.client, sender, issuer_id,
-                    db=self.db, currency=caller_currency,
+                    self.client,
+                    sender,
+                    issuer_id,
+                    db=self.db,
+                    currency=caller_currency,
                 )
                 return
-        
+
         # Try expense processor first (checks if expense-related)
         expense_handled = False
         try:
@@ -658,7 +719,7 @@ class WhatsAppHandler:
                 "💱 *Currency:* Type *usd* or *naira*\n"
                 "🚀 *Setup:* Type *setup*\n\n"
                 "❓ Or just ask me a question!\n"
-                "e.g. \"how do I get paid?\" or \"what's the fee?\""
+                'e.g. "how do I get paid?" or "what\'s the fee?"'
             )
             self.client.send_text(sender, nudge)
         else:
@@ -668,9 +729,9 @@ class WhatsAppHandler:
                 "I'm SuoOps — I help businesses send invoices via WhatsApp.\n\n"
                 "📤 *Want to send invoices?* Register free at suoops.com\n"
                 "📥 *Got an invoice?* Just reply *Hi*\n\n"
-                "Ask me anything — e.g. \"how to register\" or \"pricing\""
+                'Ask me anything — e.g. "how to register" or "pricing"',
             )
-    
+
     def _send_business_greeting(self, sender: str, issuer_id: int) -> None:
         """Send a warm, contextual greeting to a returning business user.
 
@@ -706,6 +767,7 @@ class WhatsAppHandler:
         # WhatsApp can mis-render bold around the ₦ symbol + comma as
         # strikethrough. Plain text reads fine on every client.
         from app.models.models import Invoice
+
         pending_total = (
             self.db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
             .filter(
@@ -741,7 +803,9 @@ class WhatsAppHandler:
         self.client.send_text(sender, "\n".join(lines))
 
     async def _finalize_onboarded_invoice(
-        self, sender: str, invoice_data: dict[str, Any],
+        self,
+        sender: str,
+        invoice_data: dict[str, Any],
     ) -> None:
         """Shared completion path used by both the text reply and the
         interactive ✅ Send button at the review step.
@@ -753,7 +817,11 @@ class WhatsAppHandler:
         if not self.invoice_processor._enforce_quota(invoice_service, issuer_id, sender):
             return
         await self.invoice_processor._create_invoice(
-            invoice_service, issuer_id, sender, invoice_data, {},
+            invoice_service,
+            issuer_id,
+            sender,
+            invoice_data,
+            {},
         )
 
     def _send_quick_status(self, sender: str, issuer_id: int) -> None:
@@ -858,7 +926,7 @@ class WhatsAppHandler:
 
         from sqlalchemy.orm import joinedload
 
-        from app.bot.owed_list_session import save_owed_list, clear_owed_list
+        from app.bot.owed_list_session import clear_owed_list, save_owed_list
         from app.models.models import Invoice
 
         invoices = (
@@ -930,7 +998,7 @@ class WhatsAppHandler:
         if idx < 0 or idx >= len(invoice_ids):
             self.client.send_text(
                 sender,
-                f"That number isn't on the list. Reply *owed* to refresh the list.",
+                "That number isn't on the list. Reply *owed* to refresh the list.",
             )
             return True
         invoice_id = invoice_ids[idx]
@@ -950,7 +1018,10 @@ class WhatsAppHandler:
         try:
             invoice_service = build_invoice_service(self.db, user_id=issuer_id)
             invoice_service.update_status(
-                issuer_id, invoice_id, "paid", updated_by_user_id=issuer_id,
+                issuer_id,
+                invoice_id,
+                "paid",
+                updated_by_user_id=issuer_id,
             )
             self.client.send_text(
                 sender,
@@ -967,7 +1038,10 @@ class WhatsAppHandler:
         try:
             invoice_service = build_invoice_service(self.db, user_id=issuer_id)
             invoice_service.update_status(
-                issuer_id, invoice_id, "cancelled", updated_by_user_id=issuer_id,
+                issuer_id,
+                invoice_id,
+                "cancelled",
+                updated_by_user_id=issuer_id,
             )
             self.client.send_text(
                 sender,
@@ -1012,7 +1086,11 @@ class WhatsAppHandler:
             tier = "customer_overdue_1d"
             business_name = invoice.issuer.business_name or invoice.issuer.name
             ok = _send_customer_whatsapp_reminder(
-                invoice, invoice.customer, invoice.issuer, tier, business_name,
+                invoice,
+                invoice.customer,
+                invoice.issuer,
+                tier,
+                business_name,
             )
         except Exception:
             logger.exception("owed-list remind failed for %s", invoice_id)
@@ -1093,7 +1171,9 @@ class WhatsAppHandler:
         try:
             invoice_service = build_invoice_service(self.db, user_id=issuer_id)
             invoice_service.update_status(
-                issuer_id, invoice.invoice_id, "cancelled",
+                issuer_id,
+                invoice.invoice_id,
+                "cancelled",
                 updated_by_user_id=issuer_id,
             )
         except Exception as exc:
@@ -1123,11 +1203,7 @@ class WhatsAppHandler:
             return False
 
         # Check they don't already have one
-        existing = (
-            self.db.query(models.Testimonial)
-            .filter(models.Testimonial.user_id == issuer_id)
-            .first()
-        )
+        existing = self.db.query(models.Testimonial).filter(models.Testimonial.user_id == issuer_id).first()
         if existing:
             clear_feedback_pending(sender)
             return False
@@ -1158,92 +1234,122 @@ class WhatsAppHandler:
         """
         # ── Thank-you ──
         thank_phrases = {
-            "thanks", "thank you", "thank u", "thanx", "thx",
-            "thanks a lot", "thanks so much", "much appreciated",
-            "appreciate it", "cheers", "awesome thanks",
-            "okay thanks", "ok thanks", "alright thanks",
-            "great thanks", "cool thanks", "wonderful",
+            "thanks",
+            "thank you",
+            "thank u",
+            "thanx",
+            "thx",
+            "thanks a lot",
+            "thanks so much",
+            "much appreciated",
+            "appreciate it",
+            "cheers",
+            "awesome thanks",
+            "okay thanks",
+            "ok thanks",
+            "alright thanks",
+            "great thanks",
+            "cool thanks",
+            "wonderful",
         }
         if text_lower in thank_phrases or text_lower.startswith("thank"):
             self.client.send_text(
-                sender,
-                "You're welcome! 😊\n\n"
-                "Let me know if you need anything else — I'm always here."
+                sender, "You're welcome! 😊\n\n" "Let me know if you need anything else — I'm always here."
             )
             return True
 
         # ── Goodbye ──
         bye_phrases = {
-            "bye", "goodbye", "good bye", "good night", "goodnight",
-            "later", "see you", "see ya", "talk later", "gotta go",
-            "bye bye", "take care", "night", "nighty night",
+            "bye",
+            "goodbye",
+            "good bye",
+            "good night",
+            "goodnight",
+            "later",
+            "see you",
+            "see ya",
+            "talk later",
+            "gotta go",
+            "bye bye",
+            "take care",
+            "night",
+            "nighty night",
         }
         if text_lower in bye_phrases:
             self.client.send_text(
-                sender,
-                "Goodbye! 👋 Have a great one.\n\n"
-                "I'm here whenever you need me — just send a message!"
+                sender, "Goodbye! 👋 Have a great one.\n\n" "I'm here whenever you need me — just send a message!"
             )
             return True
 
         # ── How are you / smalltalk ──
         smalltalk_phrases = {
-            "how are you", "how are u", "how you dey",
-            "how far", "how body", "how e dey go",
-            "what's good", "how's it going", "how is it going",
-            "how do you do", "how's your day",
+            "how are you",
+            "how are u",
+            "how you dey",
+            "how far",
+            "how body",
+            "how e dey go",
+            "what's good",
+            "how's it going",
+            "how is it going",
+            "how do you do",
+            "how's your day",
         }
         if text_lower in smalltalk_phrases:
             self.client.send_text(
                 sender,
                 "I'm doing great, thanks for asking! 😄\n\n"
                 "Ready to help with invoices, expenses, or anything else.\n"
-                "What can I do for you today?"
+                "What can I do for you today?",
             )
             return True
 
         # ── Positive feedback ──
         positive_phrases = {
-            "nice", "cool", "great", "awesome", "perfect",
-            "amazing", "love it", "fantastic", "brilliant",
-            "sweet", "dope", "lit", "fire", "legit",
-            "well done", "good job", "excellent",
+            "nice",
+            "cool",
+            "great",
+            "awesome",
+            "perfect",
+            "amazing",
+            "love it",
+            "fantastic",
+            "brilliant",
+            "sweet",
+            "dope",
+            "lit",
+            "fire",
+            "legit",
+            "well done",
+            "good job",
+            "excellent",
         }
         if text_lower in positive_phrases:
-            self.client.send_text(
-                sender,
-                "Glad to hear that! 🎉\n\n"
-                "Need anything else? Just ask!"
-            )
+            self.client.send_text(sender, "Glad to hear that! 🎉\n\n" "Need anything else? Just ask!")
             return True
 
         # ── Laughter ──
         laugh_phrases = {"lol", "haha", "hahaha", "😂", "🤣", "😁", "😄", "lmao"}
         if text_lower in laugh_phrases:
-            self.client.send_text(
-                sender,
-                "😄 Glad I could bring a smile!\n\n"
-                "Anything I can help with?"
-            )
+            self.client.send_text(sender, "😄 Glad I could bring a smile!\n\n" "Anything I can help with?")
             return True
 
         # ── Emoji-only messages ──
-        if all(
-            not c.isalnum() and not c.isspace()
-            for c in text_lower
-        ) and len(text_lower.strip()) > 0:
+        if all(not c.isalnum() and not c.isspace() for c in text_lower) and len(text_lower.strip()) > 0:
             # Pure emoji/symbol message
-            self.client.send_text(
-                sender,
-                "😊 Nice!\n\nAnything I can help you with?"
-            )
+            self.client.send_text(sender, "😊 Nice!\n\nAnything I can help you with?")
             return True
 
         # ── "Who are you" / identity ──
         identity_phrases = {
-            "who are you", "what are you", "are you a bot",
-            "are you real", "are you human", "is this a bot",
-            "what is this", "what's this number",
+            "who are you",
+            "what are you",
+            "are you a bot",
+            "are you real",
+            "are you human",
+            "is this a bot",
+            "what is this",
+            "what's this number",
         }
         if text_lower in identity_phrases:
             self.client.send_text(
@@ -1251,30 +1357,23 @@ class WhatsAppHandler:
                 "I'm *SuoOps* 🇳🇬 — your AI-powered invoice assistant!\n\n"
                 "I help you create invoices, track expenses, and manage "
                 "your business — all from WhatsApp.\n\n"
-                "Type *help* to see everything I can do."
+                "Type *help* to see everything I can do.",
             )
             return True
 
         return False
-    
+
     def _send_analytics(self, sender: str, issuer_id: int) -> None:
         """Send business analytics snapshot via WhatsApp."""
-        from decimal import Decimal
 
         try:
             period = "30d"
             start_date, end_date = get_date_range(period)
             conversion_rate = get_conversion_rate("NGN")
 
-            revenue = calculate_revenue_metrics(
-                self.db, issuer_id, start_date, end_date, conversion_rate
-            )
-            invoices = calculate_invoice_metrics(
-                self.db, issuer_id, start_date, end_date
-            )
-            customers = calculate_customer_metrics(
-                self.db, issuer_id, start_date, end_date
-            )
+            revenue = calculate_revenue_metrics(self.db, issuer_id, start_date, end_date, conversion_rate)
+            invoices = calculate_invoice_metrics(self.db, issuer_id, start_date, end_date)
+            customers = calculate_customer_metrics(self.db, issuer_id, start_date, end_date)
 
             # Resolve user's preferred display currency
             currency = get_user_currency(self.db, issuer_id)
@@ -1295,10 +1394,7 @@ class WhatsAppHandler:
                 growth_text = "0%"
 
             # Collection rate
-            collection = (
-                (invoices.paid_invoices / invoices.total_invoices * 100)
-                if invoices.total_invoices > 0 else 0
-            )
+            collection = (invoices.paid_invoices / invoices.total_invoices * 100) if invoices.total_invoices > 0 else 0
 
             msg = (
                 "📊 *Your Business Report (30 days)*\n"
@@ -1318,7 +1414,7 @@ class WhatsAppHandler:
 
             if invoices.awaiting_confirmation:
                 msg += f"🔔 Awaiting: {invoices.awaiting_confirmation}\n"
-            if invoices.overdue_invoices if hasattr(invoices, 'overdue_invoices') else 0:
+            if invoices.overdue_invoices if hasattr(invoices, "overdue_invoices") else 0:
                 msg += f"🔴 Overdue: {invoices.overdue_invoices}\n"
 
             msg += (
@@ -1334,10 +1430,7 @@ class WhatsAppHandler:
             if revenue.average_invoice_value:
                 msg += f"💵 Avg invoice: {fmt(revenue.average_invoice_value)}\n\n"
 
-            msg += (
-                "━━━━━━━━━━━━━━━━━━━━━\n"
-                "💡 Full analytics at suoops.com/dashboard/analytics"
-            )
+            msg += "━━━━━━━━━━━━━━━━━━━━━\n" "💡 Full analytics at suoops.com/dashboard/analytics"
 
             self.client.send_text(sender, msg)
 
@@ -1352,7 +1445,7 @@ class WhatsAppHandler:
             self.client.send_text(
                 sender,
                 "⚠️ Couldn't generate your report right now. "
-                "Try again or view full analytics at suoops.com/dashboard/analytics"
+                "Try again or view full analytics at suoops.com/dashboard/analytics",
             )
 
     def _send_cash_snapshot_image(self, sender: str, issuer_id: int, currency: str) -> None:
@@ -1361,11 +1454,7 @@ class WhatsAppHandler:
 
         cash = calculate_cash_position(self.db, issuer_id)
         user = self.db.query(models.User).filter(models.User.id == issuer_id).first()
-        business = (
-            getattr(user, "business_name", None)
-            or getattr(user, "name", None)
-            or "Your Business"
-        )
+        business = getattr(user, "business_name", None) or getattr(user, "name", None) or "Your Business"
 
         png = build_cash_snapshot_png(cash, str(business), currency)
         media_id = self.client.upload_media(png, "image/png", "cash-snapshot.png")
@@ -1416,7 +1505,7 @@ class WhatsAppHandler:
                     sender,
                     "📊 No tax report data found yet.\n\n"
                     "Create some invoices first, then type *tax report* "
-                    "to get your tax summary!"
+                    "to get your tax summary!",
                 )
                 return
 
@@ -1424,30 +1513,29 @@ class WhatsAppHandler:
             if not report.pdf_url:
                 try:
                     from app.services.pdf_service import PDFService
-                    from app.storage.s3_client import S3Client
                     from app.services.tax_reporting.computations import (
-                        compute_revenue_by_date_range,
                         compute_expenses_by_date_range,
+                        compute_revenue_by_date_range,
                     )
+                    from app.storage.s3_client import S3Client
 
                     total_revenue = float(
-                        compute_revenue_by_date_range(
-                            self.db, issuer_id, report.start_date, report.end_date, "paid"
-                        )
+                        compute_revenue_by_date_range(self.db, issuer_id, report.start_date, report.end_date, "paid")
                     )
                     total_expenses = float(
-                        compute_expenses_by_date_range(
-                            self.db, issuer_id, report.start_date, report.end_date
-                        )
+                        compute_expenses_by_date_range(self.db, issuer_id, report.start_date, report.end_date)
                     )
 
                     pdf_service = PDFService(S3Client())
                     pdf_url = pdf_service.generate_monthly_tax_report_pdf(
-                        report, basis="paid",
-                        total_revenue=total_revenue, total_expenses=total_expenses,
+                        report,
+                        basis="paid",
+                        total_revenue=total_revenue,
+                        total_expenses=total_expenses,
                     )
 
                     from app.services.tax_reporting_service import TaxReportingService
+
                     TaxReportingService(self.db).attach_report_pdf(report, pdf_url)
                     report.pdf_url = pdf_url
                     self.db.commit()
@@ -1486,9 +1574,7 @@ class WhatsAppHandler:
                 msg += f"💵 VAT Collected: {fmt(vat)}\n"
 
             total_tax = levy + pit + float(report.cit_amount or 0)
-            msg += (
-                f"\n📌 *Total Tax Liability: {fmt(total_tax)}*\n\n"
-            )
+            msg += f"\n📌 *Total Tax Liability: {fmt(total_tax)}*\n\n"
 
             # Send text summary first
             self.client.send_text(sender, msg)
@@ -1497,6 +1583,7 @@ class WhatsAppHandler:
             # URLs are blocked by WhatsApp servers → 403 Forbidden)
             if report.pdf_url:
                 from app.storage.s3_client import S3Client as _S3
+
                 _s3 = _S3()
                 s3_key = _s3.extract_key_from_url(report.pdf_url)
                 pdf_bytes = _s3.download_bytes(s3_key) if s3_key else None
@@ -1506,34 +1593,29 @@ class WhatsAppHandler:
                     media_id = self.client.upload_media(pdf_bytes, "application/pdf", filename)
                     if media_id:
                         self.client.send_document(
-                            sender, media_id, filename,
+                            sender,
+                            media_id,
+                            filename,
                             f"📄 Tax Report — {period_label}",
                         )
                     else:
                         self.client.send_text(
-                            sender,
-                            "💡 Couldn't attach PDF right now. "
-                            "Download it at suoops.com/dashboard/tax"
+                            sender, "💡 Couldn't attach PDF right now. " "Download it at suoops.com/dashboard/tax"
                         )
                 else:
                     self.client.send_text(
-                        sender,
-                        "💡 PDF not available right now. "
-                        "Download it at suoops.com/dashboard/tax"
+                        sender, "💡 PDF not available right now. " "Download it at suoops.com/dashboard/tax"
                     )
             else:
                 self.client.send_text(
-                    sender,
-                    "💡 PDF not available right now. "
-                    "Download it at suoops.com/dashboard/tax"
+                    sender, "💡 PDF not available right now. " "Download it at suoops.com/dashboard/tax"
                 )
 
         except Exception as exc:
             logger.exception("Error sending tax report for user %s: %s", issuer_id, exc)
             self.client.send_text(
                 sender,
-                "⚠️ Couldn't generate your tax report right now. "
-                "Try again or download at suoops.com/dashboard/tax"
+                "⚠️ Couldn't generate your tax report right now. " "Try again or download at suoops.com/dashboard/tax",
             )
 
     def _toggle_currency(self, sender: str, issuer_id: int, text_lower: str) -> None:
@@ -1569,14 +1651,14 @@ class WhatsAppHandler:
                 "💱 *Currency set to USD* 🇺🇸\n\n"
                 f"Live rate: ₦{rate:,.0f} = $1\n"
                 "All amounts will now show in dollars.\n\n"
-                "Type *naira* to switch back."
+                "Type *naira* to switch back.",
             )
         else:
             self.client.send_text(
                 sender,
                 "💱 *Currency set to Naira* 🇳🇬\n\n"
                 "All amounts will show in ₦.\n\n"
-                "Type *usd* to switch to dollars."
+                "Type *usd* to switch to dollars.",
             )
 
     def _send_help_guide(self, sender: str, issuer_id: int) -> None:
@@ -1656,26 +1738,26 @@ class WhatsAppHandler:
             "🆘 *SUPPORT & QUESTIONS*\n"
             "━━━━━━━━━━━━━━━━━━━━━\n\n"
             "❓ *Ask me anything:*\n"
-            "  \"how to get paid\", \"pricing\", \"verify my number\"\n\n"
+            '  "how to get paid", "pricing", "verify my number"\n\n'
             "🚀 Type *setup* — check your account status\n"
             "🆘 Type *support* — reach our team\n"
             "🌐 Visit support.suoops.com for more help"
         )
         self.client.send_text(sender, help_message)
-    
+
     async def _handle_interactive_message(self, sender: str, message: dict[str, Any]) -> None:
         """Handle interactive button clicks and list selections from WhatsApp."""
         button_id = message.get("button_id", "")
-        button_title = message.get("button_title", "")
         # List replies come through as list_reply_id / list_reply_title
         list_reply_id = message.get("list_reply_id", "")
-        list_reply_title = message.get("list_reply_title", "")
-        
+
         interactive_id = button_id or list_reply_id
-        
+
         logger.info(
             "[INTERACTIVE] From %s: button_id=%s, list_reply_id=%s",
-            sender, button_id, list_reply_id,
+            sender,
+            button_id,
+            list_reply_id,
         )
 
         # ── Guided invoice review buttons ──────────────────────────
@@ -1684,10 +1766,15 @@ class WhatsAppHandler:
                 get_onboarding_session,
                 handle_onboarding_reply,
             )
+
             session = get_onboarding_session(sender)
             if session:
                 invoice_data = handle_onboarding_reply(
-                    session, self.client, sender, button_id, db=self.db,
+                    session,
+                    self.client,
+                    sender,
+                    button_id,
+                    db=self.db,
                 )
                 if invoice_data:
                     await self._finalize_onboarded_invoice(sender, invoice_data)
@@ -1706,14 +1793,13 @@ class WhatsAppHandler:
             elif button_id == "quota_store":
                 self.client.send_text(
                     sender,
-                    "🛍️ Set up your storefront so customers order & pay you online: "
-                    "suoops.com/dashboard/settings",
+                    "🛍️ Set up your storefront so customers order & pay you online: " "suoops.com/dashboard/settings",
                 )
             else:
                 self.client.send_text(sender, "👍 No problem — I'll be here.")
             return
         # ── End quota buttons ──────────────────────────────────────
-        
+
         # ── Product flow: cart action buttons ──────────────────────
         if button_id == "cart_add_more":
             self.product_flow.handle_add_more(sender)
@@ -1729,15 +1815,15 @@ class WhatsAppHandler:
             if self.invoice_processor.handle_customer_paid(sender):
                 logger.info("Handled payment confirmation button from customer %s", sender)
                 return
-        
+
         # Handle other buttons as opt-in (Hi, Get Details, etc.)
         if button_id in ("opt_in", "get_details", "hi"):
             if self.invoice_processor.handle_customer_optin(sender):
                 logger.info("Handled opt-in button from customer %s", sender)
                 return
-        
+
         logger.warning("[INTERACTIVE] Unhandled: id=%s", interactive_id)
-    
+
     async def _handle_image_message(self, sender: str, message: dict[str, Any]) -> None:
         """Handle image messages (receipt photos)"""
         parse = {}  # Empty parse for images
@@ -1759,4 +1845,3 @@ class WhatsAppHandler:
         import asyncio
 
         asyncio.run(self.handle_incoming(payload))
-

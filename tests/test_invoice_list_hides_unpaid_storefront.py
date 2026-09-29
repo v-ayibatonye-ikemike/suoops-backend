@@ -1,5 +1,6 @@
 """The seller's invoice list hides unpaid (abandoned) storefront orders but still
 shows paid storefront orders and normal pending invoices."""
+
 from __future__ import annotations
 
 from decimal import Decimal

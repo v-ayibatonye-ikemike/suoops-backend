@@ -9,10 +9,12 @@ Adds ``delivery_booked_at`` and ``courier_delivered_at`` to
 actual delivery + a post-delivery inspection window (not the flat payment-time
 window), and undelivered orders can be flagged for review instead of auto-paid.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260712_courier_delivery_gate"

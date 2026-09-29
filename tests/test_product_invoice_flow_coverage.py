@@ -4,6 +4,7 @@ Seeds real Product rows for an issuer in the in-memory SQLite DB and drives
 the 3-message product→invoice flow (browse → items → customer) with a mocked
 WhatsApp client.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal

@@ -1,7 +1,8 @@
 """Tests for encryption utilities."""
+
 import pytest
 
-from app.core.encryption import encrypt_value, decrypt_value, _get_cipher
+from app.core.encryption import _get_cipher, decrypt_value, encrypt_value
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +16,7 @@ def clear_cipher_cache():
 def test_encrypt_decrypt_with_valid_key():
     """Test encryption and decryption with a valid key."""
     from app.core.config import settings
+
     orig_key = settings.ENCRYPTION_KEY
     try:
         settings.ENCRYPTION_KEY = "12345678901234567890123456789012"  # Exactly 32 bytes
@@ -23,7 +25,7 @@ def test_encrypt_decrypt_with_valid_key():
         encrypted = encrypt_value(plaintext)
         assert encrypted is not None
         assert encrypted != plaintext
-        
+
         decrypted = decrypt_value(encrypted)
         assert decrypted == plaintext
     finally:
@@ -44,6 +46,7 @@ def test_decrypt_none_returns_none():
 def test_encrypt_without_key_returns_plaintext():
     """Test that encryption without key returns plaintext."""
     from app.core.config import settings
+
     orig_key = settings.ENCRYPTION_KEY
     try:
         settings.ENCRYPTION_KEY = None
@@ -59,6 +62,7 @@ def test_encrypt_without_key_returns_plaintext():
 def test_decrypt_without_key_returns_ciphertext():
     """Test that decryption without key returns original value."""
     from app.core.config import settings
+
     orig_key = settings.ENCRYPTION_KEY
     try:
         settings.ENCRYPTION_KEY = None
@@ -74,6 +78,7 @@ def test_decrypt_without_key_returns_ciphertext():
 def test_decrypt_invalid_token_returns_original():
     """Test that decryption with invalid token returns original value."""
     from app.core.config import settings
+
     orig_key = settings.ENCRYPTION_KEY
     try:
         settings.ENCRYPTION_KEY = "test_key_that_is_32_bytes_long!"
@@ -90,7 +95,9 @@ def test_decrypt_invalid_token_returns_original():
 def test_encrypt_with_base64_key():
     """Test encryption with base64 encoded key."""
     from cryptography.fernet import Fernet
+
     from app.core.config import settings
+
     key = Fernet.generate_key().decode()
     orig_key = settings.ENCRYPTION_KEY
     try:
@@ -99,7 +106,7 @@ def test_encrypt_with_base64_key():
         plaintext = "test_value"
         encrypted = encrypt_value(plaintext)
         assert encrypted != plaintext
-        
+
         decrypted = decrypt_value(encrypted)
         assert decrypted == plaintext
     finally:
@@ -110,6 +117,7 @@ def test_encrypt_with_base64_key():
 def test_cipher_caching():
     """Test that cipher is cached properly."""
     from app.core.config import settings
+
     orig_key = settings.ENCRYPTION_KEY
     try:
         settings.ENCRYPTION_KEY = "test_key_that_is_32_bytes_long!"

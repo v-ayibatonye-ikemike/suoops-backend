@@ -9,12 +9,11 @@ Exit codes:
  1 - rotated successfully
  2 - rotation attempted but failed
 """
+
 from __future__ import annotations
 
 import gzip
-import os
 import shutil
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 

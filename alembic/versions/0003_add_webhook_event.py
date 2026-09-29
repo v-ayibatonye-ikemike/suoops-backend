@@ -4,6 +4,7 @@ Revision ID: 0003_add_webhook_event
 Revises: 0002_add_invoice_discount
 Create Date: 2025-10-16
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa

@@ -8,6 +8,7 @@ env that has the prod DB (e.g. the Render shell):
     python3 scripts/report_invalid_phone_users.py
     python3 scripts/report_invalid_phone_users.py 07065730703   # diagnose one number
 """
+
 from __future__ import annotations
 
 import sys
@@ -43,7 +44,7 @@ def _report(db) -> None:
     null_phone = 0
     oauth_like = 0
     samples: list[str] = []
-    for (uid, phone) in db.query(User.id, User.phone).all():
+    for uid, phone in db.query(User.id, User.phone).all():
         if phone is None or not str(phone).strip():
             null_phone += 1
             invalid += 1
@@ -69,23 +70,22 @@ def _report(db) -> None:
 
 def _diagnose(db, raw_number: str) -> None:
     cands = _phone_candidates(raw_number)
-    user = (
-        db.query(User)
-        .filter(User.phone.in_(list(cands)))
-        .first()
-    )
+    user = db.query(User).filter(User.phone.in_(list(cands))).first()
     print(f"\n=== Diagnose {raw_number!r} (tried {sorted(cands)}) ===")
     if not user:
-        print("No user found with that phone. → They aren't in the DB under this "
-              "number (or it's stored differently), so nothing could be sent.")
+        print(
+            "No user found with that phone. → They aren't in the DB under this "
+            "number (or it's stored differently), so nothing could be sent."
+        )
         return
 
     print(f"User #{user.id}  name={user.name!r}  email={user.email!r}")
     print(f"phone stored as:        {user.phone!r}")
     print(f"valid phone for WA:     {_is_valid_phone(user.phone)}")
     online = bool(getattr(user, "paystack_subaccount_active", False))
-    print(f"online payments active: {online}  "
-          f"{'← SKIPPED (already on online payments, by design)' if online else ''}")
+    print(
+        f"online payments active: {online}  " f"{'← SKIPPED (already on online payments, by design)' if online else ''}"
+    )
 
     def _sent(email_type: str) -> bool:
         return (

@@ -1,4 +1,5 @@
 """Escrow trust + window unit tests (step 3)."""
+
 import datetime as dt
 
 from app.services import escrow_service as es
@@ -73,26 +74,20 @@ def test_buyer_reputation_tracks_and_flags():
 def test_detect_order_collusion():
     """Self-dealing signals: buyer shares the seller's IP or sits on the store."""
     from types import SimpleNamespace
+
     seller = SimpleNamespace(
         signup_ip="102.89.1.1",
         storefront_lat=6.5000,
         storefront_lng=3.3000,
     )
     # Shared IP → flagged.
-    assert es.detect_order_collusion(
-        seller, buyer_ip="102.89.1.1", customer_lat=None, customer_lng=None
-    ) == "shared IP"
+    assert es.detect_order_collusion(seller, buyer_ip="102.89.1.1", customer_lat=None, customer_lng=None) == "shared IP"
     # Buyer GPS on top of the store (~15m) → flagged.
     assert "seller location" in (
-        es.detect_order_collusion(
-            seller, buyer_ip="10.0.0.9", customer_lat=6.5001, customer_lng=3.3001
-        )
-        or ""
+        es.detect_order_collusion(seller, buyer_ip="10.0.0.9", customer_lat=6.5001, customer_lng=3.3001) or ""
     )
     # Different IP + far location → clean.
-    assert es.detect_order_collusion(
-        seller, buyer_ip="10.0.0.9", customer_lat=7.4, customer_lng=4.1
-    ) is None
+    assert es.detect_order_collusion(seller, buyer_ip="10.0.0.9", customer_lat=7.4, customer_lng=4.1) is None
 
 
 def test_collusion_flags_buyer_using_sellers_own_number():
@@ -100,11 +95,16 @@ def test_collusion_flags_buyer_using_sellers_own_number():
     from types import SimpleNamespace
 
     seller = SimpleNamespace(
-        signup_ip=None, phone="+2348011112222",
-        storefront_lat=None, storefront_lng=None,
+        signup_ip=None,
+        phone="+2348011112222",
+        storefront_lat=None,
+        storefront_lng=None,
     )
     reason = es.detect_order_collusion(
-        seller, buyer_ip=None, customer_lat=None, customer_lng=None,
+        seller,
+        buyer_ip=None,
+        customer_lat=None,
+        customer_lng=None,
         buyer_phone="+2348011112222",
     )
     assert reason is not None and "number" in reason
@@ -169,9 +169,7 @@ def test_seller_velocity_hold_reason():
         assert reason is not None and "volume" in reason
     finally:
         if seller is not None:
-            s.query(models.StorefrontOrderEscrow).filter(
-                models.StorefrontOrderEscrow.seller_id == seller.id
-            ).delete()
+            s.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.seller_id == seller.id).delete()
             s.query(models.User).filter(models.User.id == seller.id).delete()
             s.commit()
         s.close()
@@ -188,9 +186,7 @@ def test_release_blocked_when_held_for_review():
     s = SessionLocal()
     try:
         with pytest.raises(es.EscrowError):
-            es.release_escrow(
-                s, SimpleNamespace(id=99, status="held", held_for_review=True)
-            )
+            es.release_escrow(s, SimpleNamespace(id=99, status="held", held_for_review=True))
     finally:
         s.close()
 
@@ -256,9 +252,7 @@ def _fake_provider_class():
         def transfer(self, db, *, seller, amount_kobo, reference, reason):
             self.sent.append(reference)
             self.status_map.setdefault(reference, "pending")
-            return PayoutResult(
-                ok=True, reference=reference, provider=self.name, status="pending"
-            )
+            return PayoutResult(ok=True, reference=reference, provider=self.name, status="pending")
 
         def transfer_status(self, reference):
             return self.status_map.get(reference, "unknown")
@@ -295,8 +289,10 @@ def test_release_waits_for_confirmation_then_releases(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Payout Seller", phone="+2348000000001",
-            account_number="0123456789", bank_name="GTBank",
+            name="Payout Seller",
+            phone="+2348000000001",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()
@@ -331,8 +327,10 @@ def test_release_retries_failed_transfer_with_fresh_reference(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Retry Seller", phone="+2348000000002",
-            account_number="0123456789", bank_name="GTBank",
+            name="Retry Seller",
+            phone="+2348000000002",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()
@@ -367,8 +365,10 @@ def test_release_does_not_resend_on_unknown_status(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Unknown Seller", phone="+2348000000003",
-            account_number="0123456789", bank_name="GTBank",
+            name="Unknown Seller",
+            phone="+2348000000003",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()
@@ -405,9 +405,7 @@ def test_release_uses_collecting_rail(monkeypatch):
 
         def _confirming_transfer(db, *, seller, amount_kobo, reference, reason):
             prov.sent.append(reference)
-            return PayoutResult(
-                ok=True, reference=reference, provider="flutterwave", status="successful"
-            )
+            return PayoutResult(ok=True, reference=reference, provider="flutterwave", status="successful")
 
         prov.transfer = _confirming_transfer
         return prov
@@ -418,8 +416,10 @@ def test_release_uses_collecting_rail(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Rail Seller", phone="+2348000000009",
-            account_number="0123456789", bank_name="GTBank",
+            name="Rail Seller",
+            phone="+2348000000009",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()
@@ -455,19 +455,13 @@ def test_next_settlement_after_is_next_morning():
     """
     # Wednesday 2pm WAT -> Thursday 07:00 UTC.
     paid = dt.datetime(2026, 7, 8, 13, 0, tzinfo=dt.timezone.utc)
-    assert es.next_settlement_after(paid) == dt.datetime(
-        2026, 7, 9, 7, 0, tzinfo=dt.timezone.utc
-    )
+    assert es.next_settlement_after(paid) == dt.datetime(2026, 7, 9, 7, 0, tzinfo=dt.timezone.utc)
     # A late-night WAT payment still settles the very next business morning.
     paid2 = dt.datetime(2026, 7, 8, 22, 30, tzinfo=dt.timezone.utc)
-    assert es.next_settlement_after(paid2) == dt.datetime(
-        2026, 7, 9, 7, 0, tzinfo=dt.timezone.utc
-    )
+    assert es.next_settlement_after(paid2) == dt.datetime(2026, 7, 9, 7, 0, tzinfo=dt.timezone.utc)
     # A FRIDAY payment skips the weekend -> Monday 07:00 UTC.
     friday = dt.datetime(2026, 7, 10, 13, 0, tzinfo=dt.timezone.utc)
-    assert es.next_settlement_after(friday) == dt.datetime(
-        2026, 7, 13, 7, 0, tzinfo=dt.timezone.utc
-    )
+    assert es.next_settlement_after(friday) == dt.datetime(2026, 7, 13, 7, 0, tzinfo=dt.timezone.utc)
 
 
 def test_release_waits_for_settlement(monkeypatch):
@@ -482,8 +476,10 @@ def test_release_waits_for_settlement(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Settle Seller", phone="+2348000000020",
-            account_number="0123456789", bank_name="GTBank",
+            name="Settle Seller",
+            phone="+2348000000020",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()
@@ -525,9 +521,7 @@ def test_release_resends_when_rail_changed(monkeypatch):
 
         def transfer(self, db, *, seller, amount_kobo, reference, reason):
             sent.append(reference)
-            return PayoutResult(
-                ok=True, reference=reference, provider="flutterwave", status="successful"
-            )
+            return PayoutResult(ok=True, reference=reference, provider="flutterwave", status="successful")
 
         def transfer_exists(self, reference):
             return True
@@ -538,8 +532,10 @@ def test_release_resends_when_rail_changed(monkeypatch):
     s = SessionLocal()
     try:
         seller = models.User(
-            name="Rail Change Seller", phone="+2348000000010",
-            account_number="0123456789", bank_name="GTBank",
+            name="Rail Change Seller",
+            phone="+2348000000010",
+            account_number="0123456789",
+            bank_name="GTBank",
         )
         s.add(seller)
         s.commit()

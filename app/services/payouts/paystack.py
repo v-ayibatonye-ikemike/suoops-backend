@@ -1,4 +1,5 @@
 """Paystack payout provider + collector refund (the default rail)."""
+
 from __future__ import annotations
 
 import logging
@@ -64,9 +65,7 @@ def _resolve_bank_code(bank_name: str) -> str:
         data = resp.json()
         if not data.get("status"):
             raise PayoutError(f"Could not load bank list: {data.get('message')}")
-        _bank_cache = {
-            _normalize_bank_name(b["name"]): b["code"] for b in data.get("data", [])
-        }
+        _bank_cache = {_normalize_bank_name(b["name"]): b["code"] for b in data.get("data", [])}
         _bank_cache_at = now
 
     code = _bank_cache.get(_normalize_bank_name(bank_name))
@@ -80,16 +79,14 @@ class PaystackPayoutProvider(PayoutProvider):
 
     name = "paystack"
 
-    def _ensure_recipient(self, db: Session, user: "models.User") -> str:
+    def _ensure_recipient(self, db: Session, user: models.User) -> str:
         """Return the seller's Paystack Transfer Recipient code, creating it once."""
         if user.paystack_recipient_code:
             return user.paystack_recipient_code
 
         account_number = user.payout_account_number or user.account_number
         bank_name = user.payout_bank_name or user.bank_name
-        account_name = (
-            user.payout_account_name or user.account_name or user.business_name or user.name
-        )
+        account_name = user.payout_account_name or user.account_name or user.business_name or user.name
         if not (account_number and bank_name):
             raise PayoutError("Seller has no bank details set for payouts")
 
@@ -124,7 +121,7 @@ class PaystackPayoutProvider(PayoutProvider):
         self,
         db: Session,
         *,
-        seller: "models.User",
+        seller: models.User,
         amount_kobo: int,
         reference: str,
         reason: str,
@@ -160,9 +157,7 @@ class PaystackPayoutProvider(PayoutProvider):
         """Normalized disbursement status via Paystack's verify-by-reference."""
         try:
             with paystack_client(timeout=15) as client:
-                resp = client.get(
-                    f"{_PAYSTACK_BASE}/transfer/verify/{reference}", headers=_headers()
-                )
+                resp = client.get(f"{_PAYSTACK_BASE}/transfer/verify/{reference}", headers=_headers())
             data = resp.json()
         except Exception:  # noqa: BLE001 — transport error → indeterminate
             return "unknown"

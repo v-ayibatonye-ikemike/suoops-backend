@@ -3,6 +3,7 @@ Tax and Fiscalization Tasks.
 
 Celery tasks for tax report generation and invoice fiscalization.
 """
+
 from __future__ import annotations
 
 import gc
@@ -34,8 +35,19 @@ logger = logging.getLogger(__name__)
 
 # Month names indexed 1-12 (index 0 is an unused placeholder) for report labels.
 MONTH_NAMES = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
@@ -96,12 +108,15 @@ def generate_previous_month_reports(self: Task, basis: str = "paid") -> None:
                     if rss > 0:
                         logger.info(
                             "[tax.generate_previous_month_reports] progress=%s users rss=%.1fMB",
-                            total, rss,
+                            total,
+                            rss,
                         )
 
                 logger.info(
                     "Generated monthly tax report for user=%s period=%s-%02d",
-                    user_id, year, prev_month,
+                    user_id,
+                    year,
+                    prev_month,
                 )
 
                 # ── Notify user that report is ready (ONCE per period) ─────
@@ -124,7 +139,9 @@ def generate_previous_month_reports(self: Task, basis: str = "paid") -> None:
                     continue
 
                 wa_ok = _notify_tax_report_whatsapp(
-                    user, period_label, report.pdf_url,
+                    user,
+                    period_label,
+                    report.pdf_url,
                 )
                 notified = False
                 if wa_ok:
@@ -168,7 +185,11 @@ def generate_previous_month_reports(self: Task, basis: str = "paid") -> None:
             logger.info(
                 "[tax.generate_previous_month_reports] completed users=%s "
                 "rss_final=%.1fMB failures=%s wa_notified=%s email_notified=%s",
-                total, rss_final, failures, notified_wa, notified_email,
+                total,
+                rss_final,
+                failures,
+                notified_wa,
+                notified_email,
             )
     gc.collect()
 
@@ -181,11 +202,7 @@ def transmit_invoice(self: Task, fiscal_code: str) -> None:
     from app.services.fiscalization_service import FiscalTransmitter
 
     with session_scope() as db:
-        fi: FiscalInvoice | None = (
-            db.query(FiscalInvoice)
-            .filter(FiscalInvoice.fiscal_code == fiscal_code)
-            .first()
-        )
+        fi: FiscalInvoice | None = db.query(FiscalInvoice).filter(FiscalInvoice.fiscal_code == fiscal_code).first()
         if not fi:
             logger.warning("Transmit skip: fiscal invoice not found | fiscal_code=%s", fiscal_code)
             return
@@ -194,7 +211,8 @@ def transmit_invoice(self: Task, fiscal_code: str) -> None:
         if not inv:
             logger.warning(
                 "Transmit skip: invoice missing | fiscal_code=%s invoice_id=%s",
-                fiscal_code, fi.invoice_id,
+                fiscal_code,
+                fi.invoice_id,
             )
             return
 
@@ -204,12 +222,14 @@ def transmit_invoice(self: Task, fiscal_code: str) -> None:
             _update_fiscal_invoice(db, fi, tx_result)
             logger.info(
                 "Fiscal invoice transmitted | fiscal_code=%s status=%s",
-                fiscal_code, fi.firs_validation_status,
+                fiscal_code,
+                fi.firs_validation_status,
             )
         except Exception as e:
             logger.exception(
                 "Fiscal invoice transmission failed | fiscal_code=%s error=%s",
-                fiscal_code, e,
+                fiscal_code,
+                e,
             )
             _record_transmission_failure(db, fiscal_code, e)
 
@@ -236,6 +256,7 @@ def _record_transmission_failure(db, fiscal_code: str, error: Exception) -> None
     """Record transmission failure as alert."""
     try:
         from app.models.alert_models import AlertEvent
+
         evt = AlertEvent(
             category="fiscal.transmit",
             message=f"Transmit failed {fiscal_code}: {error}",
@@ -259,7 +280,9 @@ def _is_valid_phone(phone: str | None) -> bool:
 
 
 def _notify_tax_report_whatsapp(
-    user: "User", period: str, pdf_url: str | None,
+    user: User,
+    period: str,
+    pdf_url: str | None,
 ) -> bool:
     """Try to send a tax-report-ready notification via WhatsApp.
 
@@ -288,13 +311,15 @@ def _notify_tax_report_whatsapp(
                 user.phone,
                 template_name,
                 template_lang,
-                components=[{
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": f"{first_name}, your "},
-                        {"type": "text", "text": period},
-                    ],
-                }],
+                components=[
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": f"{first_name}, your "},
+                            {"type": "text", "text": period},
+                        ],
+                    }
+                ],
             )
             if ok:
                 record_whatsapp_send(priority=False)
@@ -319,7 +344,10 @@ def _notify_tax_report_whatsapp(
 
 
 def _send_tax_report_email(
-    to_email: str, name: str | None, period: str, pdf_url: str | None,
+    to_email: str,
+    name: str | None,
+    period: str,
+    pdf_url: str | None,
 ) -> bool:
     """Send a tax-report-ready notification via email."""
     display_name = (name or "").split()[0] if name else "there"
@@ -333,9 +361,7 @@ def _send_tax_report_email(
         "and is ready to view and download on your dashboard."
     )
 
-    tpl_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html"
-    )
+    tpl_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html")
     try:
         with open(tpl_path) as f:
             tpl = Template(f.read())

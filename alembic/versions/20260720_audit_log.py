@@ -9,10 +9,12 @@ disk and is wiped on every deploy. This adds a durable ``audit_log`` table so
 security/compliance events persist and are queryable. Each row carries
 ``entry_hash = sha256(prev_hash + event)`` for cheap tamper-evidence.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260720_audit_log"

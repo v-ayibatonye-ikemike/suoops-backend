@@ -1,4 +1,5 @@
 """Status update and public retrieval helpers."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -15,7 +16,7 @@ from app.utils.invoice_delivery import invoice_has_contact, is_online_only
 logger = logging.getLogger(__name__)
 
 
-def _manual_confirm_needs_review(db: Session, invoice: "models.Invoice") -> bool:
+def _manual_confirm_needs_review(db: Session, invoice: models.Invoice) -> bool:
     """True when a SELF 'mark as paid' on this large MANUAL invoice should be held
     for review — i.e. the amount is over the review ceiling AND the confirming
     account looks low-trust (flagged, brand-new, dormant, or with no prior paid
@@ -26,9 +27,7 @@ def _manual_confirm_needs_review(db: Session, invoice: "models.Invoice") -> bool
     if ceiling <= 0 or float(invoice.amount or 0) <= ceiling:
         return False
 
-    issuer = invoice.issuer or (
-        db.query(models.User).filter(models.User.id == invoice.issuer_id).first()
-    )
+    issuer = invoice.issuer or (db.query(models.User).filter(models.User.id == invoice.issuer_id).first())
     if issuer is None:
         return True  # unknown issuer → hold to be safe
 
@@ -113,9 +112,7 @@ class InvoiceStatusMixin:
 
         allowed = _VALID_TRANSITIONS.get(previous_status, set())
         if status not in allowed:
-            raise ValueError(
-                f"Cannot change invoice from '{previous_status}' to '{status}'"
-            )
+            raise ValueError(f"Cannot change invoice from '{previous_status}' to '{status}'")
 
         # ── Anti-GMV-bloat: hold a large SELF manual confirmation for review ──
         # A low-trust account marking a big MANUAL invoice paid ITSELF (not an
@@ -166,12 +163,12 @@ class InvoiceStatusMixin:
             self.deduct_invoice_balance(issuer_id, amount=invoice.amount)
 
         invoice.status = status
-        
+
         # Track who updated the status and when
         if updated_by_user_id and status in {"paid", "cancelled"}:
             invoice.status_updated_by_user_id = updated_by_user_id
             invoice.status_updated_at = dt.datetime.now(dt.timezone.utc)
-        
+
         if status == "paid" and invoice.paid_at is None:
             invoice.paid_at = dt.datetime.now(dt.timezone.utc)
         self.db.commit()
@@ -279,7 +276,7 @@ class InvoiceStatusMixin:
 
         # Process inventory deduction for revenue invoices when paid
         self._process_inventory_on_payment(invoice)
-        
+
         # Generate the receipt PDF up front. The WhatsApp receipt/invoice
         # templates have a REQUIRED document (PDF) header, so if the PDF link is
         # missing Meta rejects the template and the free-form fallback is blocked
@@ -294,7 +291,8 @@ class InvoiceStatusMixin:
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Receipt PDF generation failed for %s (queuing async): %s",
-                invoice_id, exc,
+                invoice_id,
+                exc,
             )
             try:
                 from app.workers.tasks.pdf_tasks import generate_receipt_pdf_async
@@ -302,7 +300,9 @@ class InvoiceStatusMixin:
                 generate_receipt_pdf_async.delay(invoice.id)
             except Exception as exc2:  # noqa: BLE001
                 logger.error(
-                    "Failed to queue receipt PDF for %s: %s", invoice_id, exc2,
+                    "Failed to queue receipt PDF for %s: %s",
+                    invoice_id,
+                    exc2,
                 )
         if not invoice.receipt_pdf_url:
             logger.error(
@@ -340,11 +340,11 @@ class InvoiceStatusMixin:
                     results["email"],
                     results["whatsapp"],
                 )
-            
+
             # If no customer contact info, notify business with receipt PDF via WhatsApp
             if not customer_email and not customer_phone:
                 self._notify_business_with_receipt(invoice)
-                
+
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to send receipt notifications for %s: %s", invoice_id, exc)
 
@@ -371,7 +371,8 @@ class InvoiceStatusMixin:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Failed to process storefront referral commission for %s: %s",
-                    invoice_id, exc,
+                    invoice_id,
+                    exc,
                 )
 
         # Check for low stock and send alerts (non-critical, done after receipt is sent)
@@ -380,9 +381,7 @@ class InvoiceStatusMixin:
     def _notify_business_of_order(self, invoice: models.Invoice) -> None:
         """Alert the business of a new paid storefront order so they can fulfil it."""
         user = getattr(invoice, "issuer", None) or (
-            self.db.query(models.User)
-            .filter(models.User.id == invoice.issuer_id)
-            .one_or_none()
+            self.db.query(models.User).filter(models.User.id == invoice.issuer_id).one_or_none()
         )
         if not user:
             logger.warning("Cannot notify business of order %s: issuer missing", invoice.invoice_id)
@@ -395,12 +394,8 @@ class InvoiceStatusMixin:
         customer_name = invoice.customer.name if invoice.customer else "Customer"
         customer_phone = getattr(invoice.customer, "phone", None) if invoice.customer else None
 
-        items = "\n".join(
-            f"• {ln.quantity} × {ln.description}" for ln in (invoice.lines or [])
-        ) or "• (see dashboard)"
-        settle_bank = (
-            getattr(user, "payout_bank_name", None) or getattr(user, "bank_name", None)
-        )
+        items = "\n".join(f"• {ln.quantity} × {ln.description}" for ln in (invoice.lines or [])) or "• (see dashboard)"
+        settle_bank = getattr(user, "payout_bank_name", None) or getattr(user, "bank_name", None)
         settle_to = f"your {settle_bank} account" if settle_bank else "your bank account"
         is_storefront = getattr(invoice, "channel", None) == "storefront"
         # Buyer-protection HELD order? (an escrow row exists for this invoice)
@@ -417,9 +412,7 @@ class InvoiceStatusMixin:
         is_courier = bool(held_escrow is not None and held_escrow.delivery_courier)
         # Service/digital order (nothing ships) — protection is confirm + fast
         # auto-release, so drop all the deliver/dispatch language.
-        is_service = held_escrow is not None and not getattr(
-            held_escrow, "requires_delivery", True
-        )
+        is_service = held_escrow is not None and not getattr(held_escrow, "requires_delivery", True)
         if is_storefront:
             header = "🛒 New paid order — payment confirmed ✅"
             if is_service:
@@ -442,15 +435,12 @@ class InvoiceStatusMixin:
         else:
             header = "💰 Payment received — invoice paid ✅"
             footer = (
-                "📦 No action needed — your customer already has the receipt.\n"
-                f"🔗 Invoice details:\n{order_link}"
+                "📦 No action needed — your customer already has the receipt.\n" f"🔗 Invoice details:\n{order_link}"
             )
         # Settlement copy differs for held (buyer-protection) vs normal orders.
         if held_escrow is not None:
             _confirm_clause = (
-                "sooner when the buyer confirms it's done"
-                if is_service
-                else "sooner if the buyer confirms delivery"
+                "sooner when the buyer confirms it's done" if is_service else "sooner if the buyer confirms delivery"
             )
             settle_line = (
                 "💰 Payment is HELD under buyer protection. Your FULL payout is "
@@ -522,6 +512,7 @@ class InvoiceStatusMixin:
                     # (error 131047), so email is the reliable channel.
                     try:
                         from app.bot.whatsapp_client import WhatsAppClient
+
                         whatsapp_key = getattr(settings, "WHATSAPP_API_KEY", None)
                         if whatsapp_key:
                             WhatsAppClient(whatsapp_key).send_text(user.phone, message)
@@ -562,6 +553,7 @@ class InvoiceStatusMixin:
             return
 
         from app.core.config import settings
+
         frontend_url = getattr(settings, "FRONTEND_URL", "https://suoops.com")
         verify_link = f"{frontend_url.rstrip('/')}/dashboard/invoices/{invoice.invoice_id}"
 
@@ -598,6 +590,7 @@ class InvoiceStatusMixin:
                         # Send WhatsApp notification to business
                         from app.bot.whatsapp_client import WhatsAppClient
                         from app.core.config import settings
+
                         whatsapp_key = getattr(settings, "WHATSAPP_API_KEY", None)
                         if whatsapp_key:
                             client = WhatsAppClient(whatsapp_key)
@@ -635,7 +628,7 @@ class InvoiceStatusMixin:
     def _notify_business_with_receipt(self, invoice: models.Invoice) -> None:
         """
         Notify the business owner with the receipt PDF via WhatsApp.
-        
+
         This is called when an invoice is marked as paid but has no customer
         contact info (no email/phone). In this case, the business needs the
         receipt PDF to give to the customer manually.
@@ -643,25 +636,25 @@ class InvoiceStatusMixin:
         if not invoice.issuer:
             logger.warning("No issuer found for invoice %s", invoice.invoice_id)
             return
-            
+
         user = invoice.issuer
         if not user.phone:
             logger.warning("Business %s has no phone for receipt notification", user.id)
             return
-            
+
         try:
             from app.bot.whatsapp_client import WhatsAppClient
             from app.core.config import settings
-            
+
             whatsapp_key = getattr(settings, "WHATSAPP_API_KEY", None)
             if not whatsapp_key:
                 logger.warning("No WhatsApp API key configured for receipt notification")
                 return
-                
+
             client = WhatsAppClient(whatsapp_key)
-            
+
             customer_name = invoice.customer.name if invoice.customer else "Customer"
-            
+
             receipt_message = (
                 f"✅ Invoice Paid!\n\n"
                 f"📄 Invoice: {invoice.invoice_id}\n"
@@ -669,9 +662,9 @@ class InvoiceStatusMixin:
                 f"👤 Customer: {customer_name}\n\n"
                 f"Share this receipt with your customer."
             )
-            
+
             client.send_text(user.phone, receipt_message)
-            
+
             # Send receipt PDF as document (better UX than URL link)
             if invoice.pdf_url and invoice.pdf_url.startswith("http"):
                 client.send_document(
@@ -680,46 +673,44 @@ class InvoiceStatusMixin:
                     f"Receipt_{invoice.invoice_id}.pdf",
                     f"🧾 Receipt for {customer_name} - ₦{invoice.amount:,.2f}",
                 )
-                
+
             logger.info("Receipt PDF sent to business %s for invoice %s", user.id, invoice.invoice_id)
-            
+
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to send receipt to business %s: %s", invoice.invoice_id, exc)
 
     def _process_inventory_on_payment(self, invoice: models.Invoice) -> None:
         """
         Process inventory deduction when a revenue invoice is marked as paid.
-        
+
         This is the key automation point:
         - Deducts stock for all line items linked to products
         - Records stock movements for audit trail
         - Updates COGS for tax reporting
-        
+
         For expense invoices, inventory is added at creation time (purchases).
         For revenue invoices, inventory is deducted at payment time (sales).
         """
         if invoice.invoice_type != "revenue":
             return  # Only process revenue invoices on payment
-        
+
         try:
             from decimal import Decimal
 
             from app.services.inventory import build_inventory_service
-            
+
             # Check if any lines have products linked
-            has_inventory_items = any(
-                line.product_id for line in invoice.lines
-            )
+            has_inventory_items = any(line.product_id for line in invoice.lines)
             if not has_inventory_items:
                 return
-            
+
             inventory_service = build_inventory_service(self.db, invoice.issuer_id)
-            
+
             # Process each line item
             for line in invoice.lines:
                 if not line.product_id:
                     continue
-                    
+
                 try:
                     inventory_service.record_sale(
                         product_id=line.product_id,
@@ -740,14 +731,14 @@ class InvoiceStatusMixin:
                         invoice.invoice_id,
                         e,
                     )
-                    
+
         except Exception as e:
             logger.error("Inventory processing failed for invoice %s: %s", invoice.invoice_id, e)
 
     def _check_and_send_low_stock_alerts(self, invoice: models.Invoice) -> None:
         """
         Check for low stock items after a sale and send alerts.
-        
+
         This implements the alert workflow:
         - After inventory is deducted, check all affected products
         - If any product is at or below reorder level, send alert
@@ -755,33 +746,34 @@ class InvoiceStatusMixin:
         """
         if invoice.invoice_type != "revenue":
             return
-        
+
         # Capture values upfront to avoid DB access after potential errors
         invoice_id = invoice.invoice_id
         issuer_id = invoice.issuer_id
-        
+
         try:
             from app.models.inventory_models import Product
-            
+
             # Get products that were just affected
-            affected_product_ids = [
-                line.product_id for line in invoice.lines 
-                if line.product_id
-            ]
-            
+            affected_product_ids = [line.product_id for line in invoice.lines if line.product_id]
+
             if not affected_product_ids:
                 return
-            
+
             # Check which products are now low stock
-            low_stock_products = self.db.query(Product).filter(
-                Product.id.in_(affected_product_ids),
-                Product.track_stock.is_(True),
-                Product.quantity_in_stock <= Product.reorder_level,
-            ).all()
-            
+            low_stock_products = (
+                self.db.query(Product)
+                .filter(
+                    Product.id.in_(affected_product_ids),
+                    Product.track_stock.is_(True),
+                    Product.quantity_in_stock <= Product.reorder_level,
+                )
+                .all()
+            )
+
             if not low_stock_products:
                 return
-            
+
             # Build alert message
             alert_items = []
             for product in low_stock_products:
@@ -790,12 +782,13 @@ class InvoiceStatusMixin:
                     f"• {product.name} ({product.sku}): {product.quantity_in_stock} {product.unit} "
                     f"[Reorder: {product.reorder_quantity}] - {status}"
                 )
-            
+
             # Generate draft purchase order for low stock products
             # Note: This may fail if purchase_order table doesn't exist yet - that's OK
             purchase_order = None
             try:
                 from app.services.inventory import build_inventory_service
+
                 inventory_service = build_inventory_service(self.db, issuer_id)
                 product_ids = [p.id for p in low_stock_products]
                 purchase_order = inventory_service.generate_draft_purchase_order(
@@ -812,11 +805,11 @@ class InvoiceStatusMixin:
                 # Rollback to clear any pending rollback state from failed PO creation
                 self.db.rollback()
                 logger.warning("Could not generate purchase order: %s", e)
-            
+
             po_message = ""
             if purchase_order:
                 po_message = f"\n\n📋 Draft Purchase Order #{purchase_order.id} has been created for your review."
-            
+
             message = (
                 f"⚠️ Stock Alert after Invoice {invoice_id}\n\n"
                 f"The following products need reordering:\n\n"
@@ -824,17 +817,17 @@ class InvoiceStatusMixin:
                 + po_message
                 + "\n\nPlease review and place orders with suppliers."
             )
-            
+
             # Send notification to business owner
             po_id = purchase_order.id if purchase_order else None
             self._send_low_stock_notification(issuer_id, message, low_stock_products, po_id)
-            
+
             logger.info(
                 "Low stock alert sent for %s products after invoice %s",
                 len(low_stock_products),
                 invoice_id,
             )
-            
+
         except Exception as e:
             # Rollback to prevent cascading errors
             try:
@@ -844,24 +837,20 @@ class InvoiceStatusMixin:
             logger.error("Low stock check failed for invoice %s: %s", invoice_id, e)
 
     def _send_low_stock_notification(
-        self, 
-        user_id: int, 
-        message: str, 
-        products: list,
-        purchase_order_id: int | None = None
+        self, user_id: int, message: str, products: list, purchase_order_id: int | None = None
     ) -> None:
         """Send low stock alert to business owner via email and WhatsApp."""
         try:
             user = self.db.query(models.User).filter(models.User.id == user_id).one_or_none()
             if not user:
                 return
-            
+
             from app.services.notification.service import NotificationService
-            
+
             service = NotificationService()
-            
+
             po_suffix = f" - PO #{purchase_order_id}" if purchase_order_id else ""
-            
+
             async def _run():
                 if user.email:
                     try:
@@ -872,7 +861,7 @@ class InvoiceStatusMixin:
                         )
                     except Exception as exc:
                         logger.error("Failed to send low stock email: %s", exc)
-            
+
             run_async(_run())
 
             # Also send WhatsApp template if configured (one per product)
@@ -906,7 +895,6 @@ class InvoiceStatusMixin:
                             record_whatsapp_send(priority=False)
                 except Exception as exc:
                     logger.error("Failed to send low stock WhatsApp: %s", exc)
-            
+
         except Exception as e:
             logger.error("Low stock notification failed: %s", e)
-

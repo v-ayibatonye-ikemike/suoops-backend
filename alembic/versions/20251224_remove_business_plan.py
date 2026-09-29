@@ -9,13 +9,12 @@ Changes:
 - BUSINESS plan features (voice, OCR, API) now available on PRO
 - Target market: businesses under ₦100M annual revenue
 """
-from alembic import op
-import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '20251224_remove_business'
-down_revision = '20251221_add_cit'
+revision = "20251224_remove_business"
+down_revision = "20251221_add_cit"
 branch_labels = None
 depends_on = None
 
@@ -29,14 +28,14 @@ def upgrade():
         SET plan = 'PRO'
         WHERE plan = 'BUSINESS'
     """)
-    
+
     # Also handle ENTERPRISE users if any exist (migrating to PRO)
     op.execute("""
         UPDATE "user"
         SET plan = 'PRO'
         WHERE plan = 'ENTERPRISE'
     """)
-    
+
     # Note: We don't remove the enum values from PostgreSQL
     # because it requires recreating the column which is risky
     # The application code will simply not use BUSINESS/ENTERPRISE anymore

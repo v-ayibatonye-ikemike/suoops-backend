@@ -1,6 +1,7 @@
 """Buyer-pays money math: the platform service fee AND any delivery fee are
 charged to the BUYER on top, while the seller's invoice.amount and escrow
 gross/payout stay the goods value only."""
+
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -65,16 +66,10 @@ def test_delivery_fee_added_and_excluded_from_payout(db_session, client, monkeyp
     )
     import app.api.routes_storefront as rs
 
-    monkeypatch.setattr(
-        rs, "_shipbubble_quote", lambda db, owner, payload: {"request_token": "tok", "options": [opt]}
-    )
+    monkeypatch.setattr(rs, "_shipbubble_quote", lambda db, owner, payload: {"request_token": "tok", "options": [opt]})
     monkeypatch.setattr("app.services.escrow_service.is_trusted_seller", lambda db, u: False)
-    monkeypatch.setattr(
-        "app.services.escrow_service.detect_order_collusion", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        "app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None
-    )
+    monkeypatch.setattr("app.services.escrow_service.detect_order_collusion", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None)
     monkeypatch.setattr(
         "app.services.invoice_payment_service.start_invoice_payment",
         AsyncMock(return_value={"authorization_url": "http://pay"}),
@@ -96,18 +91,10 @@ def test_delivery_fee_added_and_excluded_from_payout(db_session, client, monkeyp
     assert body["delivery_fee"] == 1500.0
     assert body["service_fee"] == 300.0  # 3% of goods (10,000)
 
-    inv = (
-        db_session.query(models.Invoice)
-        .filter_by(invoice_id=body["invoice_id"])
-        .one()
-    )
+    inv = db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
     assert inv.amount == Decimal("10000")  # goods only — fee + delivery charged on top
 
-    escrow = (
-        db_session.query(models.StorefrontOrderEscrow)
-        .filter_by(invoice_id=inv.id)
-        .one()
-    )
+    escrow = db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
     assert escrow.gross_kobo == 1_000_000  # goods only — delivery excluded
     assert escrow.delivery_fee_kobo == 150_000
     assert escrow.delivery_courier == "GIG"
@@ -146,16 +133,10 @@ def test_trusted_seller_courier_order_forces_escrow(db_session, client, monkeypa
     )
     # Seller IS trusted — without Option A they'd settle instantly with no escrow.
     monkeypatch.setattr("app.services.escrow_service.is_trusted_seller", lambda db, u: True)
-    monkeypatch.setattr(
-        "app.services.escrow_service.detect_order_collusion", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        "app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None
-    )
+    monkeypatch.setattr("app.services.escrow_service.detect_order_collusion", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None)
     start = AsyncMock(return_value={"authorization_url": "http://pay"})
-    monkeypatch.setattr(
-        "app.services.invoice_payment_service.start_invoice_payment", start
-    )
+    monkeypatch.setattr("app.services.invoice_payment_service.start_invoice_payment", start)
 
     resp = client.post(
         "/public/store/teststore/order",
@@ -172,9 +153,7 @@ def test_trusted_seller_courier_order_forces_escrow(db_session, client, monkeypa
     body = resp.json()
     assert body["delivery_fee"] == 1500.0
 
-    inv = (
-        db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
-    )
+    inv = db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
     assert inv.amount == Decimal("10000")  # goods only — fee + delivery charged on top
 
     # The order was routed through escrow despite the seller being trusted, and
@@ -182,9 +161,7 @@ def test_trusted_seller_courier_order_forces_escrow(db_session, client, monkeypa
     assert start.await_args.kwargs.get("hold") is True
     # Buyer charged goods + service fee + delivery = 1,000,000 + 30,000 + 150,000.
     assert start.await_args.kwargs.get("charge_amount_kobo") == 1_180_000
-    escrow = (
-        db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
-    )
+    escrow = db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
     assert escrow.gross_kobo == 1_000_000  # seller paid on goods only
     assert escrow.delivery_fee_kobo == 150_000
     assert escrow.delivery_courier == "GIG"
@@ -198,16 +175,10 @@ def test_all_storefront_orders_escrow_no_instant_payout(db_session, client, monk
     monkeypatch.setattr(settings, "ESCROW_ENABLED", True, raising=False)
 
     monkeypatch.setattr("app.services.escrow_service.is_trusted_seller", lambda db, u: True)
-    monkeypatch.setattr(
-        "app.services.escrow_service.detect_order_collusion", lambda *a, **k: None
-    )
-    monkeypatch.setattr(
-        "app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None
-    )
+    monkeypatch.setattr("app.services.escrow_service.detect_order_collusion", lambda *a, **k: None)
+    monkeypatch.setattr("app.services.escrow_service.seller_velocity_hold_reason", lambda *a, **k: None)
     start = AsyncMock(return_value={"authorization_url": "http://pay"})
-    monkeypatch.setattr(
-        "app.services.invoice_payment_service.start_invoice_payment", start
-    )
+    monkeypatch.setattr("app.services.invoice_payment_service.start_invoice_payment", start)
 
     resp = client.post(
         "/public/store/teststore/order",
@@ -222,17 +193,13 @@ def test_all_storefront_orders_escrow_no_instant_payout(db_session, client, monk
     body = resp.json()
     assert "delivery_fee" not in body
 
-    inv = (
-        db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
-    )
+    inv = db_session.query(models.Invoice).filter_by(invoice_id=body["invoice_id"]).one()
     assert inv.amount == Decimal("10000")  # goods only, no delivery
 
     # Held through escrow (no instant split), even though the seller is trusted.
     assert start.await_args.kwargs.get("hold") is True
     # Buyer charged goods + service fee (no delivery) = 1,000,000 + 30,000.
     assert start.await_args.kwargs.get("charge_amount_kobo") == 1_030_000
-    escrow = (
-        db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
-    )
+    escrow = db_session.query(models.StorefrontOrderEscrow).filter_by(invoice_id=inv.id).one()
     assert escrow.gross_kobo == 1_000_000  # goods held for release
     assert not escrow.delivery_fee_kobo  # 0 / None — no courier on this order

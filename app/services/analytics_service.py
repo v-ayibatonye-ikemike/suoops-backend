@@ -151,7 +151,7 @@ def calculate_invoice_metrics(
     end_date: date,
 ) -> InvoiceMetrics:
     """Calculate invoice counts by status."""
-    
+
     invoices = (
         db.query(
             func.count(models.Invoice.id).label("total"),
@@ -170,17 +170,17 @@ def calculate_invoice_metrics(
         )
         .first()
     )
-    
+
     total = invoices.total or 0
     paid = invoices.paid or 0
     pending = invoices.pending or 0
     failed = invoices.failed or 0
     awaiting = invoices.awaiting or 0
     cancelled = invoices.cancelled or 0
-    
+
     # Calculate conversion rate (paid / total)
     conversion_rate = (paid / total * 100) if total > 0 else 0.0
-    
+
     return InvoiceMetrics(
         total_invoices=total,
         paid_invoices=paid,
@@ -199,7 +199,7 @@ def calculate_customer_metrics(
     end_date: date,
 ) -> CustomerMetrics:
     """Calculate customer counts and repeat customer rate."""
-    
+
     # Get unique customers in period
     customers_in_period = (
         db.query(func.count(func.distinct(models.Invoice.customer_id)))
@@ -212,7 +212,7 @@ def calculate_customer_metrics(
         )
         .scalar()
     ) or 0
-    
+
     # Get total unique customers ever
     total_customers = (
         db.query(func.count(func.distinct(models.Invoice.customer_id)))
@@ -223,7 +223,7 @@ def calculate_customer_metrics(
         )
         .scalar()
     ) or 0
-    
+
     # Get customers with multiple invoices (repeat customers)
     repeat_customers = (
         db.query(models.Invoice.customer_id)
@@ -237,10 +237,10 @@ def calculate_customer_metrics(
         .group_by(models.Invoice.customer_id)
         .having(func.count(models.Invoice.id) > 1)
     ).count()
-    
+
     # Calculate repeat rate
     repeat_rate = (repeat_customers / customers_in_period * 100) if customers_in_period > 0 else 0.0
-    
+
     return CustomerMetrics(
         total_customers=total_customers,
         active_customers=customers_in_period,
@@ -381,9 +381,7 @@ def calculate_monthly_trends(
             mo_col,
             models.Invoice.invoice_type,
             func.coalesce(
-                func.sum(
-                    case((models.Invoice.status == "paid", models.Invoice.amount), else_=0)
-                ),
+                func.sum(case((models.Invoice.status == "paid", models.Invoice.amount), else_=0)),
                 0,
             ).label("paid_amount"),
             func.coalesce(func.sum(models.Invoice.amount), 0).label("total_amount"),
@@ -444,7 +442,7 @@ def calculate_monthly_trends(
 def get_date_range(period: str) -> tuple[date, date]:
     """Calculate start and end dates based on period."""
     today = date.today()
-    
+
     if period == "7d":
         start_date = today - timedelta(days=7)
     elif period == "30d":
@@ -455,7 +453,7 @@ def get_date_range(period: str) -> tuple[date, date]:
         start_date = today - timedelta(days=365)
     else:  # all
         start_date = date(2020, 1, 1)
-    
+
     return start_date, today
 
 
@@ -540,9 +538,7 @@ def calculate_storefront_insights(
     # ── Lifetime store stats ──
     views = int(getattr(user, "storefront_views", 0) or 0)
     lifetime_paid = (
-        db.query(func.count(Escrow.id))
-        .filter(Escrow.seller_id == user_id, Escrow.status.in_(PAID))
-        .scalar()
+        db.query(func.count(Escrow.id)).filter(Escrow.seller_id == user_id, Escrow.status.in_(PAID)).scalar()
     ) or 0
     conversion = (lifetime_paid / views * 100) if views > 0 else 0.0
 
@@ -575,9 +571,7 @@ def calculate_storefront_insights(
         db.query(
             models.InvoiceLine.description.label("name"),
             func.coalesce(func.sum(models.InvoiceLine.quantity), 0).label("units"),
-            func.coalesce(
-                func.sum(models.InvoiceLine.quantity * models.InvoiceLine.unit_price), 0
-            ).label("revenue"),
+            func.coalesce(func.sum(models.InvoiceLine.quantity * models.InvoiceLine.unit_price), 0).label("revenue"),
         )
         .join(models.Invoice, models.InvoiceLine.invoice_id == models.Invoice.id)
         .join(Escrow, Escrow.invoice_id == models.Invoice.id)
@@ -704,16 +698,8 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
         models.Invoice.due_date != None,  # noqa: E711
         models.Invoice.due_date < start_of_today,
     ]
-    overdue_amount = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
-        .filter(*overdue_filters)
-        .scalar()
-    )
-    overdue_count = (
-        db.query(func.count(models.Invoice.id))
-        .filter(*overdue_filters)
-        .scalar()
-    ) or 0
+    overdue_amount = db.query(func.coalesce(func.sum(models.Invoice.amount), 0)).filter(*overdue_filters).scalar()
+    overdue_count = (db.query(func.count(models.Invoice.id)).filter(*overdue_filters).scalar()) or 0
 
     # Expected inflow next 7 days
     expected_inflow = (
@@ -730,9 +716,7 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
 
     # Invoices created today
     invoices_today = (
-        db.query(func.count(models.Invoice.id))
-        .filter(*base, models.Invoice.created_at >= start_of_today)
-        .scalar()
+        db.query(func.count(models.Invoice.id)).filter(*base, models.Invoice.created_at >= start_of_today).scalar()
     ) or 0
 
     # Expenses today
@@ -782,9 +766,7 @@ def calculate_customer_insights(
             func.sum(models.Invoice.amount).label("total_spent"),
             func.count(models.Invoice.id).label("invoice_count"),
             func.max(models.Invoice.created_at).label("last_invoice_date"),
-            func.sum(
-                case((models.Invoice.status == "paid", 1), else_=0)
-            ).label("paid_count"),
+            func.sum(case((models.Invoice.status == "paid", 1), else_=0)).label("paid_count"),
         )
         .join(models.Invoice, models.Invoice.customer_id == models.Customer.id)
         .filter(
@@ -981,11 +963,7 @@ def calculate_margin_insights(
         .first()
     )
 
-    total_rev = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
-        .filter(*period_filter)
-        .scalar()
-    )
+    total_rev = db.query(func.coalesce(func.sum(models.Invoice.amount), 0)).filter(*period_filter).scalar()
 
     total_discounts = float(disc_row.total_discounts) if disc_row else 0.0
     total_revenue = float(total_rev) if total_rev else 0.0
@@ -1022,9 +1000,7 @@ def calculate_margin_insights(
             .all()
         )
         for p in products:
-            margin = float(
-                (p.selling_price - p.cost_price) / p.selling_price * 100
-            )
+            margin = float((p.selling_price - p.cost_price) / p.selling_price * 100)
             product_margins.append(
                 {
                     "name": p.name,
@@ -1042,9 +1018,7 @@ def calculate_margin_insights(
         "total_discounts": total_discounts,
         "discount_count": disc_count,
         "total_revenue": total_revenue,
-        "discount_as_percent_of_revenue": (
-            round(total_discounts / total_revenue * 100, 1) if total_revenue else 0.0
-        ),
+        "discount_as_percent_of_revenue": (round(total_discounts / total_revenue * 100, 1) if total_revenue else 0.0),
         "top_discounted_customers": [
             {
                 "name": c.name,
@@ -1106,11 +1080,7 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
         .filter(*base_revenue_filter, models.Invoice.created_at >= twelve_months_ago_dt)
         .scalar()
     ) or 0
-    overdue_ratio = (
-        float(aging.over_90_days + aging.days_61_90) / float(total_billed) * 100
-        if total_billed
-        else 0.0
-    )
+    overdue_ratio = float(aging.over_90_days + aging.days_61_90) / float(total_billed) * 100 if total_billed else 0.0
     payment_reliability_score = max(0.0, min(100.0, paid_ratio - overdue_ratio * 0.5))
 
     # ── 2. Revenue consistency (20%) ──────────────────────────────────
@@ -1129,10 +1099,7 @@ def calculate_business_snapshot(db: Session, user_id: int) -> dict:
     from app.models.tax_models import MonthlyTaxReport, TaxProfile
 
     tax_profile = db.query(TaxProfile).filter(TaxProfile.user_id == user_id).first()
-    has_tax_report = (
-        db.query(MonthlyTaxReport.id).filter(MonthlyTaxReport.user_id == user_id).first()
-        is not None
-    )
+    has_tax_report = db.query(MonthlyTaxReport.id).filter(MonthlyTaxReport.user_id == user_id).first() is not None
     vat_registered = bool(tax_profile.vat_registered) if tax_profile else False
     tin_verified = bool(tax_profile.tin_verified) if tax_profile else False
     cac_verified = bool(tax_profile.cac_verified) if tax_profile else False

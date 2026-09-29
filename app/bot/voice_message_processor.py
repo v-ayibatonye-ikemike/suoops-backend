@@ -43,7 +43,7 @@ class VoiceMessageProcessor:
         # Dev/Test environments bypass gating for easier local workflows.
         if settings.ENV.lower() not in {"prod", "production"}:
             return True, None
-        
+
         normalized = sender.strip()
         if not normalized.startswith("+"):
             if normalized.startswith("234"):
@@ -52,15 +52,11 @@ class VoiceMessageProcessor:
                 normalized = f"+234{normalized[1:]}"
             else:
                 normalized = f"+{normalized}"
-        
-        user = (
-            self.invoice_processor.db.query(models.User)
-            .filter(models.User.phone == normalized)
-            .first()
-        )
+
+        user = self.invoice_processor.db.query(models.User).filter(models.User.phone == normalized).first()
         if not user:
             return False, None
-        
+
         # Voice invoicing is free under the commission model.
         return True, user
 
@@ -73,7 +69,7 @@ class VoiceMessageProcessor:
                     "🎙️ Voice invoices are currently unavailable.\n\n"
                     "Please send a text message instead:\n"
                     '"Invoice [Customer] [Amount] for [Description]"\n\n'
-                    "Example: \"Invoice Jane 50000 for logo design\""
+                    'Example: "Invoice Jane 50000 for logo design"',
                 )
                 return
 
@@ -83,7 +79,7 @@ class VoiceMessageProcessor:
                 self.client.send_text(
                     sender,
                     "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!"
+                    "Register at suoops.com to start invoicing!",
                 )
                 return
 
@@ -101,7 +97,7 @@ class VoiceMessageProcessor:
                 )
                 return
 
-            self.client.send_text(sender, f"📝 I heard: \"{transcript}\"\n\nProcessing...")
+            self.client.send_text(sender, f'📝 I heard: "{transcript}"\n\nProcessing...')
             parse = self.nlp.parse_text(transcript, is_speech=True)
             await self.invoice_processor.handle(sender, parse, payload)
         except Exception as exc:  # noqa: BLE001
@@ -109,8 +105,7 @@ class VoiceMessageProcessor:
             error_msg = str(exc).lower()
             if "timeout" in error_msg or "connection" in error_msg:
                 user_msg = (
-                    "⚠️ The voice service is slow right now. "
-                    "Please try again in a moment or send a text message."
+                    "⚠️ The voice service is slow right now. " "Please try again in a moment or send a text message."
                 )
             elif "too large" in error_msg or "size" in error_msg:
                 user_msg = (

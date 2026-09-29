@@ -9,6 +9,7 @@ NOTE: needs a live sandbox run before enabling in production — behaviour is
 built from Flutterwave's public v3 Transfers docs but not exercised against a
 real account here.
 """
+
 from __future__ import annotations
 
 import logging
@@ -177,9 +178,7 @@ class FlutterwavePayoutProvider(PayoutProvider):
         """Available NGN payout-wallet balance in Naira, or None if unreadable."""
         try:
             with self._http_client(15) as client:
-                resp = client.get(
-                    f"{self._base()}/v3/balances/NGN", headers=self._headers()
-                )
+                resp = client.get(f"{self._base()}/v3/balances/NGN", headers=self._headers())
             data = resp.json()
         except Exception:  # noqa: BLE001 — transport error → skip the guard
             return None
@@ -198,7 +197,7 @@ class FlutterwavePayoutProvider(PayoutProvider):
         self,
         db: Session,
         *,
-        seller: "models.User",
+        seller: models.User,
         amount_kobo: int,
         reference: str,
         reason: str,
@@ -217,8 +216,7 @@ class FlutterwavePayoutProvider(PayoutProvider):
         available = self._available_balance_naira()
         if available is not None and available < amount_naira:
             raise PayoutError(
-                f"Flutterwave payout balance too low: have ₦{available:.2f}, "
-                f"need ₦{amount_naira:.2f}"
+                f"Flutterwave payout balance too low: have ₦{available:.2f}, " f"need ₦{amount_naira:.2f}"
             )
 
         try:
@@ -287,4 +285,3 @@ class FlutterwavePayoutProvider(PayoutProvider):
         _fw_transfer_cache = mapping
         _fw_transfer_cache_at = now
         return mapping
-

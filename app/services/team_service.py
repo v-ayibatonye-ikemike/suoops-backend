@@ -1,4 +1,5 @@
 """Team management service for multi-user account access."""
+
 import logging
 import smtplib
 from datetime import datetime, timezone
@@ -39,34 +40,31 @@ logger = logging.getLogger(__name__)
 
 class TeamService:
     """Service for managing teams and invitations."""
-    
+
     def __init__(self, db: Session, user_id: int):
         self.db = db
         self.user_id = user_id
         self._user: User | None = None
-    
+
     @property
     def user(self) -> User:
         """Get the current user, cached."""
         if self._user is None:
             self._user = self.db.get(User, self.user_id)
             if not self._user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return self._user
-    
+
     # ========================================================================
     # Team Management
     # ========================================================================
-    
+
     def get_or_create_team(self, name: str | None = None) -> Team:
         """Get user's team or create one if none exists."""
         team = self._get_owned_team()
         if team:
             return team
-        
+
         # Create new team with user as admin
         team_name = name or self.user.business_name or f"{self.user.name}'s Team"
         team = Team(
@@ -77,24 +75,20 @@ class TeamService:
         self.db.commit()
         self.db.refresh(team)
         return team
-    
+
     def _get_owned_team(self) -> Team | None:
         """Get team where user is admin."""
         stmt = select(Team).where(Team.admin_user_id == self.user_id)
         return self.db.scalar(stmt)
-    
+
     def _get_member_team(self) -> tuple[Team, TeamMember] | tuple[None, None]:
         """Get team where user is a member (not admin)."""
-        stmt = (
-            select(TeamMember)
-            .options(joinedload(TeamMember.team))
-            .where(TeamMember.user_id == self.user_id)
-        )
+        stmt = select(TeamMember).options(joinedload(TeamMember.team)).where(TeamMember.user_id == self.user_id)
         membership = self.db.scalar(stmt)
         if membership:
             return membership.team, membership
         return None, None
-    
+
     def get_user_team_role(self) -> UserTeamRole:
         """Get user's role in their team (if any)."""
         # Check if user is admin of a team
@@ -108,7 +102,7 @@ class TeamService:
                 can_access_settings=True,
                 can_edit_inventory=True,
             )
-        
+
         # Check if user is a member of a team
         member_team, membership = self._get_member_team()
         if member_team and membership:
@@ -118,9 +112,9 @@ class TeamService:
                 team_id=member_team.id,
                 role=TeamRole.MEMBER,
                 can_access_settings=False,  # Members cannot access settings
-                can_edit_inventory=False,   # Members cannot edit inventory
+                can_edit_inventory=False,  # Members cannot edit inventory
             )
-        
+
         # User has no team - they are their own admin
         return UserTeamRole(
             has_team=False,
@@ -130,20 +124,20 @@ class TeamService:
             can_access_settings=True,
             can_edit_inventory=True,
         )
-    
+
     def get_team_details(self) -> TeamWithMembersOut | None:
         """Get full team details including members."""
         # First check if user is admin of a team
         team = self._get_owned_team()
         is_admin = team is not None
-        
+
         # If not admin, check if member
         if not team:
             team, _ = self._get_member_team()
-        
+
         if not team:
             return None
-        
+
         # Load team with relationships
         stmt = (
             select(Team)
@@ -157,7 +151,7 @@ class TeamService:
         team = self.db.scalar(stmt)
         if not team:
             return None
-        
+
         # Build admin member info
         admin_out = TeamMemberOut(
             id=0,  # Admin isn't in TeamMember table
@@ -167,7 +161,7 @@ class TeamService:
             role=TeamRole.ADMIN,
             joined_at=team.created_at,
         )
-        
+
         # Build member list
         members_out = [
             TeamMemberOut(
@@ -180,7 +174,7 @@ class TeamService:
             )
             for m in team.members
         ]
-        
+
         # Build pending invitations (only show to admin)
         pending_invitations = []
         if is_admin:
@@ -197,9 +191,9 @@ class TeamService:
                 for inv in team.invitations
                 if inv.status == InvitationStatus.PENDING
             ]
-        
+
         member_count = len(team.members)
-        
+
         return TeamWithMembersOut(
             team=TeamOut(
                 id=team.id,
@@ -214,7 +208,7 @@ class TeamService:
             pending_invitations=pending_invitations,
             can_invite=member_count < team.max_members,
         )
-    
+
     def update_team_name(self, name: str) -> Team:
         """Update team name (admin only)."""
         team = self._require_admin_access()
@@ -222,11 +216,11 @@ class TeamService:
         self.db.commit()
         self.db.refresh(team)
         return team
-    
+
     # ========================================================================
     # Invitation Management
     # ========================================================================
-    
+
     def create_invitation(self, data: InvitationCreate) -> TeamInvitation:
         """Create and send a team invitation (admin only).
 
@@ -236,36 +230,26 @@ class TeamService:
         team = self._require_admin_access()
 
         # Lock the team row to prevent concurrent invitation race conditions
-        self.db.execute(
-            select(Team).where(Team.id == team.id).with_for_update()
-        )
+        self.db.execute(select(Team).where(Team.id == team.id).with_for_update())
 
         # Check if team is at capacity
         if len(team.members) >= team.max_members:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Team has reached maximum of {team.max_members} members"
+                detail=f"Team has reached maximum of {team.max_members} members",
             )
-        
+
         # Check if user is already a member
         existing_member = self.db.scalar(
-            select(TeamMember)
-            .join(User)
-            .where(TeamMember.team_id == team.id, User.email == data.email)
+            select(TeamMember).join(User).where(TeamMember.team_id == team.id, User.email == data.email)
         )
         if existing_member:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User is already a team member"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already a team member")
+
         # Check if admin is inviting themselves
         if data.email == self.user.email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot invite yourself"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot invite yourself")
+
         # Check if there's already an invitation (any status)
         existing_invitation = self.db.scalar(
             select(TeamInvitation).where(
@@ -273,7 +257,7 @@ class TeamService:
                 TeamInvitation.email == data.email,
             )
         )
-        
+
         if existing_invitation:
             if existing_invitation.status == InvitationStatus.PENDING and existing_invitation.is_valid:
                 # Resend email for existing valid pending invitation
@@ -282,6 +266,7 @@ class TeamService:
             else:
                 # Reactivate expired/revoked invitation with new token
                 from datetime import timedelta
+
                 existing_invitation.token = generate_invite_token()
                 existing_invitation.status = InvitationStatus.PENDING
                 existing_invitation.created_at = datetime.now(timezone.utc)
@@ -292,7 +277,7 @@ class TeamService:
                 self.db.refresh(existing_invitation)
                 self._send_invitation_email(existing_invitation, team)
                 return existing_invitation
-        
+
         # Create new invitation
         invitation = TeamInvitation(
             team_id=team.id,
@@ -303,35 +288,29 @@ class TeamService:
         self.db.add(invitation)
         self.db.commit()
         self.db.refresh(invitation)
-        
+
         # Send invitation email
         self._send_invitation_email(invitation, team)
-        
+
         return invitation
-    
+
     def revoke_invitation(self, invitation_id: int) -> TeamInvitation:
         """Revoke a pending invitation (admin only)."""
         team = self._require_admin_access()
-        
+
         invitation = self.db.get(TeamInvitation, invitation_id)
         if not invitation or invitation.team_id != team.id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Invitation not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
+
         if invitation.status != InvitationStatus.PENDING:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Can only revoke pending invitations"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only revoke pending invitations")
+
         invitation.status = InvitationStatus.REVOKED
         invitation.responded_at = utcnow()
         self.db.commit()
         self.db.refresh(invitation)
         return invitation
-    
+
     def _send_invitation_email(self, invitation: TeamInvitation, team: Team) -> None:
         """Send team invitation email via SMTP."""
         try:
@@ -343,23 +322,22 @@ class TeamService:
             if not all([smtp_user, smtp_password]):
                 logger.warning("SMTP not configured. Team invitation email not sent.")
                 return
-            
+
             # Build the acceptance URL
             frontend_url = getattr(settings, "FRONTEND_URL", "https://suoops.com")
             accept_url = f"{frontend_url}/team/accept?token={invitation.token}"
-            
+
             # Format expiry date
             expires_at = invitation.expires_at.strftime("%B %d, %Y at %H:%M UTC") if invitation.expires_at else "7 days"
-            
+
             # Setup Jinja2 template environment
             template_dir = Path(__file__).parent.parent.parent / "templates" / "email"
             jinja_env = Environment(
-                loader=FileSystemLoader(str(template_dir)),
-                autoescape=select_autoescape(['html', 'xml'])
+                loader=FileSystemLoader(str(template_dir)), autoescape=select_autoescape(["html", "xml"])
             )
-            
+
             # Render HTML template
-            template = jinja_env.get_template('team_invitation.html')
+            template = jinja_env.get_template("team_invitation.html")
             html_body = template.render(
                 team_name=team.name,
                 inviter_name=self.user.name,
@@ -367,7 +345,7 @@ class TeamService:
                 expires_at=expires_at,
                 current_year=datetime.now(timezone.utc).year,
             )
-            
+
             # Create plain text fallback
             plain_body = f"""
 Team Invitation from {self.user.name}
@@ -387,33 +365,33 @@ If you don't know {self.user.name} or weren't expecting this invitation, you can
 Powered by SuoOps
 Professional Invoicing & Expense Management
 """
-            
+
             # Create email message
-            msg = MIMEMultipart('alternative')
-            msg['From'] = from_email or "noreply@suoops.com"
-            msg['To'] = invitation.email
-            msg['Subject'] = f"You're invited to join {team.name} on SuoOps"
-            
+            msg = MIMEMultipart("alternative")
+            msg["From"] = from_email or "noreply@suoops.com"
+            msg["To"] = invitation.email
+            msg["Subject"] = f"You're invited to join {team.name} on SuoOps"
+
             # Attach plain text and HTML versions
-            msg.attach(MIMEText(plain_body, 'plain'))
-            msg.attach(MIMEText(html_body, 'html'))
-            
+            msg.attach(MIMEText(plain_body, "plain"))
+            msg.attach(MIMEText(html_body, "html"))
+
             # Send email via SMTP
             logger.info("Sending team invitation email to %s", invitation.email)
             with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_password)
                 server.send_message(msg)
-            
+
             logger.info("Successfully sent team invitation email to %s", invitation.email)
-            
+
         except smtplib.SMTPException as e:
             logger.error("SMTP error sending team invitation to %s: %s", invitation.email, e)
             # Don't raise - invitation is still created, just email failed
         except Exception as e:
             logger.error("Error sending team invitation email: %s: %s", type(e).__name__, e)
             # Don't raise - invitation is still created, just email failed
-    
+
     def validate_invitation(self, token: str) -> InvitationValidation:
         """Validate an invitation token (public, for preview)."""
         invitation = self.db.scalar(
@@ -424,7 +402,7 @@ Professional Invoicing & Expense Management
             )
             .where(TeamInvitation.token == token)
         )
-        
+
         if not invitation:
             return InvitationValidation(
                 valid=False,
@@ -433,7 +411,7 @@ Professional Invoicing & Expense Management
                 email=None,
                 error="Invalid invitation link",
             )
-        
+
         if invitation.status != InvitationStatus.PENDING:
             return InvitationValidation(
                 valid=False,
@@ -442,7 +420,7 @@ Professional Invoicing & Expense Management
                 email=invitation.email,
                 error=f"Invitation has been {invitation.status.value}",
             )
-        
+
         if invitation.is_expired:
             return InvitationValidation(
                 valid=False,
@@ -451,7 +429,7 @@ Professional Invoicing & Expense Management
                 email=invitation.email,
                 error="Invitation has expired",
             )
-        
+
         return InvitationValidation(
             valid=True,
             team_name=invitation.team.name,
@@ -459,65 +437,49 @@ Professional Invoicing & Expense Management
             email=invitation.email,
             error=None,
         )
-    
+
     def accept_invitation(self, token: str) -> TeamMember:
         """Accept an invitation and join the team."""
         invitation = self.db.scalar(
-            select(TeamInvitation)
-            .options(joinedload(TeamInvitation.team))
-            .where(TeamInvitation.token == token)
+            select(TeamInvitation).options(joinedload(TeamInvitation.team)).where(TeamInvitation.token == token)
         )
-        
+
         if not invitation:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Invalid invitation"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid invitation")
+
         if not invitation.is_valid:
             error = "expired" if invitation.is_expired else invitation.status.value
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invitation is {error}"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invitation is {error}")
+
         # Verify the current user's email matches invitation (case-insensitive)
         user_email = (self.user.email or "").strip().lower()
         invitation_email = (invitation.email or "").strip().lower()
-        
+
         if user_email != invitation_email:
-            logger.warning(
-                f"Email mismatch: user={self.user.email!r} invitation={invitation.email!r}"
-            )
+            logger.warning(f"Email mismatch: user={self.user.email!r} invitation={invitation.email!r}")
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This invitation was sent to a different email address"
+                status_code=status.HTTP_403_FORBIDDEN, detail="This invitation was sent to a different email address"
             )
-        
+
         # Check if user is already in another team
         existing_team, _ = self._get_member_team()
         if existing_team:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You are already a member of another team"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="You are already a member of another team"
             )
-        
+
         # Check if user owns a team (admins can't join other teams)
         owned_team = self._get_owned_team()
         if owned_team:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You own a team and cannot join another team"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="You own a team and cannot join another team"
             )
-        
+
         # Check team capacity
         team = invitation.team
         if len(team.members) >= team.max_members:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Team has reached maximum capacity"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team has reached maximum capacity")
+
         # Create team membership
         membership = TeamMember(
             team_id=team.id,
@@ -525,69 +487,59 @@ Professional Invoicing & Expense Management
             role=TeamRole.MEMBER,
         )
         self.db.add(membership)
-        
+
         # Update invitation status
         invitation.status = InvitationStatus.ACCEPTED
         invitation.responded_at = utcnow()
-        
+
         self.db.commit()
         self.db.refresh(membership)
         return membership
-    
+
     # ========================================================================
     # Member Management
     # ========================================================================
-    
+
     def remove_member(self, user_id: int) -> None:
         """Remove a member from the team (admin only)."""
         team = self._require_admin_access()
-        
+
         if user_id == team.admin_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot remove the team admin"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the team admin")
+
         membership = self.db.scalar(
             select(TeamMember).where(
                 TeamMember.team_id == team.id,
                 TeamMember.user_id == user_id,
             )
         )
-        
+
         if not membership:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Member not found in team"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found in team")
+
         self.db.delete(membership)
         self.db.commit()
-    
+
     def leave_team(self) -> None:
         """Leave the current team (members only)."""
         team, membership = self._get_member_team()
-        
+
         if not team or not membership:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You are not a member of any team"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are not a member of any team")
+
         self.db.delete(membership)
         self.db.commit()
-    
+
     # ========================================================================
     # Helpers
     # ========================================================================
-    
+
     def _require_admin_access(self) -> Team:
         """Require user to be admin of a team, raise if not."""
         team = self._get_owned_team()
         if not team:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only team admins can perform this action"
+                status_code=status.HTTP_403_FORBIDDEN, detail="Only team admins can perform this action"
             )
         return team
 

@@ -14,6 +14,7 @@ brand-new announcement in the future.
 
 Trigger from the admin panel: POST /admin/tasks/feature_announcement/trigger
 """
+
 from __future__ import annotations
 
 import logging

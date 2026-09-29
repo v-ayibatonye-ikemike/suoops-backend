@@ -39,11 +39,7 @@ def _excluded_metric_user_ids(db: Session) -> list[int]:
     emails = {e.strip().lower() for e in raw.split(",") if e.strip()}
     if not emails:
         return []
-    rows = (
-        db.query(models.User.id)
-        .filter(func.lower(models.User.email).in_(emails))
-        .all()
-    )
+    rows = db.query(models.User.id).filter(func.lower(models.User.email).in_(emails)).all()
     return [r[0] for r in rows]
 
 
@@ -55,11 +51,7 @@ def _money_excluded_user_ids(db: Session) -> list[int]:
     so flagging one instantly removes its numbers from GMV. Flagged users still
     appear in the admin business list — only their MONEY is excluded here."""
     ids = set(_excluded_metric_user_ids(db))
-    flagged = (
-        db.query(models.User.id)
-        .filter(models.User.flagged_for_review.is_(True))
-        .all()
-    )
+    flagged = db.query(models.User.id).filter(models.User.flagged_for_review.is_(True)).all()
     ids.update(r[0] for r in flagged)
     return list(ids)
 
@@ -85,6 +77,7 @@ def _cap_amount(query, amount_col):
 
 
 # ── Admin response schemas ────────────────────────────────────────────
+
 
 class AdminIdentity(BaseModel):
     id: int
@@ -134,16 +127,11 @@ def admin_root(admin_user=Depends(get_current_admin)) -> dict:
             "GET /admin/users/count": "Get total user count (cached)",
             "GET /admin/users/stats": "Get comprehensive user statistics",
             "GET /admin/users": (
-                "List all users with filtering (query params: skip, limit, plan, "
-                "verified_only, search)"
+                "List all users with filtering (query params: skip, limit, plan, " "verified_only, search)"
             ),
-            "GET /admin/users/{user_id}": "Get detailed user information including activity"
+            "GET /admin/users/{user_id}": "Get detailed user information including activity",
         },
-        "authenticated_as": {
-            "id": admin_user.id,
-            "name": admin_user.name,
-            "role": admin_user.role
-        }
+        "authenticated_as": {"id": admin_user.id, "name": admin_user.name, "role": admin_user.role},
     }
 
 
@@ -195,23 +183,21 @@ async def user_count(db: Session = Depends(get_db), admin_user=Depends(get_curre
 
 
 @router.get("/users/stats", response_model=UserStats)
-def get_user_stats(
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_current_admin)
-) -> Any:
+def get_user_stats(db: Session = Depends(get_db), admin_user=Depends(get_current_admin)) -> Any:
     """
     Get comprehensive user statistics.
     """
     log_audit_event("admin.users.stats", user_id=admin_user.id)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - dt.timedelta(days=today_start.weekday())
     month_start = today_start.replace(day=1)
     thirty_days_ago = now - dt.timedelta(days=30)
-    
+
     # Single aggregated query for all user stats (replaces 7 separate queries)
     from sqlalchemy import case as sa_case
+
     stats_row = db.query(
         func.count(models.User.id).label("total"),
         func.count(sa_case((models.User.phone_verified.is_(True), 1))).label("verified"),
@@ -220,15 +206,12 @@ def get_user_stats(
         func.count(sa_case((models.User.created_at >= month_start, 1))).label("this_month"),
         func.count(sa_case((models.User.last_login >= thirty_days_ago, 1))).label("active_30d"),
     ).one()
-    
+
     # Plan breakdown still needs group_by
-    plan_counts = db.query(
-        models.User.plan,
-        func.count(models.User.id)
-    ).group_by(models.User.plan).all()
-    
+    plan_counts = db.query(models.User.plan, func.count(models.User.id)).group_by(models.User.plan).all()
+
     users_by_plan = {str(plan.value): count for plan, count in plan_counts}
-    
+
     return UserStats(
         total_users=stats_row.total,
         verified_users=stats_row.verified,
@@ -249,11 +232,11 @@ def list_users(
     limit: int = Query(50, ge=1, le=100),
     plan: str | None = Query(None, description="Filter by plan (free, pro)"),
     verified_only: bool = Query(False, description="Show only verified users"),
-    search: str | None = Query(None, description="Search by name, email, or phone")
+    search: str | None = Query(None, description="Search by name, email, or phone"),
 ) -> Any:
     """
     List all users with filtering and pagination.
-    
+
     - **skip**: Number of records to skip (pagination)
     - **limit**: Max records to return (1-100)
     - **plan**: Filter by subscription plan
@@ -261,9 +244,9 @@ def list_users(
     - **search**: Search in name, email, or phone
     """
     log_audit_event("admin.users.list", user_id=admin_user.id, skip=skip, limit=limit)
-    
+
     query = db.query(models.User)
-    
+
     # Apply filters
     if plan:
         try:
@@ -271,24 +254,24 @@ def list_users(
             query = query.filter(models.User.plan == plan_enum)
         except ValueError:
             pass  # Invalid plan, ignore filter
-    
+
     if verified_only:
         query = query.filter(models.User.phone_verified.is_(True))
-    
+
     if search:
         search_pattern = f"%{search}%"
         query = query.filter(
-            (models.User.name.ilike(search_pattern)) |
-            (models.User.email.ilike(search_pattern)) |
-            (models.User.phone.ilike(search_pattern))
+            (models.User.name.ilike(search_pattern))
+            | (models.User.email.ilike(search_pattern))
+            | (models.User.phone.ilike(search_pattern))
         )
-    
+
     # Order by most recent first
     query = query.order_by(desc(models.User.created_at))
-    
+
     # Pagination
     users = query.offset(skip).limit(limit).all()
-    
+
     return [
         UserListItem(
             id=user.id,
@@ -302,72 +285,81 @@ def list_users(
             invoices_this_month=user.invoices_this_month,
             business_name=user.business_name,
             role=user.role,
-            pro_override=getattr(user, 'pro_override', False),
+            pro_override=getattr(user, "pro_override", False),
         )
         for user in users
     ]
 
 
 @router.get("/users/{user_id}", response_model=UserDetailOut)
-def get_user_detail(
-    user_id: int,
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_current_admin)
-) -> Any:
+def get_user_detail(user_id: int, db: Session = Depends(get_db), admin_user=Depends(get_current_admin)) -> Any:
     """
     Get detailed information about a specific user including their activity.
     """
     log_audit_event("admin.users.detail", user_id=admin_user.id, target_user_id=user_id)
-    
+
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Count invoices in a single aggregated query (eliminates N+1)
     from sqlalchemy import case as sa_case
-    invoice_counts = db.query(
-        func.count(models.Invoice.id).label("total"),
-        func.count(sa_case((models.Invoice.invoice_type == "revenue", 1))).label("revenue"),
-        func.count(sa_case((models.Invoice.invoice_type == "expense", 1))).label("expense"),
-    ).filter(models.Invoice.issuer_id == user_id).one()
-    
+
+    invoice_counts = (
+        db.query(
+            func.count(models.Invoice.id).label("total"),
+            func.count(sa_case((models.Invoice.invoice_type == "revenue", 1))).label("revenue"),
+            func.count(sa_case((models.Invoice.invoice_type == "expense", 1))).label("expense"),
+        )
+        .filter(models.Invoice.issuer_id == user_id)
+        .one()
+    )
+
     # Count unique customers via invoices (Customer doesn't have user_id, linked through Invoice)
-    total_customers = db.query(models.Customer.id).join(
-        models.Invoice, models.Invoice.customer_id == models.Customer.id
-    ).filter(
-        models.Invoice.issuer_id == user_id
-    ).distinct().count()
-    
+    total_customers = (
+        db.query(models.Customer.id)
+        .join(models.Invoice, models.Invoice.customer_id == models.Customer.id)
+        .filter(models.Invoice.issuer_id == user_id)
+        .distinct()
+        .count()
+    )
+
     # Get invoice balance info
-    invoice_balance = getattr(user, 'invoice_balance', 0)
-    
+    invoice_balance = getattr(user, "invoice_balance", 0)
+
     # Get invoice pack purchases (INVPACK references)
-    invoice_pack_purchases = db.query(PaymentTransaction).filter(
-        PaymentTransaction.user_id == user_id,
-        PaymentTransaction.reference.like("INVPACK-%"),
-        PaymentTransaction.status == PaymentStatus.SUCCESS
-    ).order_by(desc(PaymentTransaction.created_at)).limit(10).all()
-    
+    invoice_pack_purchases = (
+        db.query(PaymentTransaction)
+        .filter(
+            PaymentTransaction.user_id == user_id,
+            PaymentTransaction.reference.like("INVPACK-%"),
+            PaymentTransaction.status == PaymentStatus.SUCCESS,
+        )
+        .order_by(desc(PaymentTransaction.created_at))
+        .limit(10)
+        .all()
+    )
+
     # Calculate invoices used (total created minus current balance)
     # For new users with 2 free invoices, total would be total_invoices + remaining balance - 2
     # Simpler: invoices_used = total_invoices (each invoice created consumes 1)
     invoices_used = invoice_counts.total
-    
+
     # Build pack purchase history
     pack_purchases = []
     for purchase in invoice_pack_purchases:
         # Read actual invoices added from transaction metadata, fallback to pack size
         metadata = purchase.payment_metadata or {}
-        invoices_added = metadata.get("invoices_to_add") or (
-            metadata.get("quantity", 1) * INVOICE_PACK_SIZE
+        invoices_added = metadata.get("invoices_to_add") or (metadata.get("quantity", 1) * INVOICE_PACK_SIZE)
+        pack_purchases.append(
+            {
+                "reference": purchase.reference,
+                "amount": purchase.amount / 100,  # Convert kobo to naira
+                "invoices_added": invoices_added,
+                "date": purchase.created_at.isoformat() if purchase.created_at else None,
+            }
         )
-        pack_purchases.append({
-            "reference": purchase.reference,
-            "amount": purchase.amount / 100,  # Convert kobo to naira
-            "invoices_added": invoices_added,
-            "date": purchase.created_at.isoformat() if purchase.created_at else None
-        })
-    
+
     return {
         "user": UserListItem(
             id=user.id,
@@ -381,7 +373,7 @@ def get_user_detail(
             invoices_this_month=user.invoices_this_month,
             business_name=user.business_name,
             role=user.role,
-            pro_override=getattr(user, 'pro_override', False),
+            pro_override=getattr(user, "pro_override", False),
         ),
         "activity": {
             "total_invoices": invoice_counts.total,
@@ -393,8 +385,8 @@ def get_user_detail(
             "wallet_balance_naira": int(getattr(user, "wallet_balance_kobo", 0) or 0) / 100,
             "invoice_balance": invoice_balance,
             "invoices_used": invoices_used,
-            "pack_purchases": pack_purchases
-        }
+            "pack_purchases": pack_purchases,
+        },
     }
 
 
@@ -435,7 +427,10 @@ def credit_user_wallet(
     )
     logger.info(
         "Admin %s credited ₦%s to user %s wallet (%s)",
-        admin_user.id, payload.amount_naira, user_id, payload.reason,
+        admin_user.id,
+        payload.amount_naira,
+        user_id,
+        payload.reason,
     )
 
     return {
@@ -449,6 +444,7 @@ def credit_user_wallet(
 # ============================================================================
 # Referral Statistics
 # ============================================================================
+
 
 class ReferralStats(BaseModel):
     total_referral_codes: int
@@ -473,95 +469,93 @@ class ReferralStats(BaseModel):
 
 
 @router.get("/referrals/stats", response_model=ReferralStats)
-def get_referral_stats(
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_current_admin)
-) -> Any:
+def get_referral_stats(db: Session = Depends(get_db), admin_user=Depends(get_current_admin)) -> Any:
     """Get comprehensive referral program statistics."""
     from app.models.referral_models import (
+        REFERRAL_COMMISSION_AMOUNT,
         Referral,
         ReferralCode,
         ReferralReward,
         ReferralStatus,
         ReferralType,
         RewardStatus,
-        REFERRAL_COMMISSION_AMOUNT,
     )
-    
+
     log_audit_event("admin.referrals.stats", user_id=admin_user.id)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - dt.timedelta(days=today_start.weekday())
     month_start = today_start.replace(day=1)
-    
+
     # Referral codes
     total_codes = db.query(ReferralCode).count()
-    
+
     # Referrals by status
     total_referrals = db.query(Referral).count()
     completed = db.query(Referral).filter(Referral.status == ReferralStatus.COMPLETED).count()
     pending = db.query(Referral).filter(Referral.status == ReferralStatus.PENDING).count()
     expired = db.query(Referral).filter(Referral.status == ReferralStatus.EXPIRED).count()
-    
+
     # Referrals by type
     free_signups = db.query(Referral).filter(Referral.referral_type == ReferralType.FREE_SIGNUP).count()
     paid = db.query(Referral).filter(Referral.referral_type == ReferralType.PAID_SIGNUP).count()
-    
+
     # Rewards
     total_rewards = db.query(ReferralReward).count()
     pending_rewards = db.query(ReferralReward).filter(ReferralReward.status == RewardStatus.PENDING).count()
     applied_rewards = db.query(ReferralReward).filter(ReferralReward.status == RewardStatus.APPLIED).count()
     expired_rewards = db.query(ReferralReward).filter(ReferralReward.status == RewardStatus.EXPIRED).count()
-    
+
     # Time-based referrals
     referrals_today = db.query(Referral).filter(Referral.created_at >= today_start).count()
     referrals_week = db.query(Referral).filter(Referral.created_at >= week_start).count()
     referrals_month = db.query(Referral).filter(Referral.created_at >= month_start).count()
-    
+
     # Top referrers (with paid referral count for commission calculation)
-    top_referrers_query = db.query(
-        Referral.referrer_id,
-        func.count(Referral.id).label("referral_count"),
-        func.sum(
-            case(
-                (Referral.referral_type == ReferralType.PAID_SIGNUP, 1),
-                else_=0
-            )
-        ).label("paid_count")
-    ).filter(
-        Referral.status == ReferralStatus.COMPLETED
-    ).group_by(Referral.referrer_id).order_by(
-        desc("paid_count"), desc("referral_count")
-    ).limit(10).all()
-    
+    top_referrers_query = (
+        db.query(
+            Referral.referrer_id,
+            func.count(Referral.id).label("referral_count"),
+            func.sum(case((Referral.referral_type == ReferralType.PAID_SIGNUP, 1), else_=0)).label("paid_count"),
+        )
+        .filter(Referral.status == ReferralStatus.COMPLETED)
+        .group_by(Referral.referrer_id)
+        .order_by(desc("paid_count"), desc("referral_count"))
+        .limit(10)
+        .all()
+    )
+
     top_referrers = []
     for referrer_id, count, paid_count in top_referrers_query:
         user = db.query(models.User).filter(models.User.id == referrer_id).first()
         if user:
-            top_referrers.append({
-                "user_id": user.id,
-                "name": user.name,
-                "email": user.email,
-                "phone": user.phone,
-                "referral_count": count,
-                "paid_referral_count": paid_count or 0,
-                "commission_earned": (paid_count or 0) * REFERRAL_COMMISSION_AMOUNT,
-                "payout_bank_name": user.payout_bank_name
-            })
-    
+            top_referrers.append(
+                {
+                    "user_id": user.id,
+                    "name": user.name,
+                    "email": user.email,
+                    "phone": user.phone,
+                    "referral_count": count,
+                    "paid_referral_count": paid_count or 0,
+                    "commission_earned": (paid_count or 0) * REFERRAL_COMMISSION_AMOUNT,
+                    "payout_bank_name": user.payout_bank_name,
+                }
+            )
+
     # Commission/Payout stats
     total_commission_earned = paid * REFERRAL_COMMISSION_AMOUNT  # ₦488 per paid referral
-    
+
     # Count users with payout bank set up
-    users_with_payout_bank = db.query(models.User).filter(
-        models.User.payout_bank_name.isnot(None),
-        models.User.payout_account_number.isnot(None)
-    ).count()
-    
+    users_with_payout_bank = (
+        db.query(models.User)
+        .filter(models.User.payout_bank_name.isnot(None), models.User.payout_account_number.isnot(None))
+        .count()
+    )
+
     # Calculate pending payout amount (pending rewards * commission)
     pending_payout_amount = pending_rewards * REFERRAL_COMMISSION_AMOUNT
-    
+
     return ReferralStats(
         total_referral_codes=total_codes,
         total_referrals=total_referrals,
@@ -580,7 +574,7 @@ def get_referral_stats(
         referrals_this_month=referrals_month,
         total_commission_earned=total_commission_earned,
         pending_payout_amount=pending_payout_amount,
-        users_with_payout_bank=users_with_payout_bank
+        users_with_payout_bank=users_with_payout_bank,
     )
 
 
@@ -588,8 +582,10 @@ def get_referral_stats(
 # Referral Payouts Management
 # ============================================================================
 
+
 class PayoutUserInfo(BaseModel):
     """User with pending referral payout."""
+
     user_id: int
     name: str
     email: str | None
@@ -606,6 +602,7 @@ class PayoutUserInfo(BaseModel):
 
 class PayoutListResponse(BaseModel):
     """Response for payout list endpoint."""
+
     total_users: int
     total_amount: int
     users_with_bank: int
@@ -677,17 +674,23 @@ def get_referral_payouts(
             end_date = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # Pull all commission rewards earned in the period
-    rewards = db.query(ReferralReward).filter(
-        ReferralReward.reward_type.in_([
-            "commission_first_purchase",
-            "commission",  # legacy first-purchase type
-            "commission_recurring",
-            "commission_perpetual",
-            "commission_online",  # storefront/online 3%-based commission
-        ]),
-        ReferralReward.created_at >= start_date,
-        ReferralReward.created_at < end_date,
-    ).all()
+    rewards = (
+        db.query(ReferralReward)
+        .filter(
+            ReferralReward.reward_type.in_(
+                [
+                    "commission_first_purchase",
+                    "commission",  # legacy first-purchase type
+                    "commission_recurring",
+                    "commission_perpetual",
+                    "commission_online",  # storefront/online 3%-based commission
+                ]
+            ),
+            ReferralReward.created_at >= start_date,
+            ReferralReward.created_at < end_date,
+        )
+        .all()
+    )
 
     # Aggregate per referrer
     by_user: dict[int, dict[str, int]] = {}
@@ -715,18 +718,20 @@ def get_referral_payouts(
         account_name = user.payout_account_name if has_payout else user.account_name
         has_bank = bool(bank_name and account_number)
 
-        payouts.append(PayoutUserInfo(
-            user_id=user.id,
-            name=user.name,
-            email=user.email,
-            phone=user.phone,
-            payout_bank_name=bank_name,
-            payout_account_number=_mask_account_number(account_number),
-            payout_account_name=account_name,
-            paid_referrals=agg["count"],
-            commission_amount=agg["amount"],
-            has_bank_details=has_bank,
-        ))
+        payouts.append(
+            PayoutUserInfo(
+                user_id=user.id,
+                name=user.name,
+                email=user.email,
+                phone=user.phone,
+                payout_bank_name=bank_name,
+                payout_account_number=_mask_account_number(account_number),
+                payout_account_name=account_name,
+                paid_referrals=agg["count"],
+                commission_amount=agg["amount"],
+                has_bank_details=has_bank,
+            )
+        )
 
         total_amount += agg["amount"]
         if has_bank:
@@ -742,7 +747,7 @@ def get_referral_payouts(
         total_amount=total_amount,
         users_with_bank=users_with_bank,
         users_without_bank=users_without_bank,
-        payouts=payouts
+        payouts=payouts,
     )
 
 
@@ -753,6 +758,7 @@ def get_referral_payouts(
 
 class InfluencerCreate(BaseModel):
     """Payload for creating an influencer partnership."""
+
     user_phone: str | None = None  # Phone of existing user to link as influencer
     user_email: str | None = None  # Email of existing user to link as influencer
     influencer_name: str
@@ -771,6 +777,7 @@ class InfluencerCreate(BaseModel):
 
 class InfluencerUpdate(BaseModel):
     """Payload for updating an influencer partnership."""
+
     influencer_name: str | None = None
     influencer_contact: str | None = None
     custom_slug: str | None = None
@@ -785,6 +792,7 @@ class InfluencerUpdate(BaseModel):
 
 class InfluencerInfo(BaseModel):
     """Influencer partnership with performance stats."""
+
     id: int
     code: str
     custom_slug: str | None
@@ -843,9 +851,7 @@ def create_influencer(
         target_user = db.query(models.User).filter(models.User.phone == phone).first()
     if not target_user and payload.user_email:
         email = payload.user_email.strip().lower()
-        target_user = db.query(models.User).filter(
-            func.lower(models.User.email) == email
-        ).first()
+        target_user = db.query(models.User).filter(func.lower(models.User.email) == email).first()
 
     if not target_user:
         raise HTTPException(404, "No user found with that phone/email. They must sign up first.")
@@ -853,19 +859,17 @@ def create_influencer(
     # Validate slug format
     slug = payload.custom_slug.strip().lower()
     if not re.match(r"^[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]$", slug):
-        raise HTTPException(400, "Slug must be 3-50 chars: lowercase letters, numbers, hyphens. No leading/trailing hyphens.")
+        raise HTTPException(
+            400, "Slug must be 3-50 chars: lowercase letters, numbers, hyphens. No leading/trailing hyphens."
+        )
 
     # Check slug uniqueness
-    existing_slug = db.query(ReferralCode).filter(
-        func.lower(ReferralCode.custom_slug) == slug
-    ).first()
+    existing_slug = db.query(ReferralCode).filter(func.lower(ReferralCode.custom_slug) == slug).first()
     if existing_slug:
         raise HTTPException(409, f"Slug '{slug}' is already taken")
 
     # Check if this user already has a ReferralCode — upgrade it
-    existing_code = db.query(ReferralCode).filter(
-        ReferralCode.user_id == target_user.id
-    ).first()
+    existing_code = db.query(ReferralCode).filter(ReferralCode.user_id == target_user.id).first()
 
     if existing_code:
         # Upgrade existing code to influencer
@@ -935,7 +939,9 @@ def list_influencers(
     from sqlalchemy import distinct
 
     from app.models.referral_models import (
-        Referral, ReferralCode, ReferralReward,
+        Referral,
+        ReferralCode,
+        ReferralReward,
         ReferralType,
     )
 
@@ -951,22 +957,16 @@ def list_influencers(
     influencers = []
     for code in codes:
         # Total signups through this code
-        total_signups = (
-            db.query(func.count(Referral.id))
-            .filter(Referral.referral_code_id == code.id)
-            .scalar()
-        ) or 0
+        total_signups = (db.query(func.count(Referral.id)).filter(Referral.referral_code_id == code.id).scalar()) or 0
 
         # Users who created at least 1 invoice (activated)
         activated = 0
         gmv_referred = 0
         if total_signups > 0:
             from app.models.models import Invoice
+
             referred_ids = [
-                r[0] for r in
-                db.query(Referral.referred_id)
-                .filter(Referral.referral_code_id == code.id)
-                .all()
+                r[0] for r in db.query(Referral.referred_id).filter(Referral.referral_code_id == code.id).all()
             ]
             if referred_ids:
                 activated = (
@@ -1031,27 +1031,29 @@ def list_influencers(
             except (IndexError, ValueError):
                 total_commission += code.commission_perpetual_pct * 2000 // 100  # fallback
 
-        influencers.append(InfluencerInfo(
-            id=code.id,
-            code=code.code,
-            custom_slug=code.custom_slug,
-            influencer_name=code.influencer_name,
-            influencer_contact=code.influencer_contact,
-            commission_first=code.commission_first,
-            commission_recurring=code.commission_recurring,
-            commission_months=code.commission_months,
-            commission_perpetual_pct=code.commission_perpetual_pct,
-            bonus_invoices=code.bonus_invoices,
-            notes=code.notes,
-            is_active=code.is_active,
-            created_at=code.created_at,
-            total_signups=total_signups,
-            activated_users=activated,
-            pro_conversions=pro_conversions,
-            gmv_referred=gmv_referred,
-            total_commission_earned=total_commission,
-            signup_link=f"https://suoops.com/join/{code.custom_slug}" if code.custom_slug else "",
-        ))
+        influencers.append(
+            InfluencerInfo(
+                id=code.id,
+                code=code.code,
+                custom_slug=code.custom_slug,
+                influencer_name=code.influencer_name,
+                influencer_contact=code.influencer_contact,
+                commission_first=code.commission_first,
+                commission_recurring=code.commission_recurring,
+                commission_months=code.commission_months,
+                commission_perpetual_pct=code.commission_perpetual_pct,
+                bonus_invoices=code.bonus_invoices,
+                notes=code.notes,
+                is_active=code.is_active,
+                created_at=code.created_at,
+                total_signups=total_signups,
+                activated_users=activated,
+                pro_conversions=pro_conversions,
+                gmv_referred=gmv_referred,
+                total_commission_earned=total_commission,
+                signup_link=f"https://suoops.com/join/{code.custom_slug}" if code.custom_slug else "",
+            )
+        )
 
     return InfluencerListResponse(total=len(influencers), influencers=influencers)
 
@@ -1070,10 +1072,14 @@ def update_influencer(
 
     log_audit_event("admin.influencer.update", user_id=admin_user.id, influencer_id=influencer_id)
 
-    code = db.query(ReferralCode).filter(
-        ReferralCode.id == influencer_id,
-        ReferralCode.is_influencer.is_(True),
-    ).first()
+    code = (
+        db.query(ReferralCode)
+        .filter(
+            ReferralCode.id == influencer_id,
+            ReferralCode.is_influencer.is_(True),
+        )
+        .first()
+    )
     if not code:
         raise HTTPException(404, "Influencer not found")
 
@@ -1083,10 +1089,14 @@ def update_influencer(
         slug = updates["custom_slug"].strip().lower()
         if not re.match(r"^[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]$", slug):
             raise HTTPException(400, "Invalid slug format")
-        existing = db.query(ReferralCode).filter(
-            func.lower(ReferralCode.custom_slug) == slug,
-            ReferralCode.id != influencer_id,
-        ).first()
+        existing = (
+            db.query(ReferralCode)
+            .filter(
+                func.lower(ReferralCode.custom_slug) == slug,
+                ReferralCode.id != influencer_id,
+            )
+            .first()
+        )
         if existing:
             raise HTTPException(409, f"Slug '{slug}' is already taken")
         updates["custom_slug"] = slug
@@ -1385,7 +1395,7 @@ def onboard_sme(
     invites_sent = 0
 
     if payload.staff_emails:
-        from app.models.team_models import Team, TeamInvitation, InvitationStatus
+        from app.models.team_models import InvitationStatus, Team, TeamInvitation
 
         # Create team if user doesn't have one
         team = db.query(Team).filter(Team.admin_user_id == user.id).first()
@@ -1406,15 +1416,20 @@ def onboard_sme(
             if not email:
                 continue
             # Skip if already invited
-            existing = db.query(TeamInvitation).filter(
-                TeamInvitation.team_id == team.id,
-                TeamInvitation.email == email,
-                TeamInvitation.status == InvitationStatus.PENDING,
-            ).first()
+            existing = (
+                db.query(TeamInvitation)
+                .filter(
+                    TeamInvitation.team_id == team.id,
+                    TeamInvitation.email == email,
+                    TeamInvitation.status == InvitationStatus.PENDING,
+                )
+                .first()
+            )
             if existing:
                 continue
 
             import secrets
+
             invitation = TeamInvitation(
                 team_id=team.id,
                 email=email,
@@ -1429,6 +1444,7 @@ def onboard_sme(
             # Send invite email
             try:
                 from app.utils.smtp import send_smtp_email
+
                 invite_url = f"https://support.suoops.com/admin/accept-invite?token={invitation.token}"
                 subject = f"You're invited to join {payload.business_name} on SuoOps"
                 body = (
@@ -1448,8 +1464,8 @@ def onboard_sme(
     # ── 4. Send tailored WhatsApp onboarding message ─────────────
     wa_sent = False
     try:
-        from app.core.whatsapp import get_whatsapp_client
         from app.core.config import settings
+        from app.core.whatsapp import get_whatsapp_client
 
         client = get_whatsapp_client()
 
@@ -1463,6 +1479,7 @@ def onboard_sme(
 
         # Then send the tailored business-type message
         import time
+
         time.sleep(2)
         biz_type = payload.business_type if payload.business_type in _SME_MESSAGES else "general"
         msg = _SME_MESSAGES[biz_type].format(
@@ -1501,6 +1518,7 @@ def onboard_sme(
 # Platform Metrics
 # ============================================================================
 
+
 class TopUpBuyerInfo(BaseModel):
     id: int
     name: str
@@ -1537,15 +1555,12 @@ class PlatformMetrics(BaseModel):
 
 
 @router.get("/metrics", response_model=PlatformMetrics)
-def get_platform_metrics(
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_current_admin)
-) -> Any:
+def get_platform_metrics(db: Session = Depends(get_db), admin_user=Depends(get_current_admin)) -> Any:
     """Get platform-wide metrics for monitoring."""
     from app.models.models import Customer, Invoice
 
     log_audit_event("admin.metrics", user_id=admin_user.id)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - dt.timedelta(days=today_start.weekday())
@@ -1562,26 +1577,32 @@ def get_platform_metrics(
     # Revenue and expense totals (exclude internal/test accounts so a single
     # test store can't skew platform GMV, and cap implausibly large single
     # invoices so a junk self-marked-paid invoice can't inflate GMV).
-    revenue_sum = _cap_amount(
+    revenue_sum = (
+        _cap_amount(
+            _exclude_users(
+                db.query(func.sum(Invoice.amount)).filter(
+                    Invoice.invoice_type == "revenue",
+                    Invoice.status == "paid",
+                ),
+                Invoice.issuer_id,
+                excluded_ids,
+            ),
+            Invoice.amount,
+        ).scalar()
+        or 0
+    )
+
+    expense_sum = (
         _exclude_users(
             db.query(func.sum(Invoice.amount)).filter(
-                Invoice.invoice_type == "revenue",
-                Invoice.status == "paid",
+                Invoice.invoice_type == "expense",
             ),
             Invoice.issuer_id,
             excluded_ids,
-        ),
-        Invoice.amount,
-    ).scalar() or 0
+        ).scalar()
+        or 0
+    )
 
-    expense_sum = _exclude_users(
-        db.query(func.sum(Invoice.amount)).filter(
-            Invoice.invoice_type == "expense",
-        ),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).scalar() or 0
-    
     # Time-based invoices
     invoices_today = db.query(Invoice).filter(Invoice.created_at >= today_start).count()
     invoices_week = db.query(Invoice).filter(Invoice.created_at >= week_start).count()
@@ -1589,16 +1610,13 @@ def get_platform_metrics(
 
     # Users + commission-model adoption
     total_users = db.query(models.User).count()
-    online_payments_enabled = db.query(models.User).filter(
-        models.User.paystack_subaccount_active.is_(True)
-    ).count()
-    storefronts_enabled = db.query(models.User).filter(
-        models.User.storefront_enabled.is_(True)
-    ).count()
+    online_payments_enabled = db.query(models.User).filter(models.User.paystack_subaccount_active.is_(True)).count()
+    storefronts_enabled = db.query(models.User).filter(models.User.storefront_enabled.is_(True)).count()
     # "Live" = passes the same trust gate as the public marketplace (logo +
     # online payments + active product + not suspended), i.e. shoppers can
     # actually find it in global search — not merely toggled on.
     from app.api.routes_storefront import count_live_storefronts
+
     storefronts_live = count_live_storefronts(db)
 
     # Commission earned this month, split by stream so both are auditable:
@@ -1610,6 +1628,7 @@ def get_platform_metrics(
     from sqlalchemy import or_
 
     from app.utils.feature_gate import platform_fee_kobo
+
     # Sum the fee LOCKED IN per invoice (fee ledger). Fall back to a recompute
     # only for legacy rows created before the fee column existed.
     wallet_rows = _cap_amount(
@@ -1625,8 +1644,7 @@ def get_platform_metrics(
         Invoice.amount,
     ).all()
     commission_wallet_kobo = sum(
-        f if f is not None else platform_fee_kobo(a, channel="manual")
-        for (f, a) in wallet_rows
+        f if f is not None else platform_fee_kobo(a, channel="manual") for (f, a) in wallet_rows
     )
 
     online_rows = _cap_amount(
@@ -1642,10 +1660,7 @@ def get_platform_metrics(
         ),
         Invoice.amount,
     ).all()
-    commission_online_kobo = sum(
-        f if f is not None else platform_fee_kobo(a)
-        for (f, a) in online_rows
-    )
+    commission_online_kobo = sum(f if f is not None else platform_fee_kobo(a) for (f, a) in online_rows)
 
     commission_wallet_this_month = commission_wallet_kobo / 100
     commission_online_this_month = commission_online_kobo / 100
@@ -1655,46 +1670,57 @@ def get_platform_metrics(
     total_customers = db.query(Customer).count()
 
     # Wallet top-up buyers (top-ups still use the legacy INVPACK- reference).
-    top_up_rows = db.query(
-        models.User,
-        func.count(PaymentTransaction.id).label("topup_count"),
-        func.max(PaymentTransaction.created_at).label("last_purchase"),
-    ).join(
-        PaymentTransaction, PaymentTransaction.user_id == models.User.id
-    ).filter(
-        PaymentTransaction.reference.like("INVPACK-%"),
-        PaymentTransaction.status == PaymentStatus.SUCCESS,
-    ).group_by(models.User.id).order_by(
-        desc(func.max(PaymentTransaction.created_at))
-    ).limit(ADMIN_LIST_CAP).all()
+    top_up_rows = (
+        db.query(
+            models.User,
+            func.count(PaymentTransaction.id).label("topup_count"),
+            func.max(PaymentTransaction.created_at).label("last_purchase"),
+        )
+        .join(PaymentTransaction, PaymentTransaction.user_id == models.User.id)
+        .filter(
+            PaymentTransaction.reference.like("INVPACK-%"),
+            PaymentTransaction.status == PaymentStatus.SUCCESS,
+        )
+        .group_by(models.User.id)
+        .order_by(desc(func.max(PaymentTransaction.created_at)))
+        .limit(ADMIN_LIST_CAP)
+        .all()
+    )
 
     top_up_buyers_list: list[TopUpBuyerInfo] = []
     for user, topup_count, last_purchase in top_up_rows:
-        top_up_buyers_list.append(TopUpBuyerInfo(
-            id=user.id,
-            name=user.name,
-            email=user.email,
-            phone=user.phone,
-            business_name=user.business_name,
-            wallet_balance_naira=int(getattr(user, "wallet_balance_kobo", 0) or 0) / 100,
-            total_top_ups=topup_count,
-            last_purchase_date=last_purchase.isoformat() if last_purchase else None,
-        ))
+        top_up_buyers_list.append(
+            TopUpBuyerInfo(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                phone=user.phone,
+                business_name=user.business_name,
+                wallet_balance_naira=int(getattr(user, "wallet_balance_kobo", 0) or 0) / 100,
+                total_top_ups=topup_count,
+                last_purchase_date=last_purchase.isoformat() if last_purchase else None,
+            )
+        )
 
     # Monetized businesses = distinct users who actually pay Suoops: they either
     # enabled online payments (commission on each order) OR funded their wallet
     # via a top-up. Distinct so the two groups aren't double-counted.
-    monetized_users = db.query(func.count(func.distinct(models.User.id))).filter(
-        or_(
-            models.User.paystack_subaccount_active.is_(True),
-            models.User.id.in_(
-                db.query(PaymentTransaction.user_id).filter(
-                    PaymentTransaction.reference.like("INVPACK-%"),
-                    PaymentTransaction.status == PaymentStatus.SUCCESS,
-                )
-            ),
+    monetized_users = (
+        db.query(func.count(func.distinct(models.User.id)))
+        .filter(
+            or_(
+                models.User.paystack_subaccount_active.is_(True),
+                models.User.id.in_(
+                    db.query(PaymentTransaction.user_id).filter(
+                        PaymentTransaction.reference.like("INVPACK-%"),
+                        PaymentTransaction.status == PaymentStatus.SUCCESS,
+                    )
+                ),
+            )
         )
-    ).scalar() or 0
+        .scalar()
+        or 0
+    )
 
     return PlatformMetrics(
         total_invoices=total_invoices,
@@ -1722,6 +1748,7 @@ def get_platform_metrics(
 # =============================================================================
 # FILTERABLE METRICS SUMMARY — single source of truth (week/month/year/all)
 # =============================================================================
+
 
 class MetricsSummary(BaseModel):
     period: str  # week | month | year | all
@@ -1806,14 +1833,10 @@ def get_metrics_summary(
         ),
         Invoice.amount,
     )
-    commission_manual = sum(
-        f if f is not None else platform_fee_kobo(a, channel="manual")
-        for (f, a) in wallet_q.all()
-    ) / 100
-    commission_storefront = sum(
-        f if f is not None else platform_fee_kobo(a)
-        for (f, a) in online_q.all()
-    ) / 100
+    commission_manual = (
+        sum(f if f is not None else platform_fee_kobo(a, channel="manual") for (f, a) in wallet_q.all()) / 100
+    )
+    commission_storefront = sum(f if f is not None else platform_fee_kobo(a) for (f, a) in online_q.all()) / 100
     commission = commission_manual + commission_storefront
 
     # GMV = paid revenue volume in window (by paid_at), split by channel so
@@ -1828,85 +1851,96 @@ def get_metrics_summary(
             if storefront
             else q.filter(or_(Invoice.channel != "storefront", Invoice.channel.is_(None)))
         )
-        return _cap_amount(
-            _exclude_users(_win(q, Invoice.paid_at), Invoice.issuer_id, excluded_ids),
-            Invoice.amount,
-        ).scalar() or 0
+        return (
+            _cap_amount(
+                _exclude_users(_win(q, Invoice.paid_at), Invoice.issuer_id, excluded_ids),
+                Invoice.amount,
+            ).scalar()
+            or 0
+        )
 
     gmv_storefront = _gmv(True)
     gmv_manual = _gmv(False)
     gmv = gmv_storefront + gmv_manual
 
-    invoices = _win(
-        db.query(func.count(Invoice.id)).filter(Invoice.invoice_type == "revenue"),
-        Invoice.created_at,
-    ).scalar() or 0
+    invoices = (
+        _win(
+            db.query(func.count(Invoice.id)).filter(Invoice.invoice_type == "revenue"),
+            Invoice.created_at,
+        ).scalar()
+        or 0
+    )
     expense_date = func.coalesce(Invoice.due_date, Invoice.created_at)
     expense_base = [
         Invoice.invoice_type == "expense",
         Invoice.status == "paid",
     ]
-    expense_amount = _cap_amount(
-        _exclude_users(
-            _win(
-                db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(*expense_base),
-                expense_date,
-            ),
-            Invoice.issuer_id,
-            excluded_ids,
-        ),
-        Invoice.amount,
-    ).scalar() or 0
-
-    def _expense_quality_amount(*quality_filters):
-        return _cap_amount(
+    expense_amount = (
+        _cap_amount(
             _exclude_users(
                 _win(
-                    db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(
-                        *expense_base, *quality_filters
-                    ),
+                    db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(*expense_base),
                     expense_date,
                 ),
                 Invoice.issuer_id,
                 excluded_ids,
             ),
             Invoice.amount,
-        ).scalar() or 0
+        ).scalar()
+        or 0
+    )
+
+    def _expense_quality_amount(*quality_filters):
+        return (
+            _cap_amount(
+                _exclude_users(
+                    _win(
+                        db.query(func.coalesce(func.sum(Invoice.amount), 0)).filter(*expense_base, *quality_filters),
+                        expense_date,
+                    ),
+                    Invoice.issuer_id,
+                    excluded_ids,
+                ),
+                Invoice.amount,
+            ).scalar()
+            or 0
+        )
 
     unflagged_expense = Invoice.expense_flag_reason.is_(None)
-    documented_expense_amount = _expense_quality_amount(
-        unflagged_expense, Invoice.receipt_url.is_not(None)
+    documented_expense_amount = _expense_quality_amount(unflagged_expense, Invoice.receipt_url.is_not(None))
+    self_reported_expense_amount = _expense_quality_amount(unflagged_expense, Invoice.receipt_url.is_(None))
+    flagged_expense_amount = _expense_quality_amount(Invoice.expense_flag_reason.is_not(None))
+    expense_entries = (
+        _exclude_users(
+            _win(db.query(func.count(Invoice.id)).filter(*expense_base), expense_date),
+            Invoice.issuer_id,
+            excluded_ids,
+        ).scalar()
+        or 0
     )
-    self_reported_expense_amount = _expense_quality_amount(
-        unflagged_expense, Invoice.receipt_url.is_(None)
-    )
-    flagged_expense_amount = _expense_quality_amount(
-        Invoice.expense_flag_reason.is_not(None)
-    )
-    expense_entries = _exclude_users(
-        _win(db.query(func.count(Invoice.id)).filter(*expense_base), expense_date),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).scalar() or 0
-    expense_users = _exclude_users(
-        _win(
-            db.query(func.count(func.distinct(Invoice.issuer_id))).filter(*expense_base),
-            expense_date,
-        ),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).scalar() or 0
-    new_users = _win(db.query(func.count(User.id)), User.created_at).scalar() or 0
-    active_users = _exclude_users(
-        _win(
-            db.query(func.count(func.distinct(Invoice.issuer_id))).filter(
-                Invoice.invoice_type == "revenue"
+    expense_users = (
+        _exclude_users(
+            _win(
+                db.query(func.count(func.distinct(Invoice.issuer_id))).filter(*expense_base),
+                expense_date,
             ),
-            Invoice.created_at,
-        ),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).scalar() or 0
+            Invoice.issuer_id,
+            excluded_ids,
+        ).scalar()
+        or 0
+    )
+    new_users = _win(db.query(func.count(User.id)), User.created_at).scalar() or 0
+    active_users = (
+        _exclude_users(
+            _win(
+                db.query(func.count(func.distinct(Invoice.issuer_id))).filter(Invoice.invoice_type == "revenue"),
+                Invoice.created_at,
+            ),
+            Invoice.issuer_id,
+            excluded_ids,
+        ).scalar()
+        or 0
+    )
 
     return MetricsSummary(
         period=period,
@@ -1933,15 +1967,18 @@ def get_metrics_summary(
 # GROWTH METRICS — Commission, Churn, Activation, Collection Rate, Trends
 # =============================================================================
 
+
 class MonthlyDataPoint(BaseModel):
     month: str  # "2026-01"
     value: float
+
 
 class ActivationFunnel(BaseModel):
     total_signups: int
     created_first_invoice: int
     received_first_payment: int
     enabled_online_payments: int
+
 
 class GrowthMetrics(BaseModel):
     # Revenue (Suoops commission — the flat 3% earned)
@@ -1969,10 +2006,7 @@ class GrowthMetrics(BaseModel):
 
 
 @router.get("/metrics/growth", response_model=GrowthMetrics)
-def get_growth_metrics(
-    db: Session = Depends(get_db),
-    admin_user=Depends(get_current_admin)
-) -> Any:
+def get_growth_metrics(db: Session = Depends(get_db), admin_user=Depends(get_current_admin)) -> Any:
     """Get business growth metrics — commission, churn, activation funnel, trends."""
     from sqlalchemy import or_
 
@@ -2029,14 +2063,8 @@ def get_growth_metrics(
             Invoice.amount,
         ).all()
         return (
-            sum(
-                f if f is not None else platform_fee_kobo(a, channel="manual")
-                for (f, a) in manual
-            )
-            + sum(
-                f if f is not None else platform_fee_kobo(a)
-                for (f, a) in online
-            )
+            sum(f if f is not None else platform_fee_kobo(a, channel="manual") for (f, a) in manual)
+            + sum(f if f is not None else platform_fee_kobo(a) for (f, a) in online)
         ) / 100
 
     # ── Commission (Suoops earnings this month) ──
@@ -2048,10 +2076,12 @@ def get_growth_metrics(
     commission_trend: list[MonthlyDataPoint] = []
     for m_start in _month_starts(6):
         m_end = (m_start + dt.timedelta(days=32)).replace(day=1)
-        commission_trend.append(MonthlyDataPoint(
-            month=m_start.strftime("%Y-%m"),
-            value=_commission_between(m_start, m_end),
-        ))
+        commission_trend.append(
+            MonthlyDataPoint(
+                month=m_start.strftime("%Y-%m"),
+                value=_commission_between(m_start, m_end),
+            )
+        )
 
     # ── Churn (activity-based, rolling 30-day windows) ──
     # Compare equal-length windows so the figure isn't a calendar-month artifact:
@@ -2062,17 +2092,23 @@ def get_growth_metrics(
     window_now_start = now - dt.timedelta(days=30)
     window_prev_start = now - dt.timedelta(days=60)
     active_prev = {
-        r[0] for r in db.query(func.distinct(Invoice.issuer_id)).filter(
+        r[0]
+        for r in db.query(func.distinct(Invoice.issuer_id))
+        .filter(
             Invoice.invoice_type == "revenue",
             Invoice.created_at >= window_prev_start,
             Invoice.created_at < window_now_start,
-        ).all()
+        )
+        .all()
     }
     active_now = {
-        r[0] for r in db.query(func.distinct(Invoice.issuer_id)).filter(
+        r[0]
+        for r in db.query(func.distinct(Invoice.issuer_id))
+        .filter(
             Invoice.invoice_type == "revenue",
             Invoice.created_at >= window_now_start,
-        ).all()
+        )
+        .all()
     }
     churned = len(active_prev - active_now)
     churn_rate = (churned / len(active_prev) * 100) if active_prev else 0
@@ -2084,22 +2120,23 @@ def get_growth_metrics(
     # invoices (invoice_type="expense", auto status="paid"), so we must filter to
     # revenue only — otherwise a user who only logged an expense counts as
     # "activated" and as having "received a payment", inflating the funnel.
-    users_with_invoice = db.query(
-        func.count(func.distinct(Invoice.issuer_id))
-    ).filter(Invoice.invoice_type == "revenue").scalar() or 0
+    users_with_invoice = (
+        db.query(func.count(func.distinct(Invoice.issuer_id))).filter(Invoice.invoice_type == "revenue").scalar() or 0
+    )
 
     # Users who received at least 1 real customer payment (revenue + paid).
-    users_with_payment = db.query(
-        func.count(func.distinct(Invoice.issuer_id))
-    ).filter(
-        Invoice.invoice_type == "revenue",
-        Invoice.status == "paid",
-    ).scalar() or 0
+    users_with_payment = (
+        db.query(func.count(func.distinct(Invoice.issuer_id)))
+        .filter(
+            Invoice.invoice_type == "revenue",
+            Invoice.status == "paid",
+        )
+        .scalar()
+        or 0
+    )
 
     # Users who turned on online payments (Paystack subaccount active)
-    enabled_online = db.query(models.User).filter(
-        models.User.paystack_subaccount_active.is_(True)
-    ).count()
+    enabled_online = db.query(models.User).filter(models.User.paystack_subaccount_active.is_(True)).count()
 
     funnel = ActivationFunnel(
         total_signups=total_signups,
@@ -2113,34 +2150,34 @@ def get_growth_metrics(
     # status=pending) — those were never invoices the seller chases, and counting
     # them drags the collection rate down artificially. A storefront order counts
     # once it's awaiting_confirmation/paid. (Same guard used across dashboards.)
-    total_revenue_invoices = db.query(Invoice).filter(
-        Invoice.invoice_type == "revenue",
-        or_(
-            Invoice.channel.is_(None),
-            Invoice.channel != "storefront",
-            Invoice.status != "pending",
-        ),
-    ).count()
-    paid_revenue_invoices = db.query(Invoice).filter(
-        Invoice.invoice_type == "revenue",
-        Invoice.status == "paid"
-    ).count()
-    collection_rate = (
-        (paid_revenue_invoices / total_revenue_invoices * 100)
-        if total_revenue_invoices > 0 else 0
+    total_revenue_invoices = (
+        db.query(Invoice)
+        .filter(
+            Invoice.invoice_type == "revenue",
+            or_(
+                Invoice.channel.is_(None),
+                Invoice.channel != "storefront",
+                Invoice.status != "pending",
+            ),
+        )
+        .count()
     )
+    paid_revenue_invoices = (
+        db.query(Invoice).filter(Invoice.invoice_type == "revenue", Invoice.status == "paid").count()
+    )
+    collection_rate = (paid_revenue_invoices / total_revenue_invoices * 100) if total_revenue_invoices > 0 else 0
 
     # Average days to payment (revenue only — expenses are auto-paid at creation
     # with paid_at≈created_at, i.e. ~0 days, which would drag the average down).
-    avg_days_raw = db.query(
-        func.avg(
-            func.extract("epoch", Invoice.paid_at - Invoice.created_at) / 86400
+    avg_days_raw = (
+        db.query(func.avg(func.extract("epoch", Invoice.paid_at - Invoice.created_at) / 86400))
+        .filter(
+            Invoice.invoice_type == "revenue",
+            Invoice.status == "paid",
+            Invoice.paid_at.isnot(None),
         )
-    ).filter(
-        Invoice.invoice_type == "revenue",
-        Invoice.status == "paid",
-        Invoice.paid_at.isnot(None),
-    ).scalar()
+        .scalar()
+    )
     avg_days_to_payment = round(float(avg_days_raw), 1) if avg_days_raw else None
 
     # ── Growth Trends (last 6 months) ──
@@ -2157,77 +2194,88 @@ def get_growth_metrics(
         m_end = (m_start + dt.timedelta(days=32)).replace(day=1)
         label = m_start.strftime("%Y-%m")
 
-        new_users = db.query(models.User).filter(
-            models.User.created_at >= m_start,
-            models.User.created_at < m_end,
-        ).count()
+        new_users = (
+            db.query(models.User)
+            .filter(
+                models.User.created_at >= m_start,
+                models.User.created_at < m_end,
+            )
+            .count()
+        )
         user_growth.append(MonthlyDataPoint(month=label, value=new_users))
 
-        new_invoices = db.query(Invoice).filter(
-            Invoice.created_at >= m_start,
-            Invoice.created_at < m_end,
-        ).count()
+        new_invoices = (
+            db.query(Invoice)
+            .filter(
+                Invoice.created_at >= m_start,
+                Invoice.created_at < m_end,
+            )
+            .count()
+        )
         invoice_growth.append(MonthlyDataPoint(month=label, value=new_invoices))
 
-        month_rev = _cap_amount(
-            _exclude_users(
-                db.query(func.sum(Invoice.amount)).filter(
-                    Invoice.invoice_type == "revenue",
-                    Invoice.status == "paid",
-                    Invoice.paid_at >= m_start,
-                    Invoice.paid_at < m_end,
+        month_rev = (
+            _cap_amount(
+                _exclude_users(
+                    db.query(func.sum(Invoice.amount)).filter(
+                        Invoice.invoice_type == "revenue",
+                        Invoice.status == "paid",
+                        Invoice.paid_at >= m_start,
+                        Invoice.paid_at < m_end,
+                    ),
+                    Invoice.issuer_id,
+                    excluded_ids,
                 ),
-                Invoice.issuer_id,
-                excluded_ids,
-            ),
-            Invoice.amount,
-        ).scalar() or 0
+                Invoice.amount,
+            ).scalar()
+            or 0
+        )
         gmv_growth.append(MonthlyDataPoint(month=label, value=float(month_rev)))
 
     # ── Engagement ── (revenue only — expenses are also stored as invoices, and
     # counting them would inflate both averages and the power-user threshold.
     # Internal/test accounts are excluded so they can't skew the averages.)
-    invoice_counts_sq = _exclude_users(
-        db.query(
-            func.count(Invoice.id).label("cnt")
-        ).filter(
-            Invoice.invoice_type == "revenue"
-        ),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).group_by(Invoice.issuer_id).subquery()
+    invoice_counts_sq = (
+        _exclude_users(
+            db.query(func.count(Invoice.id).label("cnt")).filter(Invoice.invoice_type == "revenue"),
+            Invoice.issuer_id,
+            excluded_ids,
+        )
+        .group_by(Invoice.issuer_id)
+        .subquery()
+    )
     avg_invoices = db.query(func.avg(invoice_counts_sq.c.cnt)).scalar()
     avg_invoices_per_user = round(float(avg_invoices), 1) if avg_invoices else 0
 
-    power_user_sq = _exclude_users(
-        db.query(
-            Invoice.issuer_id
-        ).filter(
-            Invoice.invoice_type == "revenue",
-            Invoice.created_at >= month_start,
-        ),
-        Invoice.issuer_id,
-        excluded_ids,
-    ).group_by(Invoice.issuer_id).having(func.count(Invoice.id) >= 10).subquery()
+    power_user_sq = (
+        _exclude_users(
+            db.query(Invoice.issuer_id).filter(
+                Invoice.invoice_type == "revenue",
+                Invoice.created_at >= month_start,
+            ),
+            Invoice.issuer_id,
+            excluded_ids,
+        )
+        .group_by(Invoice.issuer_id)
+        .having(func.count(Invoice.id) >= 10)
+        .subquery()
+    )
     power_users = db.query(func.count()).select_from(power_user_sq).scalar() or 0
 
     # Zero-invoice = never created a REVENUE invoice (mirrors the funnel's
     # "Created First Invoice" step; expense-only users are NOT activated).
-    users_with_any_invoice = (
-        db.query(Invoice.issuer_id)
-        .filter(Invoice.invoice_type == "revenue")
-        .distinct()
-        .subquery()
-    )
-    zero_invoice = db.query(models.User).filter(
-        ~models.User.id.in_(db.query(users_with_any_invoice))
-    ).count()
+    users_with_any_invoice = db.query(Invoice.issuer_id).filter(Invoice.invoice_type == "revenue").distinct().subquery()
+    zero_invoice = db.query(models.User).filter(~models.User.id.in_(db.query(users_with_any_invoice))).count()
 
     # ── Channel Segmentation ──
-    whatsapp_users = db.query(models.User).filter(
-        models.User.phone_verified.is_(True),
-        models.User.phone != None,  # noqa: E711
-    ).count()
+    whatsapp_users = (
+        db.query(models.User)
+        .filter(
+            models.User.phone_verified.is_(True),
+            models.User.phone != None,  # noqa: E711
+        )
+        .count()
+    )
     email_only_users = total_signups - whatsapp_users
 
     return GrowthMetrics(
@@ -2257,6 +2305,7 @@ def get_growth_metrics(
 
 class ZeroInvoiceCohort(BaseModel):
     """A group of zero-invoice users sharing a trait."""
+
     label: str
     count: int
     pct: float  # % of total zero-invoice users
@@ -2330,9 +2379,7 @@ def get_zero_invoice_diagnostic(
 
     # ── Get all zero-invoice user IDs ──
     users_with_invoices = db.query(Invoice.issuer_id).distinct().subquery()
-    zero_q = db.query(models.User).filter(
-        ~models.User.id.in_(db.query(users_with_invoices))
-    )
+    zero_q = db.query(models.User).filter(~models.User.id.in_(db.query(users_with_invoices)))
     zero_users = zero_q.all()
     total_zero = len(zero_users)
     total_signups = db.query(models.User).count()
@@ -2397,28 +2444,34 @@ def get_zero_invoice_diagnostic(
         week_end = now - dt.timedelta(weeks=w)
         week_label = week_start.strftime("%b %d")
 
-        signups_in_week = db.query(models.User).filter(
-            models.User.created_at >= week_start,
-            models.User.created_at < week_end,
-        ).count()
+        signups_in_week = (
+            db.query(models.User)
+            .filter(
+                models.User.created_at >= week_start,
+                models.User.created_at < week_end,
+            )
+            .count()
+        )
 
-        activated_in_week = db.query(
-            func.count(func.distinct(Invoice.issuer_id))
-        ).join(
-            models.User, models.User.id == Invoice.issuer_id
-        ).filter(
-            models.User.created_at >= week_start,
-            models.User.created_at < week_end,
-        ).scalar() or 0
+        activated_in_week = (
+            db.query(func.count(func.distinct(Invoice.issuer_id)))
+            .join(models.User, models.User.id == Invoice.issuer_id)
+            .filter(
+                models.User.created_at >= week_start,
+                models.User.created_at < week_end,
+            )
+            .scalar()
+            or 0
+        )
 
-        weekly_trend.append({
-            "week": week_label,
-            "signups": signups_in_week,
-            "activated": activated_in_week,
-            "activation_rate": round(
-                activated_in_week / signups_in_week * 100, 1
-            ) if signups_in_week > 0 else 0,
-        })
+        weekly_trend.append(
+            {
+                "week": week_label,
+                "signups": signups_in_week,
+                "activated": activated_in_week,
+                "activation_rate": round(activated_in_week / signups_in_week * 100, 1) if signups_in_week > 0 else 0,
+            }
+        )
 
     # ── Sample users for outreach ──
     sample_users = zero_q.order_by(models.User.created_at.desc()).limit(sample_limit).all()
@@ -2448,7 +2501,9 @@ def get_zero_invoice_diagnostic(
             has_business_name=bool(u.business_name),
             has_bank_details=bool(u.bank_name and u.account_number),
             has_logo=bool(u.logo_url),
-            days_since_signup=(now - (u.created_at.replace(tzinfo=dt.timezone.utc) if u.created_at.tzinfo is None else u.created_at)).days,
+            days_since_signup=(
+                now - (u.created_at.replace(tzinfo=dt.timezone.utc) if u.created_at.tzinfo is None else u.created_at)
+            ).days,
             login_count_bucket=classify_login(u),
             signup_source=getattr(u, "signup_source", None),
         )
@@ -2469,17 +2524,24 @@ def get_zero_invoice_diagnostic(
 
     # ── Source activation rates (all users, not just zero-invoice) ──
     # Compare signup_source across ALL users to see which channels convert
-    all_sources = db.query(
-        models.User.signup_source,
-        func.count(models.User.id).label("total"),
-    ).group_by(models.User.signup_source).all()
+    all_sources = (
+        db.query(
+            models.User.signup_source,
+            func.count(models.User.id).label("total"),
+        )
+        .group_by(models.User.signup_source)
+        .all()
+    )
 
-    activated_by_source = db.query(
-        models.User.signup_source,
-        func.count(func.distinct(Invoice.issuer_id)).label("activated"),
-    ).join(
-        Invoice, Invoice.issuer_id == models.User.id
-    ).group_by(models.User.signup_source).all()
+    activated_by_source = (
+        db.query(
+            models.User.signup_source,
+            func.count(func.distinct(Invoice.issuer_id)).label("activated"),
+        )
+        .join(Invoice, Invoice.issuer_id == models.User.id)
+        .group_by(models.User.signup_source)
+        .all()
+    )
 
     activated_map = {row.signup_source: row.activated for row in activated_by_source}
     source_activation_rates = []
@@ -2487,12 +2549,14 @@ def get_zero_invoice_diagnostic(
         src = row.signup_source or "unknown"
         total = row.total
         activated = activated_map.get(row.signup_source, 0)
-        source_activation_rates.append({
-            "source": src,
-            "signups": total,
-            "activated": activated,
-            "activation_rate": round(activated / total * 100, 1) if total > 0 else 0,
-        })
+        source_activation_rates.append(
+            {
+                "source": src,
+                "signups": total,
+                "activated": activated,
+                "activation_rate": round(activated / total * 100, 1) if total > 0 else 0,
+            }
+        )
     source_activation_rates.sort(key=lambda x: x["signups"], reverse=True)
 
     return ZeroInvoiceDiagnostic(
@@ -2523,8 +2587,10 @@ def get_zero_invoice_diagnostic(
 # BUSINESS INTELLIGENCE — Per-business health for admin
 # =============================================================================
 
+
 class BusinessHealthItem(BaseModel):
     """Per-business health snapshot."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -2569,6 +2635,7 @@ class BusinessHealthItem(BaseModel):
 
 class BusinessSummary(BaseModel):
     """Aggregate health counts across ALL matching businesses (not just the page)."""
+
     total: int  # grand total of matching businesses (filter-independent)
     healthy: int  # health_score >= 60
     at_risk: int  # health_score < 40
@@ -2764,21 +2831,9 @@ def get_activity_analytics(
     ]
 
     # Logins (approximate via last_login timestamps)
-    logins_today = (
-        db.query(func.count(models.User.id))
-        .filter(models.User.last_login >= today_start)
-        .scalar()
-    ) or 0
-    logins_week = (
-        db.query(func.count(models.User.id))
-        .filter(models.User.last_login >= week_start)
-        .scalar()
-    ) or 0
-    logins_month = (
-        db.query(func.count(models.User.id))
-        .filter(models.User.last_login >= month_start)
-        .scalar()
-    ) or 0
+    logins_today = (db.query(func.count(models.User.id)).filter(models.User.last_login >= today_start).scalar()) or 0
+    logins_week = (db.query(func.count(models.User.id)).filter(models.User.last_login >= week_start).scalar()) or 0
+    logins_month = (db.query(func.count(models.User.id)).filter(models.User.last_login >= month_start).scalar()) or 0
 
     return ActivityAnalytics(
         today=today_act,
@@ -2808,7 +2863,10 @@ def get_activity_analytics(
 def get_business_intelligence(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=5, le=100),
-    sort_by: str = Query("health_score", pattern="^(health_score|total_revenue|invoices_total|created_at|last_login|name|collection_rate)$"),
+    sort_by: str = Query(
+        "health_score",
+        pattern="^(health_score|total_revenue|invoices_total|created_at|last_login|name|collection_rate)$",
+    ),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     risk_filter: str | None = Query(None, pattern="^(at_risk|healthy|inactive|churned)$"),
     search: str | None = Query(None, max_length=100),
@@ -2869,9 +2927,7 @@ def get_business_intelligence(
             # (channel=storefront + status=pending), which are not real sales.
             # Capped per-invoice (ceiling) so a junk mega-invoice can't inflate it.
             func.sum(case((_rev_billed_capped, Invoice.amount), else_=0)).label("revenue"),
-            func.sum(
-                case((Invoice.invoice_type == "expense", Invoice.amount), else_=0)
-            ).label("expenses"),
+            func.sum(case((Invoice.invoice_type == "expense", Invoice.amount), else_=0)).label("expenses"),
             func.max(Invoice.created_at).label("last_invoice"),
             # "This month" activity = REVENUE invoices only (expenses shouldn't
             # count toward selling activity or the power-user threshold).
@@ -2888,9 +2944,9 @@ def get_business_intelligence(
             ).label("this_month"),
             func.avg(case((_rev_any_capped, Invoice.amount))).label("avg_value"),
             # Count of over-cap revenue invoices → flag the row as an outlier.
-            func.count(
-                case((and_(_rev_any, Invoice.amount > ceiling), 1))
-            ).label("outliers") if ceiling > 0 else func.count(case((and_(_rev_any, Invoice.id.is_(None)), 1))).label("outliers"),
+            func.count(case((and_(_rev_any, Invoice.amount > ceiling), 1))).label("outliers")
+            if ceiling > 0
+            else func.count(case((and_(_rev_any, Invoice.id.is_(None)), 1))).label("outliers"),
             func.count(
                 case(
                     (
@@ -2975,9 +3031,7 @@ def get_business_intelligence(
         has_outlier = bool(inv and (getattr(inv, "outliers", 0) or 0) > 0)
         customers = cust_map.get(u.id, 0)
 
-        collection = (
-            round(paid_rev / total_rev_count * 100, 1) if total_rev_count > 0 else 0
-        )
+        collection = round(paid_rev / total_rev_count * 100, 1) if total_rev_count > 0 else 0
 
         # Plans/subscriptions are retired (commission-only model). These fields
         # are kept as neutral defaults for response back-compat only.
@@ -3086,10 +3140,7 @@ def get_business_intelligence(
         total=len(items),
         healthy=sum(1 for i in items if i.health_score >= 60),
         at_risk=sum(1 for i in items if i.health_score < 40),
-        inactive=sum(
-            1 for i in items
-            if "never_invoiced" in i.risk_flags or "inactive_30d" in i.risk_flags
-        ),
+        inactive=sum(1 for i in items if "never_invoiced" in i.risk_flags or "inactive_30d" in i.risk_flags),
         never_invoiced=sum(1 for i in items if "never_invoiced" in i.risk_flags),
         upgrade_candidates=0,  # retired: no plans/upgrades under commission model
         excluded_count=len(excluded_ids),
@@ -3182,22 +3233,14 @@ def get_business_invoices(
     cust_ids = [r.customer_id for r in rows if r.customer_id]
     cust_names: dict[int, str] = {}
     if cust_ids:
-        for c in (
-            db.query(Customer.id, Customer.name)
-            .filter(Customer.id.in_(cust_ids))
-            .all()
-        ):
+        for c in db.query(Customer.id, Customer.name).filter(Customer.id.in_(cust_ids)).all():
             cust_names[c.id] = c.name
 
     # Amount rollups across the whole (type-filtered) set, not just this page.
     agg = db.query(
         func.coalesce(func.sum(Invoice.amount), 0),
-        func.coalesce(
-            func.sum(case((Invoice.status == "paid", Invoice.amount), else_=0)), 0
-        ),
-        func.coalesce(
-            func.sum(case((Invoice.status == "pending", Invoice.amount), else_=0)), 0
-        ),
+        func.coalesce(func.sum(case((Invoice.status == "paid", Invoice.amount), else_=0)), 0),
+        func.coalesce(func.sum(case((Invoice.status == "pending", Invoice.amount), else_=0)), 0),
     ).filter(Invoice.issuer_id == user_id)
     if invoice_type != "all":
         agg = agg.filter(Invoice.invoice_type == invoice_type)
@@ -3242,6 +3285,7 @@ def get_business_invoices(
 # AUDIT-LOG INTEGRITY — verify the tamper-evident hash chain
 # =============================================================================
 
+
 class AuditChainResult(BaseModel):
     ok: bool
     total: int  # rows checked
@@ -3269,35 +3313,39 @@ def verify_audit_chain(
 
     log_audit_event("admin.audit.verify", user_id=admin_user.id)
 
-    rows = (
-        db.query(AuditLog)
-        .order_by(AuditLog.id.asc())
-        .limit(limit)
-        .all()
-    )
+    rows = db.query(AuditLog).order_by(AuditLog.id.asc()).limit(limit).all()
     prev = ""
     verified = 0
     for r in rows:
         expected = hash_entry(prev, r.action, r.user_id, r.status, r.details)
         if (r.prev_hash or "") != prev:
             return AuditChainResult(
-                ok=False, total=len(rows), verified=verified,
-                first_broken_id=r.id, reason="chain_broken",
+                ok=False,
+                total=len(rows),
+                verified=verified,
+                first_broken_id=r.id,
+                reason="chain_broken",
                 message=f"Row {r.id}: prev_hash does not link to the previous row "
-                        "(a row was deleted, inserted or reordered).",
+                "(a row was deleted, inserted or reordered).",
             )
         if r.entry_hash != expected:
             return AuditChainResult(
-                ok=False, total=len(rows), verified=verified,
-                first_broken_id=r.id, reason="content_edited",
+                ok=False,
+                total=len(rows),
+                verified=verified,
+                first_broken_id=r.id,
+                reason="content_edited",
                 message=f"Row {r.id}: entry_hash does not match its contents "
-                        "(the row was edited after it was written).",
+                "(the row was edited after it was written).",
             )
         prev = r.entry_hash or ""
         verified += 1
     return AuditChainResult(
-        ok=True, total=len(rows), verified=verified,
-        first_broken_id=None, reason=None,
+        ok=True,
+        total=len(rows),
+        verified=verified,
+        first_broken_id=None,
+        reason=None,
         message=f"Audit chain intact: {verified} row(s) verified.",
     )
 
@@ -3306,8 +3354,10 @@ def verify_audit_chain(
 # USER SEGMENTS FOR CAMPAIGNS (Brevo Email/WhatsApp Export)
 # =============================================================================
 
+
 class UserSegmentExport(BaseModel):
     """User data formatted for Brevo campaign import."""
+
     name: str
     phone: str | None
     email: str | None
@@ -3328,39 +3378,39 @@ def get_inactive_users(
     """
     Get users who registered but never created an invoice.
     Perfect for activation campaign.
-    
+
     Export this list to Brevo for Email/WhatsApp campaign targeting.
     """
     log_audit_event("admin.segments.inactive", user_id=admin_user.id, days=days_inactive)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
-    
+
     # Users with 0 invoices
     users_with_invoices = db.query(models.Invoice.issuer_id).distinct().subquery()
-    
-    inactive_users = db.query(models.User).filter(
-        ~models.User.id.in_(db.query(users_with_invoices))
-    ).all()
-    
+
+    inactive_users = db.query(models.User).filter(~models.User.id.in_(db.query(users_with_invoices))).all()
+
     result = []
     for user in inactive_users:
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = None
         if user.last_login:
             days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=getattr(user, 'invoice_balance', 5),
-            total_invoices=0,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=getattr(user, "invoice_balance", 5),
+                total_invoices=0,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3375,39 +3425,45 @@ def get_low_balance_users(
     Perfect for upgrade campaign - "Running low! Buy 100 for ₦2,500"
     """
     log_audit_event("admin.segments.low_balance", user_id=admin_user.id, max_balance=max_balance)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
-    
-    low_balance_users = db.query(models.User).filter(
-        models.User.plan == SubscriptionPlan.FREE,
-        models.User.invoice_balance <= max_balance,
-        models.User.invoice_balance > 0  # Still have some
-    ).all()
-    
+
+    low_balance_users = (
+        db.query(models.User)
+        .filter(
+            models.User.plan == SubscriptionPlan.FREE,
+            models.User.invoice_balance <= max_balance,
+            models.User.invoice_balance > 0,  # Still have some
+        )
+        .all()
+    )
+
     result = []
     for user in low_balance_users:
         # Count their invoices
-        invoice_count = db.query(func.count(models.Invoice.id)).filter(
-            models.Invoice.issuer_id == user.id
-        ).scalar() or 0
-        
+        invoice_count = (
+            db.query(func.count(models.Invoice.id)).filter(models.Invoice.issuer_id == user.id).scalar() or 0
+        )
+
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = None
         if user.last_login:
             days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=user.invoice_balance,
-            total_invoices=invoice_count,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=user.invoice_balance,
+                total_invoices=invoice_count,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3422,43 +3478,45 @@ def get_active_free_users(
     Perfect for upgrade campaign - "You're invoicing a lot! Upgrade to Pro"
     """
     log_audit_event("admin.segments.active_free", user_id=admin_user.id, min_invoices=min_invoices)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
-    
+
     # Get users with invoice counts
-    user_invoice_counts = db.query(
-        models.Invoice.issuer_id,
-        func.count(models.Invoice.id).label('invoice_count')
-    ).group_by(models.Invoice.issuer_id).having(
-        func.count(models.Invoice.id) >= min_invoices
-    ).subquery()
-    
-    active_free_users = db.query(models.User, user_invoice_counts.c.invoice_count).join(
-        user_invoice_counts,
-        models.User.id == user_invoice_counts.c.issuer_id
-    ).filter(
-        models.User.plan == SubscriptionPlan.FREE
-    ).all()
-    
+    user_invoice_counts = (
+        db.query(models.Invoice.issuer_id, func.count(models.Invoice.id).label("invoice_count"))
+        .group_by(models.Invoice.issuer_id)
+        .having(func.count(models.Invoice.id) >= min_invoices)
+        .subquery()
+    )
+
+    active_free_users = (
+        db.query(models.User, user_invoice_counts.c.invoice_count)
+        .join(user_invoice_counts, models.User.id == user_invoice_counts.c.issuer_id)
+        .filter(models.User.plan == SubscriptionPlan.FREE)
+        .all()
+    )
+
     result = []
     for user, invoice_count in active_free_users:
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = None
         if user.last_login:
             days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=getattr(user, 'invoice_balance', 5),
-            total_invoices=invoice_count,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=getattr(user, "invoice_balance", 5),
+                total_invoices=invoice_count,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3473,39 +3531,42 @@ def get_churned_users(
     Perfect for win-back campaign - "We miss you! Create an invoice today"
     """
     log_audit_event("admin.segments.churned", user_id=admin_user.id, days=days_inactive)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
     cutoff = now - dt.timedelta(days=days_inactive)
-    
+
     # Users who have invoices but haven't logged in recently
     users_with_invoices = db.query(models.Invoice.issuer_id).distinct().subquery()
-    
-    churned_users = db.query(models.User).filter(
-        models.User.id.in_(db.query(users_with_invoices)),
-        models.User.last_login < cutoff
-    ).all()
-    
+
+    churned_users = (
+        db.query(models.User)
+        .filter(models.User.id.in_(db.query(users_with_invoices)), models.User.last_login < cutoff)
+        .all()
+    )
+
     result = []
     for user in churned_users:
-        invoice_count = db.query(func.count(models.Invoice.id)).filter(
-            models.Invoice.issuer_id == user.id
-        ).scalar() or 0
-        
+        invoice_count = (
+            db.query(func.count(models.Invoice.id)).filter(models.Invoice.issuer_id == user.id).scalar() or 0
+        )
+
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days if user.last_login else None
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=getattr(user, 'invoice_balance', 5),
-            total_invoices=invoice_count,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=getattr(user, "invoice_balance", 5),
+                total_invoices=invoice_count,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3520,38 +3581,44 @@ def get_starter_users(
     Note: STARTER plan removed — returns FREE users with invoice packs purchased.
     """
     log_audit_event("admin.segments.starter", user_id=admin_user.id)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
-    
+
     # Return FREE users who have purchased packs (invoice_balance > 2 or have transactions)
-    starter_users = db.query(models.User).filter(
-        models.User.plan == SubscriptionPlan.FREE,
-        models.User.invoice_balance > 2,  # More than the initial 2 free invoices
-    ).all()
-    
+    starter_users = (
+        db.query(models.User)
+        .filter(
+            models.User.plan == SubscriptionPlan.FREE,
+            models.User.invoice_balance > 2,  # More than the initial 2 free invoices
+        )
+        .all()
+    )
+
     result = []
     for user in starter_users:
-        invoice_count = db.query(func.count(models.Invoice.id)).filter(
-            models.Invoice.issuer_id == user.id
-        ).scalar() or 0
-        
+        invoice_count = (
+            db.query(func.count(models.Invoice.id)).filter(models.Invoice.issuer_id == user.id).scalar() or 0
+        )
+
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = None
         if user.last_login:
             days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=getattr(user, 'invoice_balance', 100),
-            total_invoices=invoice_count,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=getattr(user, "invoice_balance", 100),
+                total_invoices=invoice_count,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3565,36 +3632,36 @@ def get_pro_users(
     Perfect for retention/engagement campaign - "Tips to get more value"
     """
     log_audit_event("admin.segments.pro", user_id=admin_user.id)
-    
+
     now = dt.datetime.now(dt.timezone.utc)
-    
-    pro_users = db.query(models.User).filter(
-        models.User.plan == SubscriptionPlan.PRO
-    ).all()
-    
+
+    pro_users = db.query(models.User).filter(models.User.plan == SubscriptionPlan.PRO).all()
+
     result = []
     for user in pro_users:
-        invoice_count = db.query(func.count(models.Invoice.id)).filter(
-            models.Invoice.issuer_id == user.id
-        ).scalar() or 0
-        
+        invoice_count = (
+            db.query(func.count(models.Invoice.id)).filter(models.Invoice.issuer_id == user.id).scalar() or 0
+        )
+
         days_since_signup = (now - user.created_at.replace(tzinfo=dt.timezone.utc)).days if user.created_at else 0
         days_since_login = None
         if user.last_login:
             days_since_login = (now - user.last_login.replace(tzinfo=dt.timezone.utc)).days
-        
-        result.append(UserSegmentExport(
-            name=user.name or "Customer",
-            phone=user.phone,
-            email=user.email,
-            plan=user.plan.value,
-            invoice_balance=getattr(user, 'invoice_balance', 100),
-            total_invoices=invoice_count,
-            days_since_signup=days_since_signup,
-            days_since_last_login=days_since_login,
-            business_name=user.business_name
-        ))
-    
+
+        result.append(
+            UserSegmentExport(
+                name=user.name or "Customer",
+                phone=user.phone,
+                email=user.email,
+                plan=user.plan.value,
+                invoice_balance=getattr(user, "invoice_balance", 100),
+                total_invoices=invoice_count,
+                days_since_signup=days_since_signup,
+                days_since_last_login=days_since_login,
+                business_name=user.business_name,
+            )
+        )
+
     return result
 
 
@@ -3602,8 +3669,10 @@ def get_pro_users(
 # BREVO SYNC - Push segments directly to Brevo lists
 # =============================================================================
 
+
 class BrevoSyncResult(BaseModel):
     """Result of syncing a segment to Brevo."""
+
     segment: str
     contacts_synced: int
     list_id: int
@@ -3620,9 +3689,9 @@ async def sync_segment_to_brevo(
 ) -> BrevoSyncResult:
     """
     Sync a user segment directly to a Brevo contact list.
-    
+
     Segments: inactive, low-balance, active-free, churned, starter, pro, all
-    
+
     1. First create lists in Brevo Dashboard → Contacts → Lists
     2. Get the list ID from Brevo
     3. Call this endpoint to push contacts to that list
@@ -3630,9 +3699,9 @@ async def sync_segment_to_brevo(
     import httpx
 
     from app.core.config import settings
-    
+
     log_audit_event("admin.brevo.sync", user_id=admin_user.id, segment=segment, list_id=list_id)
-    
+
     brevo_api_key = getattr(settings, "BREVO_CONTACTS_API_KEY", None)
     if not brevo_api_key:
         return BrevoSyncResult(
@@ -3640,92 +3709,96 @@ async def sync_segment_to_brevo(
             contacts_synced=0,
             list_id=list_id,
             success=False,
-            error="BREVO_CONTACTS_API_KEY not configured"
+            error="BREVO_CONTACTS_API_KEY not configured",
         )
-    
+
     # Get users based on segment (column-only queries to save RAM at scale)
     now = dt.datetime.now(dt.timezone.utc)
     _brevo_cols = (
-        models.User.email, models.User.name, models.User.phone,
-        models.User.plan, models.User.invoice_balance, models.User.business_name,
+        models.User.email,
+        models.User.name,
+        models.User.phone,
+        models.User.plan,
+        models.User.invoice_balance,
+        models.User.business_name,
     )
     users = []
-    
+
     if segment == "inactive":
         # Users who never created an invoice
         users_with_invoices = db.query(models.Invoice.issuer_id).distinct()
-        users = db.query(*_brevo_cols).filter(
-            ~models.User.id.in_(users_with_invoices)
-        ).all()
-    
+        users = db.query(*_brevo_cols).filter(~models.User.id.in_(users_with_invoices)).all()
+
     elif segment == "low-balance":
         # FREE users with low invoice balance
-        users = db.query(*_brevo_cols).filter(
-            models.User.plan == SubscriptionPlan.FREE,
-            models.User.invoice_balance <= 2,
-            models.User.invoice_balance > 0
-        ).all()
-    
+        users = (
+            db.query(*_brevo_cols)
+            .filter(
+                models.User.plan == SubscriptionPlan.FREE,
+                models.User.invoice_balance <= 2,
+                models.User.invoice_balance > 0,
+            )
+            .all()
+        )
+
     elif segment == "active-free":
         # Active FREE users with 3+ invoices
-        user_invoice_counts = db.query(
-            models.Invoice.issuer_id,
-            func.count(models.Invoice.id).label('invoice_count')
-        ).group_by(models.Invoice.issuer_id).having(
-            func.count(models.Invoice.id) >= 3
-        ).subquery()
-        
-        users = db.query(*_brevo_cols).filter(
-            models.User.id.in_(
-                db.query(user_invoice_counts.c.issuer_id)
-            ),
-            models.User.plan == SubscriptionPlan.FREE
-        ).all()
-    
+        user_invoice_counts = (
+            db.query(models.Invoice.issuer_id, func.count(models.Invoice.id).label("invoice_count"))
+            .group_by(models.Invoice.issuer_id)
+            .having(func.count(models.Invoice.id) >= 3)
+            .subquery()
+        )
+
+        users = (
+            db.query(*_brevo_cols)
+            .filter(
+                models.User.id.in_(db.query(user_invoice_counts.c.issuer_id)), models.User.plan == SubscriptionPlan.FREE
+            )
+            .all()
+        )
+
     elif segment == "churned":
         # Users inactive for 14+ days
         cutoff = now - dt.timedelta(days=14)
         users_with_invoices = db.query(models.Invoice.issuer_id).distinct()
-        users = db.query(*_brevo_cols).filter(
-            models.User.id.in_(users_with_invoices),
-            models.User.last_login < cutoff
-        ).all()
-    
+        users = (
+            db.query(*_brevo_cols)
+            .filter(models.User.id.in_(users_with_invoices), models.User.last_login < cutoff)
+            .all()
+        )
+
     elif segment == "starter":
         # Legacy: FREE users who bought packs (invoice_balance > 5) - for Pro upsell
-        users = db.query(*_brevo_cols).filter(
-            models.User.plan == SubscriptionPlan.FREE,
-            models.User.invoice_balance > 5,
-        ).all()
-    
+        users = (
+            db.query(*_brevo_cols)
+            .filter(
+                models.User.plan == SubscriptionPlan.FREE,
+                models.User.invoice_balance > 5,
+            )
+            .all()
+        )
+
     elif segment == "pro":
         # PRO plan users (monthly subscribers) - for retention
-        users = db.query(*_brevo_cols).filter(
-            models.User.plan == SubscriptionPlan.PRO
-        ).all()
-    
+        users = db.query(*_brevo_cols).filter(models.User.plan == SubscriptionPlan.PRO).all()
+
     elif segment == "all":
         # ALL users - sync entire user base to Brevo
         users = db.query(*_brevo_cols).all()
-    
+
     else:
         return BrevoSyncResult(
             segment=segment,
             contacts_synced=0,
             list_id=list_id,
             success=False,
-            error=f"Unknown segment: {segment}. Valid: inactive, low-balance, active-free, churned, starter, pro, all"
+            error=f"Unknown segment: {segment}. Valid: inactive, low-balance, active-free, churned, starter, pro, all",
         )
-    
+
     if not users:
-        return BrevoSyncResult(
-            segment=segment,
-            contacts_synced=0,
-            list_id=list_id,
-            success=True,
-            error=None
-        )
-    
+        return BrevoSyncResult(segment=segment, contacts_synced=0, list_id=list_id, success=True, error=None)
+
     # Prepare contacts for Brevo
     contacts = []
     for user in users:
@@ -3736,47 +3809,36 @@ async def sync_segment_to_brevo(
                     "FIRSTNAME": user.name or "Customer",
                     "PHONE": user.phone,
                     "PLAN": user.plan.value,
-                    "INVOICE_BALANCE": getattr(user, 'invoice_balance', 5),
-                    "BUSINESS_NAME": user.business_name or ""
+                    "INVOICE_BALANCE": getattr(user, "invoice_balance", 5),
+                    "BUSINESS_NAME": user.business_name or "",
                 },
                 "listIds": [list_id],
-                "updateEnabled": True  # Update if contact exists
+                "updateEnabled": True,  # Update if contact exists
             }
             contacts.append(contact)
-    
+
     if not contacts:
         return BrevoSyncResult(
             segment=segment,
             contacts_synced=0,
             list_id=list_id,
             success=True,
-            error="No users with email addresses in this segment"
+            error="No users with email addresses in this segment",
         )
-    
+
     # Push to Brevo using batch import
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://api.brevo.com/v3/contacts/import",
-                headers={
-                    "api-key": brevo_api_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "listIds": [list_id],
-                    "updateExistingContacts": True,
-                    "jsonBody": contacts
-                },
-                timeout=30.0
+                headers={"api-key": brevo_api_key, "Content-Type": "application/json"},
+                json={"listIds": [list_id], "updateExistingContacts": True, "jsonBody": contacts},
+                timeout=30.0,
             )
-            
+
             if response.status_code in (200, 201, 202):
                 return BrevoSyncResult(
-                    segment=segment,
-                    contacts_synced=len(contacts),
-                    list_id=list_id,
-                    success=True,
-                    error=None
+                    segment=segment, contacts_synced=len(contacts), list_id=list_id, success=True, error=None
                 )
             else:
                 return BrevoSyncResult(
@@ -3784,17 +3846,11 @@ async def sync_segment_to_brevo(
                     contacts_synced=0,
                     list_id=list_id,
                     success=False,
-                    error=f"Brevo API error: {response.status_code} - {response.text}"
+                    error=f"Brevo API error: {response.status_code} - {response.text}",
                 )
-    
+
     except Exception as e:
-        return BrevoSyncResult(
-            segment=segment,
-            contacts_synced=0,
-            list_id=list_id,
-            success=False,
-            error=str(e)
-        )
+        return BrevoSyncResult(segment=segment, contacts_synced=0, list_id=list_id, success=False, error=str(e))
 
 
 @router.get("/brevo/lists")
@@ -3807,19 +3863,17 @@ async def get_brevo_lists(
     import httpx
 
     from app.core.config import settings
-    
+
     brevo_api_key = getattr(settings, "BREVO_CONTACTS_API_KEY", None)
     if not brevo_api_key:
         return {"error": "BREVO_CONTACTS_API_KEY not configured", "lists": []}
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                "https://api.brevo.com/v3/contacts/lists",
-                headers={"api-key": brevo_api_key},
-                timeout=10.0
+                "https://api.brevo.com/v3/contacts/lists", headers={"api-key": brevo_api_key}, timeout=10.0
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return {
@@ -3830,7 +3884,7 @@ async def get_brevo_lists(
                 }
             else:
                 return {"error": f"Brevo API error: {response.status_code}", "lists": []}
-    
+
     except Exception as e:
         return {"error": str(e), "lists": []}
 
@@ -3844,29 +3898,26 @@ async def create_brevo_list(
     import httpx
 
     from app.core.config import settings
-    
+
     brevo_api_key = getattr(settings, "BREVO_CONTACTS_API_KEY", None)
     if not brevo_api_key:
         return {"error": "BREVO_CONTACTS_API_KEY not configured", "list_id": None}
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://api.brevo.com/v3/contacts/lists",
-                headers={
-                    "api-key": brevo_api_key,
-                    "Content-Type": "application/json"
-                },
+                headers={"api-key": brevo_api_key, "Content-Type": "application/json"},
                 json={"name": name, "folderId": 1},  # folderId 1 is usually the default folder
-                timeout=10.0
+                timeout=10.0,
             )
-            
+
             if response.status_code in (200, 201):
                 data = response.json()
                 return {"list_id": data.get("id"), "name": name, "success": True}
             else:
                 return {"error": f"Brevo API error: {response.status_code} - {response.text}", "list_id": None}
-    
+
     except Exception as e:
         return {"error": str(e), "list_id": None}
 
@@ -3892,9 +3943,7 @@ def export_users_csv(
 
     log_audit_event("admin.users.export_csv", user_id=admin_user.id, segment=segment)
 
-    q = db.query(models.User).filter(
-        models.User.email.isnot(None), models.User.email != ""
-    )
+    q = db.query(models.User).filter(models.User.email.isnot(None), models.User.email != "")
     invoiced = db.query(models.Invoice.issuer_id).distinct().subquery()
     if segment == "active":
         q = q.filter(models.User.id.in_(db.query(invoiced)))
@@ -3979,7 +4028,9 @@ def purge_inactive_accounts(
     from app.models.models import Invoice, SubscriptionPlan, User
     from app.services.account_deletion_service import AccountDeletionService
 
-    log_audit_event("admin.purge_inactive", user_id=admin_user.id, days=days, channel=channel, max_invoices=max_invoices)
+    log_audit_event(
+        "admin.purge_inactive", user_id=admin_user.id, days=days, channel=channel, max_invoices=max_invoices
+    )
 
     if days < 14:
         raise HTTPException(status_code=400, detail="Minimum 14 days threshold for safety")
@@ -3989,9 +4040,7 @@ def purge_inactive_accounts(
 
     # Count invoices per user
     invoice_counts = (
-        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt"))
-        .group_by(Invoice.issuer_id)
-        .subquery()
+        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt")).group_by(Invoice.issuer_id).subquery()
     )
 
     # Find inactive free users with invoices <= max_invoices
@@ -4044,7 +4093,10 @@ def purge_inactive_accounts(
 
     logger.info(
         "Admin %s purged %d inactive accounts (days=%d, failed=%d)",
-        admin_user.id, deleted, days, failed,
+        admin_user.id,
+        deleted,
+        days,
+        failed,
     )
 
     return {
@@ -4080,9 +4132,7 @@ def purge_low_quality_accounts(
     log_audit_event("admin.purge_low_quality", user_id=admin_user.id, dry_run=dry_run)
 
     invoice_counts = (
-        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt"))
-        .group_by(Invoice.issuer_id)
-        .subquery()
+        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt")).group_by(Invoice.issuer_id).subquery()
     )
 
     # Users who have made any successful payment (subscription or invoice pack)
@@ -4109,13 +4159,17 @@ def purge_low_quality_accounts(
         return {
             "dry_run": True,
             "would_delete": len(candidates),
-            "message": f"Would delete {len(candidates)} accounts (no business name + <5 invoices). Set dry_run=false to execute.",
+            "message": (
+                f"Would delete {len(candidates)} accounts "
+                "(no business name + <5 invoices). Set dry_run=false to execute."
+            ),
         }
 
     if not candidates:
         return {"deleted": 0, "message": "No low-quality accounts found"}
 
     from app.services.account_deletion_service import AccountDeletionService
+
     service = AccountDeletionService(db)
     deleted = 0
     failed = 0
@@ -4133,7 +4187,9 @@ def purge_low_quality_accounts(
 
     logger.info(
         "Admin %s purged %d low-quality accounts (failed=%d)",
-        admin_user.id, deleted, failed,
+        admin_user.id,
+        deleted,
+        failed,
     )
 
     return {
@@ -4167,9 +4223,7 @@ def purge_no_bank_accounts(
     log_audit_event("admin.purge_no_bank", user_id=admin_user.id, dry_run=dry_run)
 
     invoice_counts = (
-        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt"))
-        .group_by(Invoice.issuer_id)
-        .subquery()
+        db.query(Invoice.issuer_id, sqlfunc.count(Invoice.id).label("cnt")).group_by(Invoice.issuer_id).subquery()
     )
 
     paying_user_ids = (
@@ -4196,13 +4250,17 @@ def purge_no_bank_accounts(
         return {
             "dry_run": True,
             "would_delete": len(candidates),
-            "message": f"Would delete {len(candidates)} accounts (no bank details + <5 invoices). Set dry_run=false to execute.",
+            "message": (
+                f"Would delete {len(candidates)} accounts "
+                "(no bank details + <5 invoices). Set dry_run=false to execute."
+            ),
         }
 
     if not candidates:
         return {"deleted": 0, "message": "No accounts without bank details found"}
 
     from app.services.account_deletion_service import AccountDeletionService
+
     service = AccountDeletionService(db)
     deleted = 0
     failed = 0
@@ -4220,7 +4278,9 @@ def purge_no_bank_accounts(
 
     logger.info(
         "Admin %s purged %d no-bank accounts (failed=%d)",
-        admin_user.id, deleted, failed,
+        admin_user.id,
+        deleted,
+        failed,
     )
 
     return {
@@ -4308,7 +4368,10 @@ def sync_brevo_contacts(
 
     logger.info(
         "Admin %s synced Brevo: %d total contacts, %d orphaned, %d deleted",
-        admin_user.id, len(brevo_contacts), len(orphaned), deleted,
+        admin_user.id,
+        len(brevo_contacts),
+        len(orphaned),
+        deleted,
     )
 
     return {
@@ -4333,11 +4396,13 @@ def get_task_schedule(
     beat_schedule = getattr(celery.conf, "beat_schedule", {}) or {}
     for name, entry in beat_schedule.items():
         sched = entry.get("schedule")
-        schedule_info.append({
-            "name": name,
-            "task": entry.get("task"),
-            "schedule": str(sched) if sched else "unknown",
-        })
+        schedule_info.append(
+            {
+                "name": name,
+                "task": entry.get("task"),
+                "schedule": str(sched) if sched else "unknown",
+            }
+        )
 
     # Recent engagement email stats (last 24h and last 7d)
     from app.models.models import UserEmailLog
@@ -4346,13 +4411,9 @@ def get_task_schedule(
     day_ago = now - dt.timedelta(hours=24)
     week_ago = now - dt.timedelta(days=7)
 
-    emails_24h = db.query(func.count(UserEmailLog.id)).filter(
-        UserEmailLog.sent_at >= day_ago
-    ).scalar() or 0
+    emails_24h = db.query(func.count(UserEmailLog.id)).filter(UserEmailLog.sent_at >= day_ago).scalar() or 0
 
-    emails_7d = db.query(func.count(UserEmailLog.id)).filter(
-        UserEmailLog.sent_at >= week_ago
-    ).scalar() or 0
+    emails_7d = db.query(func.count(UserEmailLog.id)).filter(UserEmailLog.sent_at >= week_ago).scalar() or 0
 
     # Breakdown by type (last 7d)
     type_counts = (
@@ -4512,7 +4573,10 @@ def update_testimonial(
     )
     logger.info(
         "Admin %s updated testimonial %d: approved=%s featured=%s",
-        admin_user.id, testimonial_id, testimonial.approved, testimonial.featured,
+        admin_user.id,
+        testimonial_id,
+        testimonial.approved,
+        testimonial.featured,
     )
 
     return {
@@ -4940,7 +5004,11 @@ def set_storefront_status(
     )
     logger.info(
         "Admin %s changed storefront status for user %s: %s -> %s (%s)",
-        admin_user.id, user_id, old_status, payload.status, payload.reason,
+        admin_user.id,
+        user_id,
+        old_status,
+        payload.status,
+        payload.reason,
     )
 
     return {
@@ -4954,6 +5022,7 @@ def set_storefront_status(
 # =============================================================================
 # TRUST & SAFETY — ANTI-FRAUD REVIEW
 # =============================================================================
+
 
 class RiskUserItem(BaseModel):
     id: int
@@ -5038,11 +5107,7 @@ def list_flagged_users(
             conds.append(models.User.signup_device_id == u.signup_device_id)
         if not conds:
             return 0
-        return (
-            db.query(func.count(models.User.id))
-            .filter(or_(*conds), models.User.id != u.id)
-            .scalar()
-        ) or 0
+        return (db.query(func.count(models.User.id)).filter(or_(*conds), models.User.id != u.id).scalar()) or 0
 
     users = [
         RiskUserItem(
@@ -5067,14 +5132,8 @@ def list_flagged_users(
     ]
 
     counts = {
-        "flagged": db.query(func.count(models.User.id))
-        .filter(models.User.flagged_for_review.is_(True))
-        .scalar()
-        or 0,
-        "high_risk": db.query(func.count(models.User.id))
-        .filter(models.User.risk_score >= FLAG_SCORE)
-        .scalar()
-        or 0,
+        "flagged": db.query(func.count(models.User.id)).filter(models.User.flagged_for_review.is_(True)).scalar() or 0,
+        "high_risk": db.query(func.count(models.User.id)).filter(models.User.risk_score >= FLAG_SCORE).scalar() or 0,
     }
 
     return RiskListResponse(
@@ -5100,9 +5159,7 @@ def get_linked_accounts(
         raise HTTPException(status_code=404, detail="User not found")
 
     ids = linked_account_ids(db, user)
-    linked = (
-        db.query(models.User).filter(models.User.id.in_(ids)).all() if ids else []
-    )
+    linked = db.query(models.User).filter(models.User.id.in_(ids)).all() if ids else []
     return {
         "user_id": user_id,
         "shared_ip": user.signup_ip,
@@ -5119,9 +5176,7 @@ def get_linked_accounts(
                 "flagged_for_review": bool(lu.flagged_for_review),
                 "store_status": lu.store_status,
                 "same_ip": bool(user.signup_ip and lu.signup_ip == user.signup_ip),
-                "same_device": bool(
-                    user.signup_device_id and lu.signup_device_id == user.signup_device_id
-                ),
+                "same_device": bool(user.signup_device_id and lu.signup_device_id == user.signup_device_id),
             }
             for lu in linked
         ],
@@ -5158,9 +5213,7 @@ def get_account_review_dossier(
         db.query(
             func.count(models.Invoice.id).label("total"),
             func.count(sa_case((models.Invoice.status == "paid", 1))).label("paid"),
-            func.count(
-                sa_case((models.Invoice.channel == "storefront", 1))
-            ).label("storefront"),
+            func.count(sa_case((models.Invoice.channel == "storefront", 1))).label("storefront"),
             func.coalesce(
                 func.sum(sa_case((models.Invoice.status == "paid", models.Invoice.amount))),
                 0,
@@ -5188,13 +5241,8 @@ def get_account_review_dossier(
         .group_by(models.StorefrontOrderEscrow.status)
         .all()
     )
-    escrow_by_status = {
-        st: {"count": int(c or 0), "gross_naira": round((g or 0) / 100, 2)}
-        for (st, c, g) in esc_rows
-    }
-    held_escrow_naira = round(
-        escrow_by_status.get("held", {}).get("gross_naira", 0.0), 2
-    )
+    escrow_by_status = {st: {"count": int(c or 0), "gross_naira": round((g or 0) / 100, 2)} for (st, c, g) in esc_rows}
+    held_escrow_naira = round(escrow_by_status.get("held", {}).get("gross_naira", 0.0), 2)
 
     # ── Recent storefront orders (most recent 10) ──
     recent = (
@@ -5254,9 +5302,7 @@ def get_account_review_dossier(
 
     # ── Duplicate-account cluster (shared IP / device) ──
     ids = linked_account_ids(db, user)
-    linked_rows = (
-        db.query(models.User).filter(models.User.id.in_(ids)).all() if ids else []
-    )
+    linked_rows = db.query(models.User).filter(models.User.id.in_(ids)).all() if ids else []
     linked_accounts = [
         {
             "id": lu.id,
@@ -5269,10 +5315,7 @@ def get_account_review_dossier(
             "flagged_for_review": bool(lu.flagged_for_review),
             "store_status": lu.store_status,
             "same_ip": bool(user.signup_ip and lu.signup_ip == user.signup_ip),
-            "same_device": bool(
-                user.signup_device_id
-                and lu.signup_device_id == user.signup_device_id
-            ),
+            "same_device": bool(user.signup_device_id and lu.signup_device_id == user.signup_device_id),
         }
         for lu in linked_rows
     ]
@@ -5307,13 +5350,10 @@ def get_account_review_dossier(
             "circumvention_attempts": int(user.circumvention_attempts or 0),
         },
         "financials": {
-            "wallet_balance_naira": int(getattr(user, "wallet_balance_kobo", 0) or 0)
-            / 100,
+            "wallet_balance_naira": int(getattr(user, "wallet_balance_kobo", 0) or 0) / 100,
             "has_bank_details": user.account_number is not None,
             "bank_name": user.payout_bank_name or user.bank_name,
-            "account_number_masked": _mask_account_number(
-                user.payout_account_number or user.account_number
-            ),
+            "account_number_masked": _mask_account_number(user.payout_account_number or user.account_number),
             "account_name": user.payout_account_name or user.account_name,
             "held_escrow_naira": held_escrow_naira,
         },
@@ -5384,7 +5424,10 @@ def review_flagged_user(
     )
     logger.info(
         "Admin %s ran fraud review '%s' on user %s (%s)",
-        admin_user.id, payload.action, user_id, user.email or user.phone,
+        admin_user.id,
+        payload.action,
+        user_id,
+        user.email or user.phone,
     )
 
     return {
@@ -5396,6 +5439,7 @@ def review_flagged_user(
 
 
 # ── Escrow disputes (buyer protection) ─────────────────────────────────
+
 
 class DisputeItem(BaseModel):
     escrow_id: int
@@ -5474,9 +5518,7 @@ def _payout_eta(e: "models.StorefrontOrderEscrow") -> "dt.datetime | None":
     the T+1 settlement time (payouts never run before funds have settled)."""
     if e.status != "held":
         return None
-    times = [
-        t for t in (getattr(e, "release_due_at", None), getattr(e, "settle_at", None)) if t
-    ]
+    times = [t for t in (getattr(e, "release_due_at", None), getattr(e, "settle_at", None)) if t]
     return max(times) if times else None
 
 
@@ -5614,17 +5656,14 @@ def list_disputes(
 
     log_audit_event("admin.disputes.list", user_id=admin_user.id, status_filter=status_filter)
 
-    from app.services.escrow_service import get_buyer_reputations_bulk
-    from app.services.escrow_service import _norm_phone
     from app.api.routes_storefront import _presign
+    from app.services.escrow_service import _norm_phone, get_buyer_reputations_bulk
 
     # Batch buyer reputations in ONE query (was an N+1 per row).
-    reps = get_buyer_reputations_bulk(
-        db, [cust.phone for (_e, _s, _i, cust) in rows if cust and cust.phone]
-    )
+    reps = get_buyer_reputations_bulk(db, [cust.phone for (_e, _s, _i, cust) in rows if cust and cust.phone])
 
     disputes = []
-    for (e, seller, inv, cust) in rows:
+    for e, seller, inv, cust in rows:
         rep = reps.get(_norm_phone(cust.phone)) if cust and cust.phone else None
         disputes.append(
             DisputeItem(
@@ -5702,9 +5741,7 @@ def disputes_by_business(
     held), then most disputed. Only real (paid) held/disputed orders are counted."""
     E = models.StorefrontOrderEscrow
 
-    held_expr = func.count(
-        case((and_(E.status == "held", E.held_for_review.is_(False)), 1))
-    )
+    held_expr = func.count(case((and_(E.status == "held", E.held_for_review.is_(False)), 1)))
     disputed_expr = func.count(case((E.status == "disputed", 1)))
     review_expr = func.count(case((E.held_for_review.is_(True), 1)))
     held_kobo_expr = func.coalesce(
@@ -5801,9 +5838,7 @@ def _require_money_stepup(admin_user, amount_naira: float, otp: str | None) -> N
     email = getattr(admin_user, "email", None)
     from app.services.otp_service import OTPService
 
-    if not otp or not email or not OTPService().verify_otp(
-        email, otp, purpose=_ADMIN_MONEY_OTP_PURPOSE
-    ):
+    if not otp or not email or not OTPService().verify_otp(email, otp, purpose=_ADMIN_MONEY_OTP_PURPOSE):
         # 428 (Precondition Required), NOT 401 — a missing step-up code means
         # "provide OTP", not "your session is invalid". The admin UI logs out on
         # 401, so using 401 here would nuke the session the moment a payout is
@@ -5869,18 +5904,12 @@ def resolve_dispute(
     _require_super_admin(admin_user)
     from app.services.escrow_service import EscrowError, refund_escrow, release_escrow
 
-    escrow = (
-        db.query(models.StorefrontOrderEscrow)
-        .filter(models.StorefrontOrderEscrow.id == escrow_id)
-        .first()
-    )
+    escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
     if not escrow:
         raise HTTPException(status_code=404, detail="Dispute not found")
 
     if escrow.status in ("refunded", "released"):
-        raise HTTPException(
-            status_code=409, detail=f"This order is already {escrow.status}."
-        )
+        raise HTTPException(status_code=409, detail=f"This order is already {escrow.status}.")
 
     amount_naira = round((escrow.gross_kobo or 0) / 100, 2)
 
@@ -5892,9 +5921,7 @@ def resolve_dispute(
     if payload.action == "refund":
         from app.services.admin_refund_guard import refund_total_24h
 
-        stepup_amount = max(
-            amount_naira, refund_total_24h(admin_user.id) + amount_naira
-        )
+        stepup_amount = max(amount_naira, refund_total_24h(admin_user.id) + amount_naira)
     _require_money_stepup(admin_user, stepup_amount, payload.otp)
 
     # An admin decision clears any anti-fraud review hold so the action can go
@@ -5911,17 +5938,11 @@ def resolve_dispute(
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         if payload.suspend_seller:
-            seller = (
-                db.query(models.User)
-                .filter(models.User.id == escrow.seller_id)
-                .first()
-            )
+            seller = db.query(models.User).filter(models.User.id == escrow.seller_id).first()
             if seller:
                 seller.flagged_for_review = True
                 seller.store_status = "delisted"
-                seller.store_status_reason = (
-                    payload.reason or "Trust & Safety: buyer-protection dispute"
-                )
+                seller.store_status_reason = payload.reason or "Trust & Safety: buyer-protection dispute"
                 seller.store_status_at = dt.datetime.now(dt.timezone.utc)
                 seller.store_status_by_id = admin_user.id
                 db.commit()
@@ -5949,9 +5970,7 @@ def resolve_dispute(
             escrow.status = "held"
             db.commit()
         try:
-            released_now = release_escrow(
-                db, escrow, reason=payload.reason or "admin dispute resolution"
-            )
+            released_now = release_escrow(db, escrow, reason=payload.reason or "admin dispute resolution")
         except EscrowError as exc:
             # Restore disputed state so it stays in the queue for a retry.
             escrow.status = "disputed"
@@ -5988,7 +6007,10 @@ def resolve_dispute(
     )
     logger.info(
         "Admin %s resolved dispute %s -> %s (suspend=%s)",
-        admin_user.id, escrow_id, result_status, payload.suspend_seller,
+        admin_user.id,
+        escrow_id,
+        result_status,
+        payload.suspend_seller,
     )
     message = None
     if result_status == "release_pending":
@@ -6018,11 +6040,7 @@ def dispute_payout_status(
     landed without leaving the page. Normalizes provider values to:
     paid | pending | failed | unknown | refunded | none.
     """
-    escrow = (
-        db.query(models.StorefrontOrderEscrow)
-        .filter(models.StorefrontOrderEscrow.id == escrow_id)
-        .first()
-    )
+    escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
     if not escrow:
         raise HTTPException(status_code=404, detail="Escrow not found")
 
@@ -6095,11 +6113,7 @@ def retry_dispute_payout(
     from app.services.escrow_service import EscrowError, _collector_for_charge, release_escrow
     from app.services.payouts import get_payout_provider, get_payout_provider_named
 
-    escrow = (
-        db.query(models.StorefrontOrderEscrow)
-        .filter(models.StorefrontOrderEscrow.id == escrow_id)
-        .first()
-    )
+    escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
     if not escrow:
         raise HTTPException(status_code=404, detail="Escrow not found")
     if escrow.status == "released":
@@ -6166,10 +6180,10 @@ class BulkRetryResult(BaseModel):
     seller_id: int
     total_held: int
     total_amount: float
-    released: int   # confirmed paid now
-    retried: int    # fresh transfer sent, awaiting confirmation on the next run
+    released: int  # confirmed paid now
+    retried: int  # fresh transfer sent, awaiting confirmation on the next run
     in_flight: int  # already pending on the rail — left untouched
-    skipped: int    # not eligible (under review / zero payout)
+    skipped: int  # not eligible (under review / zero payout)
     failed: int
     errors: list[str] = []  # distinct provider failure reasons (why some failed)
     message: str
@@ -6255,9 +6269,7 @@ def retry_held_payouts_for_business(
     errors: list[str] = []
     for rail, group in to_batch.items():
         try:
-            rel = release_seller_batch(
-                db, group, provider_name=rail, reason="admin bulk retry (consolidated)"
-            )
+            rel = release_seller_batch(db, group, provider_name=rail, reason="admin bulk retry (consolidated)")
             released += rel
             retried += len(group) - rel  # queued/settling — confirms next run
             transfers += 1
@@ -6287,8 +6299,7 @@ def retry_held_payouts_for_business(
         parts.append(f"{released} released")
     if retried:
         parts.append(
-            f"{retried} sent in {transfers} consolidated transfer"
-            f"{'s' if transfers != 1 else ''} (settling)"
+            f"{retried} sent in {transfers} consolidated transfer" f"{'s' if transfers != 1 else ''} (settling)"
         )
     if in_flight:
         parts.append(f"{in_flight} already in flight")
@@ -6325,19 +6336,13 @@ def force_confirm_invoice(
     _require_super_admin(admin_user)
     from app.services.invoice_service import build_invoice_service
 
-    inv = (
-        db.query(models.Invoice)
-        .filter(models.Invoice.invoice_id == invoice_id)
-        .first()
-    )
+    inv = db.query(models.Invoice).filter(models.Invoice.invoice_id == invoice_id).first()
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     svc = build_invoice_service(db, user_id=inv.issuer_id)
     try:
-        updated = svc.update_status(
-            inv.issuer_id, invoice_id, "paid", updated_by_user_id=None, force=True
-        )
+        updated = svc.update_status(inv.issuer_id, invoice_id, "paid", updated_by_user_id=None, force=True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -6348,4 +6353,3 @@ def force_confirm_invoice(
         amount=float(inv.amount or 0),
     )
     return {"ok": True, "invoice_id": invoice_id, "status": updated.status}
-

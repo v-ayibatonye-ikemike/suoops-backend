@@ -10,9 +10,11 @@ automatically to any order that contains a product in a packaged category.
 
 NOTE: revision id kept <=32 chars — alembic_version.version_num is varchar(32).
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.

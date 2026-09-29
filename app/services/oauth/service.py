@@ -7,6 +7,7 @@ Responsibilities:
 
 Follows SRP: Only handles OAuth-related business logic.
 """
+
 import datetime as dt
 import logging
 from datetime import datetime, timezone
@@ -28,19 +29,19 @@ logger = logging.getLogger(__name__)
 class OAuthService:
     """
     OAuth service for managing SSO authentication.
-    
+
     Responsibilities:
     - Coordinate OAuth flow
     - Provision users from OAuth data
     - Generate JWT tokens for authenticated users
-    
+
     Follows SRP: Only handles OAuth-related business logic.
     """
 
     def __init__(self, db: Session):
         """
         Initialize OAuth service.
-        
+
         Args:
             db: Database session for user operations
         """
@@ -50,7 +51,7 @@ class OAuthService:
     def register_provider(self, name: str, provider: OAuthProvider) -> None:
         """
         Register an OAuth provider.
-        
+
         Args:
             name: Provider identifier (e.g., "google")
             provider: OAuthProvider instance
@@ -61,13 +62,13 @@ class OAuthService:
     def get_provider(self, name: str) -> OAuthProvider:
         """
         Get registered OAuth provider.
-        
+
         Args:
             name: Provider identifier
-            
+
         Returns:
             OAuthProvider instance
-            
+
         Raises:
             ValueError: If provider not registered
         """
@@ -85,7 +86,7 @@ class OAuthService:
     ) -> None:
         """
         Store or update encrypted OAuth tokens for user.
-        
+
         Args:
             user_id: User ID
             provider: OAuth provider name
@@ -98,18 +99,24 @@ class OAuthService:
         if "expires_in" in token_response:
             expires_in = token_response["expires_in"]
             expires_at = datetime.now(timezone.utc) + dt.timedelta(seconds=expires_in)
-        
+
         # Extract scopes if provided
         scopes = None
         if "scope" in token_response:
-            scopes = token_response["scope"].split() if isinstance(token_response["scope"], str) else token_response["scope"]
-        
+            scopes = (
+                token_response["scope"].split() if isinstance(token_response["scope"], str) else token_response["scope"]
+            )
+
         # Check if token already exists for this user+provider
-        existing_token = self.db.query(OAuthToken).filter(
-            OAuthToken.user_id == user_id,
-            OAuthToken.provider == provider,
-        ).first()
-        
+        existing_token = (
+            self.db.query(OAuthToken)
+            .filter(
+                OAuthToken.user_id == user_id,
+                OAuthToken.provider == provider,
+            )
+            .first()
+        )
+
         if existing_token:
             # Update existing token
             existing_token.access_token_encrypted = encrypt_token(access_token)
@@ -133,22 +140,22 @@ class OAuthService:
             )
             self.db.add(new_token)
             logger.info(f"Created OAuth tokens for user {user_id} provider {provider}")
-        
+
         self.db.commit()
 
     def _get_or_create_user(self, email: str, name: str, oauth_provider: str) -> User:
         """
         Get existing user by OAuth email. New account creation via OAuth is disabled
         — users must register with WhatsApp phone number first.
-        
+
         Args:
             email: User email from OAuth provider
             name: User full name
             oauth_provider: Provider name (e.g., "google")
-            
+
         Returns:
             User instance (existing only)
-            
+
         Raises:
             OAuthUserInfoError: If no account exists for the email
         """
@@ -170,25 +177,23 @@ class OAuthService:
             "then add your email in Settings to enable Google sign-in."
         )
 
-    async def authenticate_with_code(
-        self, provider_name: str, code: str
-    ) -> dict[str, str]:
+    async def authenticate_with_code(self, provider_name: str, code: str) -> dict[str, str]:
         """
         Authenticate user with OAuth authorization code.
-        
+
         Complete OAuth flow:
         1. Exchange code for access token
         2. Fetch user info from provider
         3. Provision user in database
         4. Generate JWT tokens
-        
+
         Args:
             provider_name: OAuth provider identifier
             code: Authorization code from OAuth callback
-            
+
         Returns:
             JWT tokens: access_token, refresh_token, token_type
-            
+
         Raises:
             OAuthProviderError: If OAuth flow fails
         """

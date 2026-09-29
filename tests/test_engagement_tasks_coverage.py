@@ -6,6 +6,7 @@ _send_zero_invoice_nudge, _send_phone_nudge, _send_wa_template, _process_user).
 
 All email/WhatsApp I/O is mocked. Real Jinja templates on disk are rendered.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -85,15 +86,9 @@ class _FakeClient:
 
 
 def _patch_wa(monkeypatch, ok=True, can_send=True, raise_exc=False):
-    monkeypatch.setattr(
-        "app.core.whatsapp.get_whatsapp_client", lambda: _FakeClient(ok, raise_exc)
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.can_send_whatsapp", lambda *a, **k: can_send
-    )
-    monkeypatch.setattr(
-        "app.utils.whatsapp_budget.record_whatsapp_send", lambda *a, **k: 1
-    )
+    monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", lambda: _FakeClient(ok, raise_exc))
+    monkeypatch.setattr("app.utils.whatsapp_budget.can_send_whatsapp", lambda *a, **k: can_send)
+    monkeypatch.setattr("app.utils.whatsapp_budget.record_whatsapp_send", lambda *a, **k: 1)
 
 
 def _new_stats():
@@ -111,6 +106,7 @@ def _new_stats():
 # ─────────────────────────────────────────────────────────────────────
 # Small helpers
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_get_user_name_with_name():
     u = models.User(name="John Smith", email="a@b.com")
@@ -133,6 +129,7 @@ def test_was_sent_and_record_sent(db_session):
 # ─────────────────────────────────────────────────────────────────────
 # _send_wa_template
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_send_wa_template_no_phone(db_session):
     assert et._send_wa_template(None, "tpl", ["x"], "wa_x", db_session, 1) is False
@@ -181,6 +178,7 @@ def test_send_wa_template_exception(db_session, monkeypatch):
 # _send_activation
 # ─────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("day", [0, 1, 3])
 def test_send_activation_days(db_session, monkeypatch, day):
     u = _make_user(db_session, phone=None)  # no phone -> skip WA branch
@@ -216,21 +214,26 @@ def test_send_activation_email_fails(db_session, monkeypatch):
     assert stats["failed"] == 1
 
 
-def test_send_activation_with_whatsapp(db_session, monkeypatch):
+def test_send_activation_with_phone_does_not_acquire_whatsapp(db_session, monkeypatch):
     u = _make_user(db_session, phone="+2348090001111")
     monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_ACTIVATION_WELCOME", "act_welcome")
-    _patch_wa(monkeypatch, ok=True)
+
+    def fail():
+        raise AssertionError("activation email must not acquire a WhatsApp client")
+
+    monkeypatch.setattr("app.core.whatsapp.get_whatsapp_client", fail)
     stats = _new_stats()
     et._send_activation(db_session, u, "Jane", 0, stats)
     db_session.commit()
     assert stats["activation_sent"] == 1
-    assert stats["whatsapp_sent"] == 1
+    assert stats["whatsapp_sent"] == 0
 
 
 # ─────────────────────────────────────────────────────────────────────
 # _send_monetization
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_send_monetization_wallet_empty(db_session, monkeypatch):
     u = _make_user(db_session, phone=None, wallet_balance_kobo=0)
@@ -307,6 +310,7 @@ def test_send_monetization_no_duplicate_whatsapp_low(db_session, monkeypatch):
 # _send_tip
 # ─────────────────────────────────────────────────────────────────────
 
+
 def test_send_tip_sends_first(db_session, monkeypatch):
     u = _make_user(db_session)
     monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
@@ -364,6 +368,7 @@ def test_send_tip_email_fails(db_session, monkeypatch):
 # _send_phone_nudge
 # ─────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("day", [5, 10])
 def test_send_phone_nudge_sends(db_session, monkeypatch, day):
     u = _make_user(db_session)
@@ -410,6 +415,7 @@ def test_send_phone_nudge_email_fails(db_session, monkeypatch):
 # _send_zero_invoice_nudge
 # ─────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("day", [7, 14])
 def test_send_zero_invoice_nudge_email(db_session, monkeypatch, day):
     u = _make_user(db_session, phone=None)
@@ -437,20 +443,19 @@ def test_send_zero_invoice_nudge_already_sent(db_session, monkeypatch):
     assert stats["skipped"] == 1
 
 
-def test_send_zero_invoice_nudge_whatsapp_window(db_session, monkeypatch):
-    # No email -> WhatsApp path within 24h window
+def test_send_zero_invoice_nudge_has_no_whatsapp_window_fallback(db_session, monkeypatch):
     u = _make_user(db_session, email=None, phone="+2348090004444")
     monkeypatch.setattr("app.bot.conversation_window.is_window_open", lambda phone: True)
     _patch_wa(monkeypatch, ok=True)
     stats = _new_stats()
     et._send_zero_invoice_nudge(db_session, u, "Jane", 7, stats)
     db_session.commit()
-    assert stats["activation_sent"] == 1
-    assert stats["whatsapp_sent"] == 1
+    assert stats["activation_sent"] == 0
+    assert stats["whatsapp_sent"] == 0
+    assert stats["failed"] == 1
 
 
-def test_send_zero_invoice_nudge_whatsapp_template_fallback(db_session, monkeypatch):
-    # No email, window closed -> win_back template fallback
+def test_send_zero_invoice_nudge_has_no_whatsapp_template_fallback(db_session, monkeypatch):
     u = _make_user(db_session, email=None, phone="+2348090005555")
     monkeypatch.setattr("app.bot.conversation_window.is_window_open", lambda phone: False)
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_WIN_BACK", "winback")
@@ -458,7 +463,9 @@ def test_send_zero_invoice_nudge_whatsapp_template_fallback(db_session, monkeypa
     stats = _new_stats()
     et._send_zero_invoice_nudge(db_session, u, "Jane", 7, stats)
     db_session.commit()
-    assert stats["activation_sent"] == 1
+    assert stats["activation_sent"] == 0
+    assert stats["whatsapp_sent"] == 0
+    assert stats["failed"] == 1
 
 
 def test_send_zero_invoice_nudge_all_fail(db_session, monkeypatch):
@@ -472,6 +479,7 @@ def test_send_zero_invoice_nudge_all_fail(db_session, monkeypatch):
 # ─────────────────────────────────────────────────────────────────────
 # _process_user branch dispatch
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_process_user_activation_day0(db_session, monkeypatch):
     now = _now()
@@ -523,8 +531,7 @@ def test_process_user_day14_nudge(db_session, monkeypatch):
     assert stats["activation_sent"] == 1
 
 
-def test_process_user_first_invoice_whatsapp(db_session, monkeypatch):
-    # PRO user with one invoice -> first-invoice WhatsApp celebration
+def test_process_user_first_invoice_uses_email_not_whatsapp(db_session, monkeypatch):
     now = _now()
     u = _make_user(
         db_session,
@@ -536,10 +543,12 @@ def test_process_user_first_invoice_whatsapp(db_session, monkeypatch):
     _make_invoice(db_session, u, cust, created_at=now - dt.timedelta(days=1))
     monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_FIRST_INVOICE", "first_inv")
     _patch_wa(monkeypatch, ok=True)
+    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
     stats = _new_stats()
     et._process_user(db_session, u, now, stats)
     db_session.commit()
-    assert stats["whatsapp_sent"] >= 1
+    assert stats["whatsapp_sent"] == 0
+    assert stats.get("emails_sent", 0) == 1
 
 
 def test_process_user_first_invoice_email_fallback(db_session, monkeypatch):
@@ -603,8 +612,7 @@ def test_process_user_tips_disabled_skip(db_session, monkeypatch):
     assert stats["skipped"] >= 1
 
 
-def test_process_user_winback(db_session, monkeypatch):
-    # PRO user, invoice created 10 days ago -> win-back WhatsApp
+def test_process_user_winback_does_not_use_whatsapp(db_session, monkeypatch):
     now = _now()
     u = _make_user(
         db_session,
@@ -621,7 +629,8 @@ def test_process_user_winback(db_session, monkeypatch):
     stats = _new_stats()
     et._process_user(db_session, u, now, stats)
     db_session.commit()
-    assert stats["whatsapp_sent"] >= 1
+    assert stats["whatsapp_sent"] == 0
+    assert stats["skipped"] >= 1
 
 
 def test_process_user_recent_pro_no_winback(db_session, monkeypatch):
@@ -646,6 +655,7 @@ def test_process_user_recent_pro_no_winback(db_session, monkeypatch):
 # ─────────────────────────────────────────────────────────────────────
 # send_engagement_emails (main scheduled task)
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_send_engagement_emails_empty(db_session, monkeypatch):
     monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)

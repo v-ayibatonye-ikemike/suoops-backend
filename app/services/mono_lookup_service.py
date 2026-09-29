@@ -29,6 +29,7 @@ conventions and MUST be confirmed against the API reference in the Mono
 dashboard before this is enabled with a real MONO_SECRET_KEY — on top of the
 licensing gate above.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,9 +55,9 @@ logger = logging.getLogger(__name__)
 # — no SuoOps markup — since this is opt-in and paid from the business's own
 # wallet, not absorbed platform-wide.
 LOOKUP_COST_KOBO = {
-    "tin": 5_000,   # ₦50 — generic lookup rate (Mono doesn't list a TIN-specific rate)
-    "cac": 1_000,   # ₦10
-    "bvn": 1_500,   # ₦15
+    "tin": 5_000,  # ₦50 — generic lookup rate (Mono doesn't list a TIN-specific rate)
+    "cac": 1_000,  # ₦10
+    "bvn": 1_500,  # ₦15
 }
 
 # See module docstring — confirm against Mono's dashboard reference docs.
@@ -71,12 +72,7 @@ def _charge_wallet_kobo(db: Session, user_id: int, fee_kobo: int, reason: str) -
     so concurrent charges against the same wallet can't race past the balance
     check (same reasoning: lock the row, check, deduct, commit).
     """
-    user = (
-        db.query(models.User)
-        .with_for_update()
-        .filter(models.User.id == user_id)
-        .one_or_none()
-    )
+    user = db.query(models.User).with_for_update().filter(models.User.id == user_id).one_or_none()
     if not user:
         raise ValueError("User not found")
     balance = int(getattr(user, "wallet_balance_kobo", 0) or 0)
@@ -86,7 +82,10 @@ def _charge_wallet_kobo(db: Session, user_id: int, fee_kobo: int, reason: str) -
     db.commit()
     logger.info(
         "Charged ₦%.2f from user %s wallet for %s (remaining ₦%.2f)",
-        fee_kobo / 100, user_id, reason, user.wallet_balance_kobo / 100,
+        fee_kobo / 100,
+        user_id,
+        reason,
+        user.wallet_balance_kobo / 100,
     )
 
 

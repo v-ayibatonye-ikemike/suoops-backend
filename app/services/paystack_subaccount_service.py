@@ -14,6 +14,7 @@ Flow (all automated, no manual dashboard work):
 The subaccount's ``percentage_charge`` is the platform commission SuoOps keeps;
 the business receives the remainder, settled by Paystack to their bank.
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,9 +51,7 @@ class PaystackSubaccountService:
         if not self.secret:
             raise SubaccountError("PAYSTACK_SECRET is not configured")
         self.commission_percent = (
-            commission_percent
-            if commission_percent is not None
-            else settings.PAYSTACK_PLATFORM_COMMISSION_PERCENT
+            commission_percent if commission_percent is not None else settings.PAYSTACK_PLATFORM_COMMISSION_PERCENT
         )
 
     @property
@@ -100,9 +99,7 @@ class PaystackSubaccountService:
             )
         body = resp.json() if resp.content else {}
         if resp.status_code != 200 or not body.get("status"):
-            raise SubaccountError(
-                body.get("message") or f"Could not verify account {account_number}"
-            )
+            raise SubaccountError(body.get("message") or f"Could not verify account {account_number}")
         name = (body.get("data") or {}).get("account_name")
         if not name:
             raise SubaccountError("Bank did not return an account name")
@@ -120,9 +117,7 @@ class PaystackSubaccountService:
         if contact_email:
             payload["primary_contact_email"] = contact_email
         async with paystack_async_client(timeout=15.0) as client:
-            resp = await client.post(
-                f"{_PAYSTACK_BASE}/subaccount", headers=self._headers, json=payload
-            )
+            resp = await client.post(f"{_PAYSTACK_BASE}/subaccount", headers=self._headers, json=payload)
         body = resp.json() if resp.content else {}
         if resp.status_code not in (200, 201) or not body.get("status"):
             raise SubaccountError(body.get("message") or "Failed to create Paystack subaccount")
@@ -131,9 +126,7 @@ class PaystackSubaccountService:
             raise SubaccountError("Paystack did not return a subaccount_code")
         return code
 
-    async def _update_subaccount(
-        self, subaccount_code: str, bank_code: str, account_number: str
-    ) -> None:
+    async def _update_subaccount(self, subaccount_code: str, bank_code: str, account_number: str) -> None:
         payload = {
             "settlement_bank": bank_code,
             "account_number": account_number,
@@ -163,12 +156,7 @@ class PaystackSubaccountService:
         # create two subaccounts (one would be orphaned and keep costing us
         # commission). Re-load the row under a lock; the second caller then sees
         # the code the first one committed and takes the update path instead.
-        locked = (
-            self.db.query(models.User)
-            .filter(models.User.id == user.id)
-            .with_for_update()
-            .first()
-        )
+        locked = self.db.query(models.User).filter(models.User.id == user.id).with_for_update().first()
         if locked is not None:
             user = locked
 
@@ -178,14 +166,10 @@ class PaystackSubaccountService:
         business_name = user.business_name or user.name or f"SuoOps business {user.id}"
 
         if user.paystack_subaccount_code:
-            await self._update_subaccount(
-                user.paystack_subaccount_code, bank_code, user.account_number
-            )
+            await self._update_subaccount(user.paystack_subaccount_code, bank_code, user.account_number)
             code = user.paystack_subaccount_code
         else:
-            code = await self._create_subaccount(
-                business_name, bank_code, user.account_number, user.email
-            )
+            code = await self._create_subaccount(business_name, bank_code, user.account_number, user.email)
             user.paystack_subaccount_code = code
 
         # Keep the on-file verified name in sync (used on receipts / trust).
@@ -195,6 +179,8 @@ class PaystackSubaccountService:
         self.db.commit()
         logger.info(
             "Paystack subaccount ready for user %s (%s) -> %s",
-            user.id, business_name, code,
+            user.id,
+            business_name,
+            code,
         )
         return code

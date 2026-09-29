@@ -1,4 +1,5 @@
 """Logo upload/delete endpoints split from routes_user.py."""
+
 import logging
 from typing import Annotated
 
@@ -29,7 +30,7 @@ async def _upload_branding_image(
 ) -> schemas.MessageOut:
     try:
         require_plan_feature(db, current_user_id, "custom_branding", "Custom Storefront Branding")
-        
+
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image (PNG, JPG, JPEG, or SVG)")
         allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"]
@@ -39,30 +40,29 @@ async def _upload_branding_image(
         max_size = 5 * 1024 * 1024
         if len(content) > max_size:
             raise HTTPException(status_code=400, detail="File size exceeds 5MB limit")
-        
+
         # Validate magic bytes match claimed content type (prevents spoofed Content-Type)
         if not validate_file_magic_bytes(content, file.content_type):
             raise HTTPException(
-                status_code=400,
-                detail="File content does not match its declared type. Upload a valid image file."
+                status_code=400, detail="File content does not match its declared type. Upload a valid image file."
             )
-        
+
         user = db.query(models.User).filter(models.User.id == current_user_id).one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         ext = get_safe_extension(file.filename, file.content_type)
         # Shrink branding images to a WebP the browser can render instantly (SVGs are left
         # alone by the optimizer since they can't be resized as bitmaps).
         from app.utils.image_optimizer import optimize_for_storefront
 
-        optimized, optimized_type = optimize_for_storefront(
-            content, file.content_type, max_side=max_side
-        )
+        optimized, optimized_type = optimize_for_storefront(content, file.content_type, max_side=max_side)
         if optimized_type != file.content_type:
             ext = get_safe_extension(file.filename, optimized_type)
         key = f"{key_prefix}/user_{current_user_id}.{ext}"
-        logger.info("Uploading %s for user %s: %s bytes, type: %s", label, current_user_id, len(optimized), optimized_type)
+        logger.info(
+            "Uploading %s for user %s: %s bytes, type: %s", label, current_user_id, len(optimized), optimized_type
+        )
         image_url = await s3_client.upload_file(optimized, key, content_type=optimized_type)
         setattr(user, field_name, image_url)
         db.commit()

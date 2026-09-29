@@ -9,10 +9,12 @@ Introduces the commission billing model. Manual invoices are charged a fee
 count-based invoice_balance. Existing invoice credits (bought at ₦25 each) are
 migrated into the wallet at a goodwill rate of ₦30/credit = 3000 kobo.
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260706_wallet_balance_kobo"

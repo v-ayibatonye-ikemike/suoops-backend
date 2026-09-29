@@ -1,5 +1,6 @@
 """Changing the login phone requires a step-up OTP (a hijacked session must not
 be able to silently point the phone at an attacker's number)."""
+
 import json
 import secrets
 
@@ -24,7 +25,13 @@ def _otp(identifier: str, purpose: str) -> str:
 def _signup(phone: str) -> str:
     client.post(
         "/auth/signup/request",
-        json={"phone": phone, "email": f"{phone.lstrip('+')}@example.com", "name": "PhoneUser", "business_name": "Phone Biz", "accept_terms": True},
+        json={
+            "phone": phone,
+            "email": f"{phone.lstrip('+')}@example.com",
+            "name": "PhoneUser",
+            "business_name": "Phone Biz",
+            "accept_terms": True,
+        },
     )
     v = client.post(
         "/auth/signup/verify",
