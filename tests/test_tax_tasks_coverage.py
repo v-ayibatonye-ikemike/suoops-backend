@@ -13,12 +13,10 @@ attributes at test time (this does NOT modify any file under app/).
 
 from __future__ import annotations
 
-import os as _os
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from jinja2 import Template as _JinjaTemplate
 
 from app.models import models
 from app.models.alert_models import AlertEvent  # noqa: F401 - ensure table registered in metadata
@@ -405,60 +403,18 @@ def test_notify_whatsapp_returns_false_when_over_budget(monkeypatch):
     assert tax_tasks._notify_tax_report_whatsapp(user, "July 2025", None) is False
 
 
-# ─────────────────────── _send_tax_report_email ───────────────────────
-class _FakeSMTP:
-    sent: list = []
-
-    def __init__(self, *a, **k):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def starttls(self):
-        pass
-
-    def login(self, user, pw):
-        pass
-
-    def send_message(self, msg):
-        _FakeSMTP.sent.append(msg)
-
-
-def _inject_email_globals(monkeypatch, settings_obj):
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
-    monkeypatch.setattr(tax_tasks, "os", _os, raising=False)
-    monkeypatch.setattr(tax_tasks, "Template", _JinjaTemplate, raising=False)
-    monkeypatch.setattr(tax_tasks, "settings", settings_obj, raising=False)
-    monkeypatch.setattr(tax_tasks, "smtplib", smtplib, raising=False)
-    monkeypatch.setattr(tax_tasks, "MIMEMultipart", MIMEMultipart, raising=False)
-    monkeypatch.setattr(tax_tasks, "MIMEText", MIMEText, raising=False)
-
-
 def test_send_tax_email_not_configured(monkeypatch):
-    fake_settings = SimpleNamespace(SMTP_USER=None, SMTP_PASSWORD=None)
-    _inject_email_globals(monkeypatch, fake_settings)
+    monkeypatch.setattr("app.utils.smtp.send_email_with_fallback", lambda *args, **kwargs: False)
     ok = tax_tasks._send_tax_report_email(to_email="a@b.com", name="Ada Lovelace", period="July 2025", pdf_url=None)
     assert ok is False
 
 
 def test_send_tax_email_success(monkeypatch):
-    _FakeSMTP.sent = []
-    fake_settings = SimpleNamespace(
-        SMTP_HOST="smtp.example.com",
-        SMTP_PORT=587,
-        SMTP_USER="user",
-        SMTP_PASSWORD="pass",
-        FROM_EMAIL="noreply@suoops.com",
+    sent = []
+    monkeypatch.setattr(
+        "app.utils.smtp.send_email_with_fallback",
+        lambda *args, **kwargs: sent.append((args, kwargs)) or True,
     )
-    _inject_email_globals(monkeypatch, fake_settings)
-    monkeypatch.setattr("smtplib.SMTP", _FakeSMTP)
 
     ok = tax_tasks._send_tax_report_email(
         to_email="a@b.com",
@@ -467,7 +423,7 @@ def test_send_tax_email_success(monkeypatch):
         pdf_url="http://pdf/x.pdf",
     )
     assert ok is True
-    assert len(_FakeSMTP.sent) == 1
+    assert len(sent) == 1
 
 
 def test_tax_email_links_dashboard_and_omits_presigned_url(monkeypatch):
@@ -476,16 +432,11 @@ def test_tax_email_links_dashboard_and_omits_presigned_url(monkeypatch):
     2. The CTA points to the REAL /dashboard/tax route (was 404 /dashboard/tax-reports).
     Passing a presigned pdf_url must NOT leak it into the email.
     """
-    _FakeSMTP.sent = []
-    fake_settings = SimpleNamespace(
-        SMTP_HOST="smtp.example.com",
-        SMTP_PORT=587,
-        SMTP_USER="user",
-        SMTP_PASSWORD="pass",
-        FROM_EMAIL="noreply@suoops.com",
+    sent = []
+    monkeypatch.setattr(
+        "app.utils.smtp.send_email_with_fallback",
+        lambda *args, **kwargs: sent.append((args, kwargs)) or True,
     )
-    _inject_email_globals(monkeypatch, fake_settings)
-    monkeypatch.setattr("smtplib.SMTP", _FakeSMTP)
 
     presigned = (
         "https://suoops-s3-bucket.s3.amazonaws.com/tax-reports/1/2026-07.pdf"
@@ -499,12 +450,8 @@ def test_tax_email_links_dashboard_and_omits_presigned_url(monkeypatch):
     )
     assert ok is True
 
-    msg = _FakeSMTP.sent[-1]
-    bodies = []
-    for part in msg.walk():
-        if part.get_content_type() in ("text/plain", "text/html"):
-            bodies.append(part.get_payload(decode=True).decode())
-    blob = "\n".join(bodies)
+    args, _ = sent[-1]
+    blob = "\n".join((args[2], args[3]))
 
     # 1. No expiring presigned link anywhere in the email.
     assert presigned not in blob
@@ -516,19 +463,9 @@ def test_tax_email_links_dashboard_and_omits_presigned_url(monkeypatch):
 
 
 def test_send_tax_email_smtp_raises(monkeypatch):
-    fake_settings = SimpleNamespace(
-        SMTP_HOST="smtp.example.com",
-        SMTP_PORT=587,
-        SMTP_USER="user",
-        SMTP_PASSWORD="pass",
-        FROM_EMAIL="noreply@suoops.com",
-    )
-    _inject_email_globals(monkeypatch, fake_settings)
+    def fail(*args, **kwargs):
+        raise RuntimeError("smtp down")
 
-    class _BoomSMTP(_FakeSMTP):
-        def __enter__(self):
-            raise RuntimeError("smtp down")
-
-    monkeypatch.setattr("smtplib.SMTP", _BoomSMTP)
+    monkeypatch.setattr("app.utils.smtp.send_email_with_fallback", fail)
     ok = tax_tasks._send_tax_report_email(to_email="a@b.com", name=None, period="July 2025", pdf_url=None)
     assert ok is False

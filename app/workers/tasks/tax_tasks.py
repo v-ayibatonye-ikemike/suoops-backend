@@ -9,9 +9,6 @@ from __future__ import annotations
 import gc
 import logging
 import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 try:
     import resource
@@ -384,28 +381,10 @@ def _send_tax_report_email(
 
     subject = f"\U0001f4ca Your {period} Tax Report Is Ready \u2014 SuoOps"
 
-    from app.utils.smtp import get_smtp_config
-
-    smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
-
-    if not smtp_user or not smtp_password:
-        logger.warning("SMTP not configured, cannot send tax report email to %s", to_email)
-        return False
-
-    msg = MIMEMultipart("alternative")
-    msg["From"] = from_email
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(plain_body, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
+    from app.utils.smtp import send_email_with_fallback
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        logger.info("Tax report email sent to %s", to_email)
-        return True
+        return send_email_with_fallback(to_email, subject, html_body, plain_body)
     except Exception as e:
         logger.warning("Tax report email failed for %s: %s", to_email, e)
         return False

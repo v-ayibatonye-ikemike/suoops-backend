@@ -25,7 +25,9 @@ from app.services.ocr_service import OCRService
 @pytest.fixture
 def ocr_service():
     """Create OCR service instance."""
-    return OCRService()
+    service = OCRService()
+    service.api_key = "test-api-key"
+    return service
 
 
 @pytest.fixture
