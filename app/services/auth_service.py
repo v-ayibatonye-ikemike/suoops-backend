@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.encryption import encrypt_value
@@ -238,24 +239,12 @@ class AuthService:
 
     # ----------------------------- Login -----------------------------
 
-    def request_login(self, payload: schemas.OTPPhoneRequest) -> str:
-        """Request login OTP via phone OR email.
+    def request_login(self, payload: schemas.OTPPhoneRequest | schemas.OTPEmailRequest) -> str:
+        """Request a login OTP through the channel identified by the user."""
 
-        To keep WhatsApp messaging costs down, a phone login delivers its OTP to
-        the user's EMAIL when one is on file (the code is still keyed by phone so
-        verification is unchanged). WhatsApp is only used as a fallback for users
-        with no email. Returns the delivery channel ("email" or "whatsapp").
-        """
-
-        # Support both phone and email for login
         if hasattr(payload, "email") and payload.email:
             identifier = payload.email.lower().strip()
-            enc_identifier = encrypt_value(identifier)
-            user = (
-                self.db.query(models.User)
-                .filter((models.User.email == identifier) | (models.User.email_enc == enc_identifier))
-                .one_or_none()
-            )
+            user = self.db.query(models.User).filter(func.lower(models.User.email) == identifier).one_or_none()
             if not user:
                 raise ValueError("Invalid credentials")
             return self.otp.request_login(identifier)
@@ -264,9 +253,7 @@ class AuthService:
         user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
         if not user:
             raise ValueError("Invalid credentials")
-        # Prefer email delivery (free) over WhatsApp when the user has an email.
-        deliver_to = user.email if getattr(user, "email", None) else None
-        return self.otp.request_login(identifier, deliver_to=deliver_to)
+        return self.otp.request_login(identifier)
 
     def verify_login(self, payload: schemas.LoginVerify) -> TokenBundle:
         """Verify login OTP for phone OR email."""
@@ -292,12 +279,7 @@ class AuthService:
             raise ValueError("Invalid or expired OTP")
 
         if lookup_field == "email":
-            enc_identifier = encrypt_value(identifier)
-            user = (
-                self.db.query(models.User)
-                .filter((models.User.email == identifier) | (models.User.email_enc == enc_identifier))
-                .one_or_none()
-            )
+            user = self.db.query(models.User).filter(func.lower(models.User.email) == identifier).one_or_none()
         else:
             user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
 
@@ -333,14 +315,7 @@ class AuthService:
                 return self.otp.resend_otp(identifier, purpose)
 
             identifier = self._normalize_phone(payload.phone)
-            # For a phone LOGIN, mirror request_login: deliver to email if we can
-            # (keeps WhatsApp cost down). Signup stays on WhatsApp (verifies phone).
-            deliver_to = None
-            if purpose == "login":
-                user = self.db.query(models.User).filter(models.User.phone == identifier).one_or_none()
-                if user and getattr(user, "email", None):
-                    deliver_to = user.email
-            return self.otp.resend_otp(identifier, purpose, deliver_to=deliver_to)
+            return self.otp.resend_otp(identifier, purpose)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 

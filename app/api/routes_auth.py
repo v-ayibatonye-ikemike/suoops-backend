@@ -116,7 +116,7 @@ def verify_signup(request: Request, payload: schemas.SignupVerify, svc: AuthServ
 @router.post("/login/request", response_model=schemas.MessageOut)
 @limiter.limit(RATE_LIMITS["login_request"])
 def request_login(request: Request, payload: schemas.OTPPhoneRequest | schemas.OTPEmailRequest, svc: AuthServiceDep):
-    """Request login OTP. Delivered to email when available (WhatsApp fallback)."""
+    """Request a login OTP through email or WhatsApp, matching the supplied identifier."""
     try:
         channel = svc.request_login(payload)
         metrics.otp_login_requested()
