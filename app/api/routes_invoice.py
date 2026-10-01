@@ -5,6 +5,7 @@ from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_owner_id
@@ -22,6 +23,80 @@ logger = logging.getLogger(__name__)
 CurrentUserDep: TypeAlias = Annotated[int, Depends(get_current_user_id)]
 DataOwnerDep: TypeAlias = Annotated[int, Depends(get_data_owner_id)]
 DbDep: TypeAlias = Annotated[Session, Depends(get_db)]
+
+
+class OnlinePaymentsStatusOut(BaseModel):
+    enabled: bool
+    has_bank_details: bool
+
+
+class OnlinePaymentsUpdateOut(BaseModel):
+    enabled: bool
+    message: str
+    subaccount_code: str | None = None
+
+
+@router.get("/online-payments-status", response_model=OnlinePaymentsStatusOut)
+def get_online_payments_status(current_user_id: CurrentUserDep, db: DbDep):
+    user = db.query(models.User).filter(models.User.id == current_user_id).one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return OnlinePaymentsStatusOut(
+        enabled=bool(user.paystack_subaccount_active and user.paystack_subaccount_code),
+        has_bank_details=bool(user.bank_name and user.account_number and user.account_name),
+    )
+
+
+@router.post("/enable-online-payments", response_model=OnlinePaymentsUpdateOut)
+@limiter.limit("5/minute")
+async def enable_online_payments(
+    request: Request,
+    current_user_id: CurrentUserDep,
+    db: DbDep,
+):
+    user = db.query(models.User).filter(models.User.id == current_user_id).one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not (user.bank_name and user.account_number and user.account_name):
+        raise HTTPException(
+            status_code=400,
+            detail="Add and verify your settlement account before enabling online payments.",
+        )
+
+    from app.services.paystack_subaccount_service import (
+        PaystackSubaccountService,
+        SubaccountError,
+    )
+
+    try:
+        code = await PaystackSubaccountService(db).ensure_subaccount(user)
+    except SubaccountError as exc:
+        logger.warning("Could not enable online payments for user %s: %s", current_user_id, exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return OnlinePaymentsUpdateOut(
+        enabled=True,
+        subaccount_code=code,
+        message="Online payments enabled successfully.",
+    )
+
+
+@router.post("/disable-online-payments", response_model=OnlinePaymentsUpdateOut)
+@limiter.limit("5/minute")
+def disable_online_payments(
+    request: Request,
+    current_user_id: CurrentUserDep,
+    db: DbDep,
+):
+    user = db.query(models.User).filter(models.User.id == current_user_id).one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.paystack_subaccount_active = False
+    db.commit()
+    return OnlinePaymentsUpdateOut(
+        enabled=False,
+        message="Online payments turned off.",
+    )
 
 
 def get_invoice_service_for_user(data_owner_id: DataOwnerDep, db: DbDep) -> InvoiceService:
