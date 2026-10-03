@@ -142,6 +142,19 @@ class Product(Base):
 
     # Media
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    storefront_featured: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    storefront_discount_percent: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+    storefront_bundle_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # Opt-out of the storefront-wide social promotion opt-in (User.
     # social_promotion_opt_in) for this specific product — e.g. a business

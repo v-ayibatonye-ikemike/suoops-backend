@@ -28,6 +28,8 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import models
 from app.models.inventory_models import Product, ProductCategory
+from app.models.schemas.buyer_ai import BuyerShoppingRequest, BuyerShoppingResponse
+from app.services.ai.buyer import BuyerShoppingAssistantService
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,14 @@ def _listable_product_conditions() -> list:
         Product.image_url.isnot(None),
         Product.image_url != "",
     ]
+
+
+def _storefront_price(product: Product) -> Decimal:
+    price = Decimal(product.selling_price or 0)
+    discount = max(0, min(20, int(product.storefront_discount_percent or 0)))
+    if not discount:
+        return price
+    return (price * (Decimal("100") - discount) / Decimal("100")).quantize(Decimal("0.01"))
 
 
 def _presign(url: str | None, *, expires_in: int = 3600) -> str | None:
@@ -917,7 +927,7 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
             # (_listable_product_conditions) so a listed store is never empty.
             *_listable_product_conditions(),
         )
-        .order_by(Product.name.asc())
+        .order_by(Product.storefront_featured.desc(), Product.name.asc())
         .all()
     )
 
@@ -966,7 +976,11 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
                 "id": p.id,
                 "name": p.name,
                 "description": p.description,
-                "price": float(p.selling_price) if p.selling_price is not None else None,
+                "price": float(_storefront_price(p)) if p.selling_price is not None else None,
+                "original_price": float(p.selling_price) if p.selling_price is not None else None,
+                "discount_percent": p.storefront_discount_percent,
+                "featured": p.storefront_featured,
+                "bundle_label": p.storefront_bundle_label,
                 "unit": p.unit,
                 "category": p.category.name if p.category else None,
                 "category_id": p.category_id,
@@ -980,6 +994,37 @@ def get_public_storefront(request: Request, slug: str, db: Annotated[Session, De
             for p in products
         ],
     }
+
+
+@public_router.post("/store/{slug}/shopping-assistant", response_model=BuyerShoppingResponse)
+@limiter.limit("10/minute")
+async def ask_storefront_shopping_assistant(
+    request: Request,
+    slug: str,
+    payload: BuyerShoppingRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> BuyerShoppingResponse:
+    """Recommend only currently visible, available products from this store."""
+    from sqlalchemy.orm import joinedload
+
+    owner = db.query(models.User).filter(models.User.storefront_slug == slug.lower()).first()
+    if not owner or not owner.storefront_enabled or owner.store_status != "active":
+        raise HTTPException(status_code=404, detail="Storefront not found")
+
+    products = (
+        db.query(Product)
+        .options(joinedload(Product.category))
+        .filter(Product.user_id == owner.id, *_listable_product_conditions())
+        .order_by(Product.storefront_featured.desc(), Product.name.asc())
+        .all()
+    )
+    result = await BuyerShoppingAssistantService(db).recommend(
+        owner_id=owner.id,
+        query=payload.query,
+        products=products,
+        cart_product_ids=payload.cart_product_ids,
+    )
+    return BuyerShoppingResponse(**result)
 
 
 def live_storefronts_query(db: Session):
@@ -1318,7 +1363,7 @@ async def create_store_order(
                 status_code=400,
                 detail=f"{product.name}: only {product.quantity_in_stock} in stock.",
             )
-        price = product.selling_price or Decimal("0")
+        price = _storefront_price(product)
         lines.append(
             {
                 "description": product.name,

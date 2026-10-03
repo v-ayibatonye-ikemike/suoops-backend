@@ -25,6 +25,7 @@ from app.bot.voice_message_processor import VoiceMessageProcessor
 from app.bot.whatsapp_client import WhatsAppClient
 from app.core.config import settings
 from app.models import models
+from app.services.ai.copilot import CommerceCopilotService
 from app.services.analytics_service import (
     calculate_cash_position,
     calculate_customer_metrics,
@@ -519,7 +520,31 @@ class WhatsAppHandler:
             return
         # ── End undo ───────────────────────────────────────────────
 
-        # ── Analytics / Insights command (Pro only) ──────────────
+        # ── Commerce Copilot: grounded briefing + allowlisted questions ──
+        copilot_prefixes = ("copilot", "ask suoops")
+        copilot_briefing_keywords = {
+            "briefing",
+            "daily briefing",
+            "today's priorities",
+            "todays priorities",
+            "what should i do today",
+        }
+        if text_lower in copilot_briefing_keywords or any(
+            text_lower == prefix or text_lower.startswith(f"{prefix} ") for prefix in copilot_prefixes
+        ):
+            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+            if issuer_id is None:
+                self.client.send_text(
+                    sender,
+                    "❌ Your WhatsApp number isn't linked to a business account.\n"
+                    "Register at suoops.com to use Commerce Copilot.",
+                )
+                return
+            await self._send_copilot_response(sender, issuer_id, text)
+            return
+        # ── End Commerce Copilot ───────────────────────────────────
+
+        # ── Analytics / Insights command ─────────────────────────
         analytics_keywords = {
             "report",
             "analytics",
@@ -876,6 +901,56 @@ class WhatsAppHandler:
             msg += "\n⚠️ Wallet low — top up at suoops.com/dashboard/billing/purchase"
 
         self.client.send_text(sender, msg)
+
+    async def _send_copilot_response(self, sender: str, issuer_id: int, text: str) -> None:
+        """Send only verified, tenant-scoped commerce facts over WhatsApp."""
+        from app.api.dependencies import get_data_owner_id
+
+        data_owner_id = get_data_owner_id(issuer_id, self.db)
+        service = CommerceCopilotService(self.db)
+        normalized = " ".join(text.strip().split())
+        lowered = normalized.lower()
+        question = normalized
+        for prefix in ("ask suoops", "copilot"):
+            if lowered.startswith(f"{prefix} "):
+                question = normalized[len(prefix) :].strip()
+                break
+
+        is_briefing = lowered in {
+            "copilot",
+            "briefing",
+            "daily briefing",
+            "today's priorities",
+            "todays priorities",
+            "what should i do today",
+        }
+        if is_briefing:
+            result = await service.daily_briefing(
+                actor_user_id=issuer_id,
+                data_owner_id=data_owner_id,
+            )
+            lines = [
+                "✨ *SuoOps Commerce Copilot*",
+                "",
+                f"*{result['headline']}*",
+                result["summary"],
+            ]
+            if result["actions"]:
+                lines.extend(["", "*Recommended next steps:*"])
+                for index, action in enumerate(result["actions"], start=1):
+                    lines.append(f"{index}. {action['title']}")
+            lines.extend(["", "Review everything: suoops.com/dashboard"])
+            if result["generation_notice"]:
+                lines.extend(["", f"ℹ️ {result['generation_notice']}"])
+            self.client.send_text(sender, "\n".join(lines))
+            return
+
+        result = service.answer_question(question, data_owner_id=data_owner_id)
+        lines = ["✨ *SuoOps Commerce Copilot*", "", result["answer"]]
+        if result["evidence"]:
+            lines.extend(["", f"Based on: {', '.join(result['evidence'])}."])
+        lines.extend(["", "Ask another question with *Copilot ...*"])
+        self.client.send_text(sender, "\n".join(lines))
 
     def _send_wallet(self, sender: str, issuer_id: int) -> None:
         """Show the prepaid invoice wallet balance + a top-up link."""

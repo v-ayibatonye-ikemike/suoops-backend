@@ -165,6 +165,28 @@ def cleanup_old_logs() -> dict[str, Any]:
         raise
 
 
+@celery_app.task(
+    name="maintenance.cleanup_expired_ai_data",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_kwargs={"max_retries": 1},
+    soft_time_limit=120,
+    time_limit=180,
+)
+def cleanup_expired_ai_data() -> dict[str, Any]:
+    """Enforce the documented AI retention schedules."""
+    from app.services.ai.retention import purge_expired_ai_data
+
+    try:
+        with session_scope() as db:
+            counts = purge_expired_ai_data(db)
+        logger.info("AI retention cleanup: %s", counts)
+        return {"success": True, **counts}
+    except Exception as exc:
+        logger.warning("AI retention cleanup task failure: %s", exc)
+        raise
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # INACTIVE ACCOUNT CLEANUP
 # ═══════════════════════════════════════════════════════════════════════

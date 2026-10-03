@@ -85,6 +85,9 @@ class ProductCreate(BaseModel):
 
     # Media
     image_url: str | None = None
+    storefront_featured: bool = False
+    storefront_discount_percent: int = 0
+    storefront_bundle_label: str | None = None
 
 
 class ProductUpdate(BaseModel):

@@ -342,7 +342,21 @@ class BaseAppSettings(BaseSettings):
     OAUTH_STATE_SECRET: str = "change_me_oauth_state"  # For CSRF protection
 
     # External service keys
-    OPENAI_API_KEY: str | None = None  # For OCR service (GPT-4 Vision)
+    OPENAI_API_KEY: str | None = None
+    AI_ENABLED: bool = False
+    AI_PROVIDER: str = "openai"
+    AI_DEFAULT_MODEL: str = "gpt-4o-mini"
+    AI_MONTHLY_INCLUDED_OPERATIONS: int = 30
+    AI_PROVIDER_TIMEOUT_SECONDS: float = 30.0
+    AI_COPILOT_ENHANCEMENT_ENABLED: bool = True
+    AI_INVENTORY_ENHANCEMENT_ENABLED: bool = True
+    AI_STOREFRONT_ENHANCEMENT_ENABLED: bool = True
+    AI_BUYER_ASSISTANT_ENABLED: bool = True
+    AI_BUYER_DAILY_OPERATIONS_PER_STORE: int = 5
+    AI_DISPUTE_ASSISTANT_ENABLED: bool = True
+    # Update these configurable estimates when provider pricing changes.
+    AI_INPUT_COST_PER_MILLION_USD: float = 0.15
+    AI_OUTPUT_COST_PER_MILLION_USD: float = 0.60
     ENCRYPTION_KEY: str | None = None  # Fernet key for column encryption
 
     # Admin bootstrap

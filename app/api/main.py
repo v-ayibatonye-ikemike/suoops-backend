@@ -12,6 +12,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp
 
 from app.api.rate_limit import increment_rate_limit_exceeded, limiter
+from app.api.routes_ai import router as ai_router
 from app.api.routes_admin import router as admin_router
 from app.api.routes_admin_auth import router as admin_auth_router
 from app.api.routes_analytics import router as analytics_router
@@ -228,6 +229,7 @@ def create_app() -> FastAPI:
         allow_headers=settings.CORS_ALLOW_HEADERS,
     )
     register_error_handlers(app)
+    app.include_router(ai_router)
     app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
     app.include_router(auth_router, prefix="/auth", tags=["auth"])
     app.include_router(oauth_router, tags=["oauth"])

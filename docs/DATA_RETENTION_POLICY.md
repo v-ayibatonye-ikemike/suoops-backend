@@ -31,6 +31,14 @@
 | **Revoked auth tokens** | Token blocklist entries | Until natural token expiry (~14 days) | Security |
 | **Fraud / trust signals** | Signup IP, device fingerprint, user‑agent, risk score, circumvention flags | **24 months** from last activity | Legitimate interest (fraud prevention) |
 | **Audit & security logs** | `audit.py` events, access logs | **18 months** | Security, accountability |
+| **AI operational metadata** | Feature, provider/model, token counts, cost, latency, status, prompt version and redacted-input hash; no prompt body | **18 months** | Cost control, reliability, accountability |
+| **Commerce Copilot output** | Daily briefing narrative and proposed-action decisions; source facts remain in their original records | **30 days for briefing text; 18 months for action decisions** | Service delivery, user control, accountability |
+| **Collections Assistant output** | Ranked overdue-invoice score, explanation, merchant-edited reminder, delivery status and masked recipient | **18 months**; underlying invoice remains subject to the financial-record schedule | Service delivery, anti-spam controls, accountability |
+| **Inventory Adviser calculations** | On-demand velocity, stock-cover and reorder recommendation derived from stock movements; not separately persisted | **Request lifetime only**; approved draft purchase orders follow the **6-year financial-record** schedule | Data minimisation, service delivery, merchant control |
+| **Storefront Adviser calculations** | On-demand listing quality, funnel explanation, co-purchase bundle evidence and margin-safe discount cap; generated copy remains a draft until approved | **Request lifetime only**; approved listing copy/merchandising lasts until the merchant changes it, and resulting orders follow the **6-year financial-record** schedule | Data minimisation, service delivery, merchant control |
+| **Buyer Shopping Assistant request/output** | Public natural-language request, detected budget and verified catalog matches | **Request lifetime only**; no conversation transcript is stored. Provider/model/token/cost metadata and a redacted-input hash follow the **18-month AI operational metadata** schedule | Service delivery, data minimisation, cost control |
+| **Dispute Assistant output** | On-demand neutral summary, evidence timeline, missing-evidence checks and reviewer questions derived from existing order/dispute records | **Request lifetime only**; source order, message and dispute evidence keeps its existing **24-month** dispute schedule, while AI operational metadata follows the **18-month** schedule | Legitimate interest, dispute resolution, accountability |
+| **AI preferences, controls and quality feedback** | Merchant opt-out, per-feature choices, staged-rollout controls, change reasons, positive/negative feedback and optional short comment | Preferences/controls last while the account or platform control exists; feedback is kept **18 months** | Consent/merchant control, service quality, accountability |
 | **Object storage (S3) archival** | Invoice/receipt PDFs, receipt images, tax reports | PDFs → Glacier after **90 days**; receipt images after **180 days**; tax archives after **365 days**; deleted per the schedules above | Cost + record‑keeping |
 | **Marketing/engagement** | Email/WhatsApp opt‑in status | Until opt‑out or account deletion | Consent |
 
@@ -43,7 +51,9 @@
   personal identifiers may be redacted/anonymised while the transaction record is
   retained for tax/audit.
 - **Automated expiry**: OTPs, tokens and S3 lifecycle transitions expire
-  automatically; periodic jobs purge data past its retention window.
+  automatically; periodic jobs purge data past its retention window. The weekly
+  AI retention task enforces the 30-day narrative and 18-month operational,
+  action, draft and feedback schedules.
 
 ## 4. Legal holds
 Retention is extended beyond the periods above where required by: an open dispute

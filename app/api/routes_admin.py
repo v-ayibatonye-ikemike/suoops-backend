@@ -15,6 +15,12 @@ from app.db.session import get_db
 from app.models import models
 from app.models.models import SubscriptionPlan
 from app.models.payment_models import PaymentStatus, PaymentTransaction
+from app.models.schemas.ai_governance import (
+    AIFeatureControlOut,
+    AIFeatureControlUpdateIn,
+    AIGovernanceOverviewOut,
+)
+from app.models.schemas.dispute_ai import DisputeAssistantOut
 from app.utils.feature_gate import INVOICE_PACK_SIZE
 
 logger = logging.getLogger(__name__)
@@ -25,6 +31,51 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # into memory. Generous enough to never truncate real data at current scale,
 # but prevents pathological memory blowup if the table grows unexpectedly.
 ADMIN_LIST_CAP = 5000
+
+
+@router.get("/ai-governance", response_model=AIGovernanceOverviewOut)
+def get_ai_governance(
+    days: int = Query(30, ge=1, le=90),
+    db: Session = Depends(get_db),
+    admin_user=Depends(get_current_admin),
+) -> AIGovernanceOverviewOut:
+    from app.services.ai.governance import governance_overview
+
+    log_audit_event("admin.ai_governance.view", user_id=admin_user.id, days=days)
+    return AIGovernanceOverviewOut(**governance_overview(db, days=days))
+
+
+@router.patch("/ai-governance/features/{feature}", response_model=AIFeatureControlOut)
+def patch_ai_feature_control(
+    feature: str,
+    payload: AIFeatureControlUpdateIn,
+    db: Session = Depends(get_db),
+    admin_user=Depends(get_current_admin),
+) -> AIFeatureControlOut:
+    from app.services.ai.governance import update_feature_control
+
+    _require_super_admin(admin_user)
+    try:
+        result = update_feature_control(
+            db,
+            feature=feature,
+            admin_user_id=admin_user.id,
+            enabled=payload.enabled,
+            rollout_percent=payload.rollout_percent,
+            allowlisted_owner_ids=payload.allowlisted_owner_ids,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    log_audit_event(
+        "admin.ai_governance.feature_updated",
+        user_id=admin_user.id,
+        feature=feature,
+        enabled=payload.enabled,
+        rollout_percent=payload.rollout_percent,
+        reason=payload.reason,
+    )
+    return AIFeatureControlOut(**result)
 
 
 def _excluded_metric_user_ids(db: Session) -> list[int]:
@@ -5868,6 +5919,33 @@ def request_dispute_stepup_otp(
     OTPService().send_code(email, purpose=_ADMIN_MONEY_OTP_PURPOSE)
     log_audit_event("admin.disputes.stepup_requested", user_id=admin_user.id, escrow_id=escrow_id)
     return {"ok": True, "detail": "Confirmation code sent to your admin email."}
+
+
+@router.post("/disputes/{escrow_id}/assistant", response_model=DisputeAssistantOut)
+@limiter.limit("20/minute")
+async def analyse_dispute_evidence(
+    request: Request,
+    escrow_id: int,
+    db: Session = Depends(get_db),
+    admin_user=Depends(get_current_admin),
+) -> DisputeAssistantOut:
+    """Organise dispute evidence without recommending or executing a money action."""
+    from app.services.ai.disputes import DisputeAssistantService, DisputeNotFoundError
+
+    try:
+        result = await DisputeAssistantService(db).analyse(
+            escrow_id,
+            admin_user_id=admin_user.id,
+        )
+    except DisputeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    log_audit_event(
+        "admin.disputes.assistant",
+        user_id=admin_user.id,
+        escrow_id=escrow_id,
+        ai_generated=result["ai_generated"],
+    )
+    return DisputeAssistantOut(**result)
 
 
 @router.post("/money/step-up-otp")

@@ -284,11 +284,16 @@ class InventoryService:
         self,
         product_ids: list[int],
         trigger_invoice_id: str | None = None,
+        *,
+        quantities: dict[int, int] | None = None,
+        notes: str | None = None,
     ) -> PurchaseOrder | None:
         """Generate a draft purchase order for low-stock products."""
         return self._purchase_orders.generate_draft(
             product_ids=product_ids,
             trigger_invoice_id=trigger_invoice_id,
+            quantities=quantities,
+            notes=notes,
         )
 
     def receive_purchase_order(self, order_id: int) -> PurchaseOrder:

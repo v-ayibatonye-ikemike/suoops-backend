@@ -39,6 +39,40 @@ Criteria for extraction:
 - Replace rule-based NLP with fine-tuned lightweight model (Distil variant) + fallback rules
 - Predictive cash-flow insights (spend/receivables forecasting)
 - Auto reconciliation suggestions for partial or failed payments
+- Route generative features through the tenant-scoped AI gateway, which redacts
+  direct identifiers, validates structured output, enforces monthly usage limits,
+  and records provider/model/token/cost metadata without retaining prompt content.
+- Execute commerce changes only through allowlisted domain tools and persist a
+  user-approved proposed action before any consequential operation.
+- Keep collections scoring and invoice facts deterministic. Generative AI may
+  adjust reminder tone only; the merchant must review the exact message and
+  explicitly confirm delivery through a permitted, cooldown-protected channel.
+- Derive inventory velocity, demand trend, stock cover and reorder quantities
+  from audited stock movements. Subtract open purchase-order quantities, never
+  reorder slow stock automatically, and let AI explain—but not change—the
+  calculations. Merchant approval creates a draft only and does not alter stock
+  or contact a supplier.
+- Ground storefront advice in listing completeness, recorded views, paid and
+  abandoned orders, co-purchase evidence and known cost prices. Generated copy
+  remains a draft; featured ordering, bundles and discounts require explicit
+  merchant confirmation. Enforce discount caps server-side and use the same
+  approved price for catalog display and checkout.
+- Let public buyers ask natural-language catalog questions, but enforce store
+  scope, visibility, stock, cart exclusions, budget and approved prices before
+  AI ranking. Models may select only supplied product IDs; rebuild every returned
+  fact from current records, rate-limit anonymous requests and preserve a
+  deterministic fallback when provider or per-store daily limits are reached.
+- Reconstruct dispute timelines and evidence gaps from escrow, invoice, courier,
+  messaging and reputation records. AI may create a neutral synopsis and reviewer
+  questions only; reject generated outcome/blame recommendations and never expose
+  resolution tools to the model. Record the real admin AI actor without consuming
+  the merchant's quota; retain super-admin, step-up OTP and audit gates for every
+  refund or release.
+- Enforce rollout centrally in the AI gateway: deployment master switch,
+  database feature kill switch, merchant opt-out/feature override, deterministic
+  percentage bucket, canary allowlist and quota. Record blocked decisions without
+  consuming quota, expose admin health/cost/feedback metrics, and automatically
+  purge expired AI metadata and cached outputs.
 
 ## Phase 6 – Compliance & Extensibility
 - Plugin/extension system for local regulatory modules (VAT rules, withholding tax)
@@ -67,4 +101,3 @@ Criteria for extraction:
 - Phase 1 complete: Dashboards + queue + idempotency + structured logs.
 - Phase 2 complete: Worker + outbox + basic tracing.
 - Phase 3 triggered: Extraction metrics threshold hit.
-

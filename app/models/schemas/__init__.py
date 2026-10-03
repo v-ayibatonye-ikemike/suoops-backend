@@ -12,6 +12,17 @@ Sub-modules:
 
 # Invoice schemas
 # Analytics schemas
+from .ai import AIAvailabilityOut, AIUsageFeatureOut, AIUsageOut
+from .ai_governance import (
+    AIFeatureControlOut,
+    AIFeatureControlUpdateIn,
+    AIFeatureMetricOut,
+    AIFeedbackIn,
+    AIFeedbackOut,
+    AIGovernanceOverviewOut,
+    AITenantPreferencesOut,
+    AITenantPreferencesUpdateIn,
+)
 from .analytics import (
     ActivityMixOut,
     AgingReport,
@@ -55,6 +66,27 @@ from .business import (
     OCRItemOut,
     OCRParseOut,
 )
+from .buyer_ai import BuyerProductMatchOut, BuyerShoppingRequest, BuyerShoppingResponse
+from .collections_ai import (
+    CollectionDraftOut,
+    CollectionDraftUpdateIn,
+    CollectionMetricsOut,
+    CollectionPrioritiesOut,
+)
+from .copilot import (
+    CopilotActionOut,
+    CopilotAnswerOut,
+    CopilotBriefingOut,
+    CopilotDecisionIn,
+    CopilotQuestionIn,
+)
+from .dispute_ai import DisputeAssistantOut, DisputeEvidenceOut, DisputeTimelineEventOut
+from .inventory_ai import (
+    InventoryAdviceOut,
+    InventoryPurchaseOrderIn,
+    InventoryPurchaseOrderOut,
+    InventoryRecommendationOut,
+)
 from .invoice import (
     CustomerOut,
     InvoiceCreate,
@@ -71,6 +103,16 @@ from .invoice import (
     PaginatedResponse,
     QuickSaleCreate,
     ReceiptUploadOut,
+)
+from .storefront_ai import (
+    StorefrontAdviceOut,
+    StorefrontBundleIn,
+    StorefrontCopyApplyIn,
+    StorefrontCopyDraftOut,
+    StorefrontMerchandisingIn,
+    StorefrontMerchandisingOut,
+    StorefrontProductActionOut,
+    StorefrontPromotionIn,
 )
 
 __all__ = [
@@ -126,4 +168,43 @@ __all__ = [
     "ActivityMixOut",
     "FulfillmentReliabilityOut",
     "DataProvenanceOut",
+    # AI
+    "AIAvailabilityOut",
+    "AIUsageFeatureOut",
+    "AIUsageOut",
+    "AIFeatureControlOut",
+    "AIFeatureControlUpdateIn",
+    "AIFeatureMetricOut",
+    "AIFeedbackIn",
+    "AIFeedbackOut",
+    "AIGovernanceOverviewOut",
+    "AITenantPreferencesOut",
+    "AITenantPreferencesUpdateIn",
+    "BuyerProductMatchOut",
+    "BuyerShoppingRequest",
+    "BuyerShoppingResponse",
+    "DisputeAssistantOut",
+    "DisputeEvidenceOut",
+    "DisputeTimelineEventOut",
+    "CopilotActionOut",
+    "CopilotAnswerOut",
+    "CopilotBriefingOut",
+    "CopilotDecisionIn",
+    "CopilotQuestionIn",
+    "CollectionDraftOut",
+    "CollectionDraftUpdateIn",
+    "CollectionMetricsOut",
+    "CollectionPrioritiesOut",
+    "InventoryAdviceOut",
+    "InventoryPurchaseOrderIn",
+    "InventoryPurchaseOrderOut",
+    "InventoryRecommendationOut",
+    "StorefrontAdviceOut",
+    "StorefrontBundleIn",
+    "StorefrontCopyApplyIn",
+    "StorefrontCopyDraftOut",
+    "StorefrontMerchandisingIn",
+    "StorefrontMerchandisingOut",
+    "StorefrontProductActionOut",
+    "StorefrontPromotionIn",
 ]

@@ -8,9 +8,11 @@ purchase order management.
 
 from __future__ import annotations
 
+import builtins
 import datetime as dt
 import logging
 from decimal import Decimal
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,9 @@ from app.utils.id_generator import generate_id
 
 from .base import InventoryServiceBase
 
+if TYPE_CHECKING:
+    from .stock_service import StockMovementService
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +38,9 @@ class PurchaseOrderService(InventoryServiceBase):
     def __init__(self, db: Session, user_id: int):
         super().__init__(db, user_id)
         # Stock service dependency for receiving orders
-        self._stock_service = None
+        self._stock_service: StockMovementService | None = None
 
-    def set_stock_service(self, stock_service) -> None:
+    def set_stock_service(self, stock_service: StockMovementService) -> None:
         """Set the stock service for receiving orders."""
         self._stock_service = stock_service
 
@@ -43,6 +48,9 @@ class PurchaseOrderService(InventoryServiceBase):
         self,
         product_ids: list[int],
         trigger_invoice_id: str | None = None,
+        *,
+        quantities: dict[int, int] | None = None,
+        notes: str | None = None,
     ) -> PurchaseOrder | None:
         """
         Generate a draft purchase order for low-stock products.
@@ -57,8 +65,8 @@ class PurchaseOrderService(InventoryServiceBase):
         if not products:
             return None
 
-        po = self._create_purchase_order(trigger_invoice_id)
-        self._add_line_items(po, products)
+        po = self._create_purchase_order(trigger_invoice_id, notes=notes)
+        self._add_line_items(po, products, quantities=quantities)
 
         self._db.add(po)
         self._db.commit()
@@ -108,7 +116,7 @@ class PurchaseOrderService(InventoryServiceBase):
         status: PurchaseOrderStatus | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> tuple[list[PurchaseOrder], int]:
+    ) -> tuple[builtins.list[PurchaseOrder], int]:
         """List purchase orders with pagination."""
         query = self._db.query(PurchaseOrder).filter(
             PurchaseOrder.user_id == self._user_id,
@@ -144,21 +152,22 @@ class PurchaseOrderService(InventoryServiceBase):
     # Private Helpers
     # ========================================================================
 
-    def _get_valid_products(self, product_ids: list[int]) -> list[Product]:
+    def _get_valid_products(self, product_ids: builtins.list[int]) -> builtins.list[Product]:
         """Get valid, active products for the given IDs."""
-        return (
+        return cast(
+            builtins.list[Product],
             self._db.query(Product)
             .filter(
                 Product.id.in_(product_ids),
                 Product.user_id == self._user_id,
                 Product.is_active.is_(True),
             )
-            .all()
+            .all(),
         )
 
-    def _create_purchase_order(self, trigger_invoice_id: str | None) -> PurchaseOrder:
+    def _create_purchase_order(self, trigger_invoice_id: str | None, *, notes: str | None = None) -> PurchaseOrder:
         """Create a new purchase order instance."""
-        notes = (
+        resolved_notes = notes or (
             f"Auto-generated due to low stock after invoice {trigger_invoice_id}"
             if trigger_invoice_id
             else "Auto-generated due to low stock"
@@ -170,18 +179,26 @@ class PurchaseOrderService(InventoryServiceBase):
             status=PurchaseOrderStatus.DRAFT,
             auto_generated=True,
             trigger_invoice_id=trigger_invoice_id,
-            notes=notes,
+            notes=resolved_notes,
             total_amount=Decimal(0),
         )
 
-    def _add_line_items(self, po: PurchaseOrder, products: list[Product]) -> None:
+    def _add_line_items(
+        self,
+        po: PurchaseOrder,
+        products: builtins.list[Product],
+        *,
+        quantities: dict[int, int] | None = None,
+    ) -> None:
         """Add line items to purchase order."""
         total_amount = Decimal(0)
 
         for product in products:
-            quantity = product.reorder_quantity
-            unit_cost = product.cost_price or Decimal(0)
-            line_total = unit_cost * quantity
+            quantity = quantities.get(product.id, product.reorder_quantity) if quantities else product.reorder_quantity
+            if quantity <= 0:
+                continue
+            unit_cost = product.cost_price
+            line_total = (unit_cost or Decimal(0)) * quantity
 
             po.lines.append(
                 PurchaseOrderLine(

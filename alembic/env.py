@@ -17,6 +17,7 @@ sys.path.append(BASE_DIR)
 from app.core.config import settings  # noqa: E402
 from app.db.base_class import Base  # noqa: E402
 from app.models import (  # noqa: E402
+    ai_models,  # noqa: E402 F401 (import AI usage models for Alembic)
     models,  # noqa: E402 F401 (import for side effects)
     tax_models,  # noqa: E402 F401 (import tax models for Alembic)
 )

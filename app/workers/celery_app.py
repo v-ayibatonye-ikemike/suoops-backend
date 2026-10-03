@@ -106,6 +106,10 @@ def _create_celery() -> Celery:
                 "task": "maintenance.cleanup_old_logs",
                 "schedule": crontab(minute=30, hour=3, day_of_week=0),  # Sun 03:30 UTC
             },
+            "weekly-ai-retention-cleanup": {
+                "task": "maintenance.cleanup_expired_ai_data",
+                "schedule": crontab(minute=45, hour=3, day_of_week=0),  # Sun 03:45 UTC
+            },
             "weekly-warn-inactive-accounts": {
                 "task": "maintenance.warn_inactive_accounts",
                 "schedule": crontab(minute=0, hour=4, day_of_week=1),  # Mon 04:00 UTC
