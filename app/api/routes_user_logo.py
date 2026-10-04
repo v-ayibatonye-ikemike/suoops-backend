@@ -101,7 +101,7 @@ async def upload_logo(
     current_user_id: AdminUserDep = None,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
-    """Upload custom logo (Pro+ feature)."""
+    """Upload a custom business logo."""
     return await _upload_branding_image(
         file=file,
         current_user_id=current_user_id,
@@ -133,7 +133,7 @@ async def upload_storefront_cover(
     current_user_id: AdminUserDep = None,
     db: Annotated[Session, Depends(get_db)] = None,
 ):
-    """Upload a landscape storefront cover (Pro+ feature)."""
+    """Upload a landscape storefront cover."""
     return await _upload_branding_image(
         file=file,
         current_user_id=current_user_id,

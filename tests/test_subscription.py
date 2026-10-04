@@ -60,6 +60,51 @@ class TestSubscriptionStatus:
             db.close()
 
 
+class TestCommissionModel:
+    def test_new_subscription_sales_are_disabled(self):
+        client = TestClient(app)
+        db = SessionLocal()
+        try:
+            user = _create_test_user(db)
+            headers = _auth_headers(user.id)
+
+            assert client.post("/subscriptions/initialize?plan=PRO", headers=headers).status_code in (404, 405)
+            assert client.get("/subscriptions/verify/legacy-reference", headers=headers).status_code == 404
+        finally:
+            db.close()
+
+    def test_all_features_and_voice_are_available_without_a_plan(self):
+        from app.utils.feature_gate import FeatureGate
+
+        client = TestClient(app)
+        db = SessionLocal()
+        try:
+            user = _create_test_user(db)
+            gate = FeatureGate(db, user.id)
+
+            assert gate.can_use_voice() == (True, None)
+            gate.check_voice_quota()
+
+            response = client.get("/users/me/features", headers=_auth_headers(user.id))
+            assert response.status_code == 200
+            body = response.json()
+            assert body["current_plan"] == "commission"
+            assert body["upgrade_available"] is False
+            assert body["upgrade_url"] is None
+            assert all(
+                body["features"][feature]
+                for feature in (
+                    "voice_invoice",
+                    "custom_branding",
+                    "inventory",
+                    "team_management",
+                    "tax_reports",
+                )
+            )
+        finally:
+            db.close()
+
+
 class TestPaymentHistory:
     def test_payment_detail_excludes_sensitive_fields(self):
         """paystack_transaction_id, payment_metadata, ip_address must be excluded."""

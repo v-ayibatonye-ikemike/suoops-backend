@@ -339,36 +339,39 @@ def _estimate_annual_revenue(period_revenue: float, period_type: str) -> float:
 
 
 def _generate_tax_alerts(user_plan: str, annual_revenue: float) -> list[dict]:
-    """Generate plan-specific tax alerts."""
+    """Generate tax alerts independently of legacy plan values."""
+    _ = user_plan
     alerts = []
 
-    if user_plan in ("free", "starter"):
-        if annual_revenue >= 25_000_000:
-            alerts.append(
-                {
-                    "type": "vat_threshold",
-                    "severity": "warning",
-                    "message": (
-                        f"Your estimated annual turnover (₦{annual_revenue:,.0f}) exceeds ₦25M. "
-                        "VAT registration required."
-                    ),
-                }
-            )
-        elif annual_revenue >= 20_000_000:
-            alerts.append(
-                {
-                    "type": "vat_approaching",
-                    "severity": "info",
-                    "message": f"You're approaching the ₦25M VAT threshold (current: ₦{annual_revenue:,.0f}).",
-                }
-            )
+    if annual_revenue >= 25_000_000:
+        alerts.append(
+            {
+                "type": "vat_threshold",
+                "severity": "warning",
+                "message": (
+                    f"Your estimated annual turnover (₦{annual_revenue:,.0f}) exceeds ₦25M. "
+                    "VAT registration required."
+                ),
+            }
+        )
+    elif annual_revenue >= 20_000_000:
+        alerts.append(
+            {
+                "type": "vat_approaching",
+                "severity": "info",
+                "message": f"You're approaching the ₦25M VAT threshold (current: ₦{annual_revenue:,.0f}).",
+            }
+        )
 
-    if user_plan == "pro" and annual_revenue >= 50_000_000:
+    if annual_revenue >= 50_000_000:
         alerts.append(
             {
                 "type": "cit_threshold",
                 "severity": "warning",
-                "message": f"Your turnover (₦{annual_revenue:,.0f}) exceeds ₦50M. Upgrade to BUSINESS plan.",
+                "message": (
+                    f"Your turnover (₦{annual_revenue:,.0f}) exceeds ₦50M. "
+                    "Review your company income tax obligations."
+                ),
             }
         )
 

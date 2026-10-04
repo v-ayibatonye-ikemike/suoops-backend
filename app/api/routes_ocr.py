@@ -42,7 +42,7 @@ async def parse_receipt_image(
     """
     Parse receipt/invoice image to extract data (Step 1).
 
-    **🔒 PAID FEATURE - Requires paid subscription plan**
+    Included for every merchant, with a monthly usage limit for cost control.
 
     **Upload image → Get structured data → Review → Confirm**
 
@@ -73,7 +73,7 @@ async def parse_receipt_image(
 
     Speed: ~5-10 seconds
     """
-    # Check if user has Business plan with available quota
+    # Preserve the shared access hook; it is a no-op under commission billing.
     check_voice_ocr_quota(db, current_user_id)
 
     # Check monthly OCR limit (cost control — 10 scans/month per user)
@@ -150,7 +150,7 @@ async def create_invoice_from_image(
     """
     Parse image AND create invoice in one step (convenience endpoint).
 
-    **🔒 PAID FEATURE - Requires paid subscription plan**
+    Included for every merchant, with the same monthly OCR usage limit.
 
     **Quick flow: Upload image → Invoice created automatically**
 

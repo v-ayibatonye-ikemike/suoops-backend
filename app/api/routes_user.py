@@ -35,7 +35,7 @@ class InvoiceUsage(BaseModel):
 
 
 class FeatureAccessOut(BaseModel):
-    """GET /me/features — excludes internal user_id."""
+    """Commission-model feature access; excludes internal user_id."""
 
     current_plan: str
     plan_price: float | None = None
@@ -176,11 +176,9 @@ def get_profile(
     current_user_id: Annotated[int, Depends(get_current_user_id)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    """Return current user's core profile and subscription details."""
+    """Return the current user's core profile and legacy billing fields."""
     from app.utils.feature_gate import FeatureGate
 
-    # FeatureGate.user triggers the subscription-expiry check (downgrades a
-    # lapsed paid plan to FREE) and returns the user; raises 404 if missing.
     gate = FeatureGate(db, current_user_id)
     user = gate.user
 
@@ -242,37 +240,33 @@ async def get_feature_access(
     db: Annotated[Session, Depends(get_db)],
 ):
     """
-    Get current user's feature access and subscription limits.
+    Get commission-model feature access and wallet availability.
 
-    Returns detailed information about:
-    - Current subscription plan
-    - Monthly invoice usage and limits
-    - Premium feature access (OCR, voice, etc)
-    - Upgrade options
+    Every feature is included. Manual invoice creation depends only on whether
+    the prepaid wallet can cover the applicable commission.
     """
     from app.utils.feature_gate import FeatureGate
 
     async def _produce():
         gate = FeatureGate(db, current_user_id)
         user = gate.user
-        plan = user.effective_plan  # Uses effective_plan to respect pro_override
         can_create, limit_message = gate.can_create_invoice()
         monthly_count = gate.get_monthly_invoice_count()
         return {
             "user_id": user.id,
-            "current_plan": plan.value,
-            "plan_price": plan.price,
-            "is_free_tier": gate.is_free_tier(),
-            "features": plan.features,
+            "current_plan": "commission",
+            "plan_price": None,
+            "is_free_tier": False,
+            "features": models.SubscriptionPlan.FREE.features,
             "invoice_usage": {
                 "used_this_month": monthly_count,
-                "limit": plan.invoice_limit,
-                "remaining": (plan.invoice_limit - monthly_count) if plan.invoice_limit else None,
+                "limit": None,
+                "remaining": None,
                 "can_create_more": can_create,
                 "limit_message": limit_message,
             },
-            "upgrade_available": gate.is_free_tier(),
-            "upgrade_url": "/subscription/initialize" if gate.is_free_tier() else None,
+            "upgrade_available": False,
+            "upgrade_url": None,
         }
 
     # Cache per-user feature access for 20s to reduce DB pressure during polling

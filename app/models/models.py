@@ -64,18 +64,7 @@ def utcnow() -> dt.datetime:
 
 
 class SubscriptionPlan(str, enum.Enum):
-    """Subscription tiers for feature access.
-
-    BILLING MODEL (Small & Medium Business Focus):
-    - Invoice Packs: 50 invoices for ₦1,250 (one-time, doesn't expire)
-    - FREE: 2 free invoices to start, then buy invoice packs as needed
-    - PRO: ₦2,000 Pro Pack (20 invoices + 30 days) for all premium features including voice/API
-
-    Note: STARTER plan removed - FREE users get 2 free invoices and can buy
-    packs without needing a plan change. Frontend shows "Starter" as UX label.
-    Note: BUSINESS plan removed - we focus on businesses under ₦100M annual revenue.
-    PRO now includes all features that were previously BUSINESS-only.
-    """
+    """Legacy plan values retained for historical billing records."""
 
     FREE = "free"
     PRO = "pro"
@@ -124,17 +113,7 @@ class SubscriptionPlan(str, enum.Enum):
 
     @property
     def features(self) -> dict:
-        """
-        Get feature access for this plan.
-
-        BILLING MODEL (Small & Medium Business Focus):
-        - FREE: 2 free invoices to start, buy packs as needed, basic features
-        - PRO: ₦2,000 Pro Pack = 20 invoices + 30 days of ALL premium features (incl. tax)
-
-        Note: STARTER removed - FREE users get 2 free invoices and buy packs.
-        Note: BUSINESS plan removed - PRO now includes voice.
-        Note: Tax reports & automation require PRO plan.
-        """
+        """Return commission-model access; every product feature is included."""
         return {
             "invoice_pack_price": 1250,  # ₦1,250 per 50 invoices
             "invoice_pack_size": 50,  # 50 invoices per pack

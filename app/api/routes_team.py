@@ -41,26 +41,8 @@ DbDep: TypeAlias = Annotated[Session, Depends(get_db)]
 
 
 def require_team_feature(current_user_id: CurrentUserDep, db: DbDep) -> int:
-    """
-    Verify user has access to team features (Pro or Business plan).
-
-    Raises HTTPException 403 if user doesn't have required plan.
-    Returns the user_id if access is granted.
-    """
-    gate = FeatureGate(db, current_user_id)
-    # Team management uses same gate as inventory (Pro+)
-    # Uses effective_plan to respect admin-granted PRO override
-    if not gate.user.effective_plan.features.get("inventory", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "feature_gated",
-                "message": "Team Management requires Pro plan or higher",
-                "required_plan": "PRO",
-                "current_plan": gate.user.effective_plan.value,
-                "upgrade_url": "/settings/subscription",
-            },
-        )
+    """Validate the user; team management is included for every workspace."""
+    _user = FeatureGate(db, current_user_id).user
     return current_user_id
 
 
@@ -68,7 +50,7 @@ TeamAccessDep: TypeAlias = Annotated[int, Depends(require_team_feature)]
 
 
 def get_team_service_dep(current_user_id: TeamAccessDep, db: DbDep) -> TeamService:
-    """Get TeamService for user with verified Pro/Business access."""
+    """Get TeamService for the authenticated user."""
     return TeamService(db, current_user_id)
 
 

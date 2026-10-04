@@ -198,7 +198,7 @@ class TaxReportingService:
                 "cit_amount": Decimal("0"),
                 "development_levy": Decimal("0"),
                 "company_size": "n/a",
-                "notes": "CIT requires PRO plan",
+                "notes": "CIT guidance is included; confirm obligations with a qualified adviser",
             }
 
         # Get annual turnover estimate (for company size classification)

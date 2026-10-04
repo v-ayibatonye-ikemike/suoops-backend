@@ -18,29 +18,8 @@ DbDep: TypeAlias = Annotated[Session, Depends(get_db)]
 
 
 def require_inventory_access(current_user_id: CurrentUserDep, data_owner_id: DataOwnerDep, db: DbDep) -> int:
-    """
-    Verify user has access to inventory features (Pro or Business plan).
-
-    For team members, checks the team admin's (data_owner's) plan.
-    For solo users, checks their own plan.
-
-    Raises HTTPException 403 if the data owner doesn't have required plan.
-    Returns the current_user_id if access is granted.
-    """
-    # Check the DATA OWNER's plan (team admin for members, self for solo)
-    # Uses effective_plan to respect admin-granted PRO override
-    gate = FeatureGate(db, data_owner_id)
-    if not gate.user.effective_plan.features.get("inventory", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "feature_gated",
-                "message": "Inventory Management requires Pro plan or higher",
-                "required_plan": "PRO",
-                "current_plan": gate.user.effective_plan.value,
-                "upgrade_url": "/settings/subscription",
-            },
-        )
+    """Validate the data owner; inventory is included for every workspace."""
+    _user = FeatureGate(db, data_owner_id).user
     return current_user_id
 
 

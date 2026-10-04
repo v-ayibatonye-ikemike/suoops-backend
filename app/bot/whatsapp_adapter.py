@@ -19,7 +19,7 @@ from app.bot.onboarding_flow import (
     get_onboarding_session,
     handle_onboarding_reply,
 )
-from app.bot.product_invoice_flow import ProductInvoiceFlow, get_cart
+from app.bot.product_invoice_flow import ProductInvoiceFlow, clear_cart, get_cart
 from app.bot.support_handler import SupportHandler
 from app.bot.voice_message_processor import VoiceMessageProcessor
 from app.bot.whatsapp_client import WhatsAppClient
@@ -215,6 +215,33 @@ class WhatsAppHandler:
 
         text_lower = text.lower()
 
+        # Explicit Copilot commands supersede any stale multi-message flow so a
+        # merchant can always ask for a briefing or grounded business fact.
+        copilot_prefixes = ("copilot", "ask suoops")
+        copilot_briefing_keywords = {
+            "briefing",
+            "daily briefing",
+            "today's priorities",
+            "todays priorities",
+            "what should i do today",
+        }
+        if text_lower in copilot_briefing_keywords or any(
+            text_lower == prefix or text_lower.startswith(f"{prefix} ") for prefix in copilot_prefixes
+        ):
+            clear_onboarding(sender)
+            clear_cart(sender)
+            clear_pending_price_session(sender)
+            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+            if issuer_id is None:
+                self.client.send_text(
+                    sender,
+                    "❌ Your WhatsApp number isn't linked to a business account.\n"
+                    "Register at suoops.com to use Commerce Copilot.",
+                )
+                return
+            await self._send_copilot_response(sender, issuer_id, text)
+            return
+
         # ── Guided onboarding flow (new users creating first invoice) ──
         onboarding = get_onboarding_session(sender)
         if onboarding:
@@ -365,7 +392,7 @@ class WhatsAppHandler:
         if self._handle_conversational(sender, text_lower):
             return
 
-        # ── Product browsing flow (PRO only) ────────────────────────
+        # ── Product browsing flow ───────────────────────────────────
         # Check if user has an active cart session (mid-flow)
         cart_session = get_cart(sender)
         if cart_session:
@@ -409,7 +436,7 @@ class WhatsAppHandler:
                     return
         # ── End pending-price ──────────────────────────────────────
 
-        # Check if text triggers product browsing (PRO only)
+        # Check if text triggers product browsing.
         if ProductInvoiceFlow.is_trigger(text_lower):
             if not self._check_inventory_access(sender):
                 return
@@ -425,7 +452,7 @@ class WhatsAppHandler:
                 )
                 return
 
-        # Check if user is searching products: "search wig" / "find shoe" (PRO only)
+        # Check if user is searching products: "search wig" / "find shoe".
         search_match = text_lower.startswith("search ") or text_lower.startswith("find ")
         if search_match:
             if not self._check_inventory_access(sender):
@@ -519,30 +546,6 @@ class WhatsAppHandler:
                 )
             return
         # ── End undo ───────────────────────────────────────────────
-
-        # ── Commerce Copilot: grounded briefing + allowlisted questions ──
-        copilot_prefixes = ("copilot", "ask suoops")
-        copilot_briefing_keywords = {
-            "briefing",
-            "daily briefing",
-            "today's priorities",
-            "todays priorities",
-            "what should i do today",
-        }
-        if text_lower in copilot_briefing_keywords or any(
-            text_lower == prefix or text_lower.startswith(f"{prefix} ") for prefix in copilot_prefixes
-        ):
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is None:
-                self.client.send_text(
-                    sender,
-                    "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to use Commerce Copilot.",
-                )
-                return
-            await self._send_copilot_response(sender, issuer_id, text)
-            return
-        # ── End Commerce Copilot ───────────────────────────────────
 
         # ── Analytics / Insights command ─────────────────────────
         analytics_keywords = {

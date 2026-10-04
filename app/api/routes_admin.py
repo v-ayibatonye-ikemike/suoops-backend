@@ -3525,8 +3525,8 @@ def get_active_free_users(
     min_invoices: int = Query(3, description="Minimum invoices created"),
 ) -> list[UserSegmentExport]:
     """
-    Get active FREE users who create invoices but haven't upgraded.
-    Perfect for upgrade campaign - "You're invoicing a lot! Upgrade to Pro"
+    Get active commission-model merchants who create invoices.
+    Useful for wallet education, retention, and product research.
     """
     log_audit_event("admin.segments.active_free", user_id=admin_user.id, min_invoices=min_invoices)
 
@@ -3627,9 +3627,8 @@ def get_starter_users(
     admin_user=Depends(get_current_admin),
 ) -> list[UserSegmentExport]:
     """
-    Get FREE plan users who have bought invoice packs (legacy "starter" users).
-    Perfect for Pro upsell campaign - "Unlock analytics, inventory, team management"
-    Note: STARTER plan removed — returns FREE users with invoice packs purchased.
+    Get merchants with legacy invoice-pack balances.
+    Useful for migrating and supporting historical wallet records.
     """
     log_audit_event("admin.segments.starter", user_id=admin_user.id)
 
@@ -3679,8 +3678,7 @@ def get_pro_users(
     admin_user=Depends(get_current_admin),
 ) -> list[UserSegmentExport]:
     """
-    Get PRO plan users (monthly subscribers).
-    Perfect for retention/engagement campaign - "Tips to get more value"
+    Get historical PRO users for migration and legacy billing support.
     """
     log_audit_event("admin.segments.pro", user_id=admin_user.id)
 

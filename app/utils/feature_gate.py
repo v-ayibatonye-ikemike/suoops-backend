@@ -1,15 +1,8 @@
-"""
-Feature gating utilities for subscription-based access control.
+"""Commission billing and backward-compatible feature access utilities.
 
-NEW BILLING MODEL:
-- Invoice Packs: 50 invoices for ₦1,250 (one-time purchase, never expires)
-- FREE: 2 free invoices to start, then purchase packs. Tax features included.
-- PRO (₦2,000 Pro Pack): 20 invoices + 30 days of premium features (branding, inventory, team, voice)
-
-Note: STARTER plan removed. Users start FREE, buy packs as needed.
-Frontend shows "Starter" as a UX label for non-Pro users.
-Invoice balance is decremented per use. All plans can purchase more packs.
-Pro users keep features even when invoices are exhausted.
+Every product feature is included. Manual invoices charge commission from the
+merchant's prepaid wallet; storefront commission is collected at checkout.
+Legacy plan helpers remain only so historical records and webhooks can be read.
 """
 
 import datetime as dt
@@ -133,13 +126,11 @@ class FeatureGate:
 
     @property
     def user(self) -> models.User:
-        """Lazy load user from database and check subscription expiry."""
+        """Lazy load the user without applying obsolete plan transitions."""
         if self._user is None:
             self._user = self.db.query(models.User).filter(models.User.id == self.user_id).first()
             if not self._user:
                 raise HTTPException(status_code=404, detail="User not found")
-            # Check if paid subscription (Pro/Business) has expired
-            self._check_subscription_expiry()
         return self._user
 
     def _check_subscription_expiry(self) -> None:
@@ -266,62 +257,13 @@ class FeatureGate:
         return 0
 
     def can_use_voice(self) -> tuple[bool, str | None]:
-        """
-        Check if user can use voice features (Pro plan with quota check).
-
-        Pro plan: 15 voice invoices per month
-
-        Returns:
-            (can_use: bool, error_message: str | None)
-        """
-        plan = self.user.effective_plan
-        features = plan.features
-
-        # Check if plan has voice access at all
-        if not features.get("voice_invoice"):
-            return False, (
-                "Voice invoices are only available on the Pro plan. " "Upgrade to unlock this premium feature."
-            )
-
-        # Pro plan: check quota (15 per month)
-        if plan == models.SubscriptionPlan.PRO:
-            quota = features.get("voice_quota", 15)  # 15 premium invoices
-            current_count = self.get_monthly_voice_count()
-
-            if current_count >= quota:
-                return False, (
-                    f"You've reached your Pro plan voice quota of {quota} premium invoices per month. "
-                    "You can still create manual text invoices."
-                )
-
-            return True, None
-
-        # Shouldn't reach here, but safe fallback
-        return False, "Voice not available on your plan"
+        """Voice invoicing is included for every merchant."""
+        _ = self.user
+        return True, None
 
     def check_voice_quota(self) -> None:
-        """
-        Check voice quota and raise exception if exceeded.
-
-        Raises:
-            HTTPException: 403 if quota exceeded or feature not available
-        """
-        can_use, error_msg = self.can_use_voice()
-        if not can_use:
-            quota = 15 if self.user.effective_plan == models.SubscriptionPlan.PRO else 0
-            current_count = self.get_monthly_voice_count()
-
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error": "voice_quota_exceeded" if current_count >= quota else "voice_not_available",
-                    "message": error_msg,
-                    "current_count": current_count,
-                    "quota": quota,
-                    "current_plan": self.user.plan.value,
-                    "upgrade_url": "/subscription/initialize",
-                },
-            )
+        """Voice invoicing has no plan gate under commission billing."""
+        _ = self.user
 
 
 def require_paid_plan(db: Session, user_id: int, feature_name: str = "This feature") -> None:
@@ -398,33 +340,6 @@ def check_voice_ocr_quota(db: Session, user_id: int) -> None:
 
 
 def require_plan_feature(db: Session, user_id: int, feature_key: str, feature_name: str = None) -> None:
-    """
-    Check if user's plan has a specific feature.
-
-    Args:
-        db: Database session
-        user_id: User ID to check
-        feature_key: Key in plan.features dict (e.g., 'custom_branding', 'tax_automation')
-        feature_name: Human-readable feature name for error message
-
-    Raises:
-        HTTPException: 403 if feature not available on user's plan
-    """
-    gate = FeatureGate(db, user_id)
-    features = gate.user.effective_plan.features
-
-    if not features.get(feature_key):
-        feature_display = feature_name or feature_key.replace("_", " ").title()
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "feature_not_available",
-                "message": (
-                    f"{feature_display} is not available on your "
-                    f"{gate.user.effective_plan.value} plan. Please upgrade."
-                ),
-                "current_plan": gate.user.effective_plan.value,
-                "required_feature": feature_key,
-                "upgrade_url": "/subscription/initialize",
-            },
-        )
+    """All features are included; validate the user and preserve old call sites."""
+    _ = (feature_key, feature_name)
+    _user = FeatureGate(db, user_id).user

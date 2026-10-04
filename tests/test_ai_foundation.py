@@ -434,6 +434,8 @@ async def test_whatsapp_copilot_uses_same_grounded_question_engine(db_session, a
     db_session.commit()
     client = MagicMock(spec=WhatsAppClient)
     handler = WhatsAppHandler(client, NLPService(), db_session)
+    handler.product_flow.start_browsing(ai_user.phone, ai_user.id)
+    client.reset_mock()
 
     await handler._handle_text_message(
         ai_user.phone,

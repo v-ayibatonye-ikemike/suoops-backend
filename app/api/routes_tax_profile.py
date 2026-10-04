@@ -50,7 +50,7 @@ def get_tax_profile(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Get user's tax profile. Requires PRO plan."""
+    """Get the user's included tax profile."""
     require_plan_feature(db, current_user_id, "tax_reports", "Tax Reports")
     try:
         service = TaxProfileService(db)
@@ -65,7 +65,7 @@ def update_tax_profile(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Update user's tax profile. Requires PRO plan."""
+    """Update the user's included tax profile."""
     require_plan_feature(db, current_user_id, "tax_reports", "Tax Reports")
     try:
         service = TaxProfileService(db)
@@ -92,7 +92,7 @@ def small_business_check(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Check small business eligibility. Requires PRO plan."""
+    """Check small-business eligibility."""
     require_plan_feature(db, current_user_id, "tax_reports", "Tax Reports")
     try:
         service = TaxProfileService(db)
@@ -106,7 +106,7 @@ def tax_compliance(
     current_user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Get tax compliance summary. Requires PRO plan."""
+    """Get the user's tax compliance summary."""
     require_plan_feature(db, current_user_id, "tax_reports", "Tax Reports")
     try:
         service = TaxProfileService(db)
