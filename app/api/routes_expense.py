@@ -4,7 +4,7 @@ Expense tracking API endpoints.
 Handles CRUD operations for business expenses and provides summary/stats endpoints.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated
 
@@ -26,6 +26,7 @@ from app.models.expense_schemas import (
 )
 from app.models.models import Invoice
 from app.services.expense_service import expense_invoice_to_out, record_expense_invoice
+from app.services.tax_reporting.period_utils import calculate_period_range
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
@@ -42,53 +43,22 @@ def _calculate_period_range(
     day: int | None = None,
     week: int | None = None,
 ) -> tuple[date, date]:
-    """
-    Calculate start and end date for a given period.
-
-    Same logic as tax reporting for consistency.
-    """
+    """Apply current-period defaults, then validate using the tax-report calendar."""
     today = date.today()
 
-    if period_type == "day":
-        if year and month and day:
-            target_date = date(year, month, day)
-        else:
-            target_date = today
-        return target_date, target_date
+    if period_type == "day" and (year is None or month is None or day is None):
+        year, month, day = today.year, today.month, today.day
+    elif period_type == "week" and (year is None or week is None):
+        year, week, _ = today.isocalendar()
+    elif period_type == "month" and (year is None or month is None):
+        year, month = today.year, today.month
+    elif period_type == "year" and year is None:
+        year = today.year
 
-    elif period_type == "week":
-        if year and week:
-            # ISO week calculation
-            jan4 = date(year, 1, 4)
-            week_one_start = jan4 - timedelta(days=jan4.isoweekday() - 1)
-            target_start = week_one_start + timedelta(weeks=week - 1)
-            target_end = target_start + timedelta(days=6)
-        else:
-            # Current week
-            target_start = today - timedelta(days=today.isoweekday() - 1)
-            target_end = target_start + timedelta(days=6)
-        return target_start, target_end
-
-    elif period_type == "month":
-        if year and month:
-            target_year, target_month = year, month
-        else:
-            target_year, target_month = today.year, today.month
-
-        start_date = date(target_year, target_month, 1)
-        # Last day of month
-        if target_month == 12:
-            end_date = date(target_year, 12, 31)
-        else:
-            end_date = date(target_year, target_month + 1, 1) - timedelta(days=1)
-        return start_date, end_date
-
-    elif period_type == "year":
-        target_year = year if year else today.year
-        return date(target_year, 1, 1), date(target_year, 12, 31)
-
-    else:
-        raise ValueError(f"Invalid period_type: {period_type}")
+    try:
+        return calculate_period_range(period_type, year, month, day, week)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/", response_model=ExpenseOut, status_code=201)
@@ -320,7 +290,7 @@ def expense_summary(
     data_owner_id: DataOwnerDep,
     db: DbDep,
     period_type: str = Query("month", pattern="^(day|week|month|year)$"),
-    year: int | None = Query(None, description="Year (required for week/month/year)"),
+    year: int | None = Query(None, ge=1, le=9999, description="Year (required for week/month/year)"),
     month: int | None = Query(None, ge=1, le=12, description="Month (1-12, for month period)"),
     day: int | None = Query(None, ge=1, le=31, description="Day (for day period)"),
     week: int | None = Query(None, ge=1, le=53, description="ISO week number (for week period)"),
@@ -377,7 +347,7 @@ def expense_stats(
     data_owner_id: DataOwnerDep,
     db: DbDep,
     period_type: str = Query("month", pattern="^(day|week|month|year)$"),
-    year: int | None = Query(None),
+    year: int | None = Query(None, ge=1, le=9999),
     month: int | None = Query(None, ge=1, le=12),
     day: int | None = Query(None, ge=1, le=31),
     week: int | None = Query(None, ge=1, le=53),

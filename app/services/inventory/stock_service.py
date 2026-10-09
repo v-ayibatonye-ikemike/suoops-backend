@@ -95,6 +95,20 @@ class StockMovementService(InventoryServiceBase):
         if not product or not product.track_stock:
             return None
 
+        if invoice_line_id is not None:
+            existing = (
+                self._db.query(StockMovement)
+                .filter(
+                    StockMovement.user_id == self._user_id,
+                    StockMovement.product_id == product_id,
+                    StockMovement.invoice_line_id == invoice_line_id,
+                    StockMovement.movement_type == StockMovementType.SALE,
+                )
+                .first()
+            )
+            if existing is not None:
+                return existing
+
         quantity_before = product.quantity_in_stock
 
         try:
@@ -142,7 +156,7 @@ class StockMovementService(InventoryServiceBase):
 
         Called when an expense/receipt with inventory items is created.
         """
-        product = self._get_product(product_id)
+        product = self._get_product_for_update(product_id)
         if not product or not product.track_stock:
             return None
 
@@ -354,16 +368,18 @@ class StockMovementService(InventoryServiceBase):
     def _get_product_for_update(self, product_id: int) -> Product | None:
         """Like _get_product but locks the row (SELECT ... FOR UPDATE) so two paid
         webhooks racing on the same product serialize and can't oversell."""
+        self._db.flush()
         return (
             self._db.query(Product)
             .filter(Product.id == product_id, Product.user_id == self._user_id)
+            .populate_existing()
             .with_for_update()
             .first()
         )
 
     def _get_product_or_raise(self, product_id: int) -> Product:
         """Get product by ID or raise ValueError."""
-        product = self._get_product(product_id)
+        product = self._get_product_for_update(product_id)
         if not product:
             raise ValueError(f"Product with ID {product_id} not found")
         return product

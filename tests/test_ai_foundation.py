@@ -596,6 +596,9 @@ async def test_collections_records_delivery_failure_and_prevents_unreviewed_retr
     failed = service.get_draft(draft["id"], ai_user.id)
     assert failed.status == "failed"
     assert failed.failure_reason == "email delivery failed"
+    visible = service.priorities(actor_user_id=ai_user.id, data_owner_id=ai_user.id)
+    assert visible["drafts"][0]["status"] == "failed"
+    assert visible["drafts"][0]["can_send"] is False
     with pytest.raises(CollectionConflictError):
         await service.send_draft(
             draft["id"],
@@ -604,6 +607,72 @@ async def test_collections_records_delivery_failure_and_prevents_unreviewed_retr
             subject=draft["subject"],
             message=draft["message"],
         )
+
+    reviewed = service.update_draft(
+        draft["id"], data_owner_id=ai_user.id, subject=draft["subject"], message=draft["message"]
+    )
+    assert reviewed["status"] == "draft"
+    notifications.send_email.return_value = True
+    sent = await service.send_draft(
+        draft["id"],
+        actor_user_id=ai_user.id,
+        data_owner_id=ai_user.id,
+        subject=reviewed["subject"],
+        message=reviewed["message"],
+    )
+    assert sent["status"] == "sent"
+
+
+def test_collections_excludes_invoices_due_today(db_session, ai_user, copilot_data):
+    copilot_data["overdue"].due_date = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    db_session.commit()
+    result = CollectionsAssistantService(db_session).priorities(
+        actor_user_id=ai_user.id, data_owner_id=ai_user.id
+    )
+    assert result["eligible_count"] == 0
+    assert result["drafts"] == []
+
+
+def test_dismissed_reminders_do_not_hide_next_priority(db_session, ai_user, copilot_data):
+    service = CollectionsAssistantService(db_session)
+    draft = service.priorities(actor_user_id=ai_user.id, data_owner_id=ai_user.id)["drafts"][0]
+    service.dismiss_draft(draft["id"], data_owner_id=ai_user.id)
+    db_session.add(Invoice(
+        invoice_id="INV-NEXT-PRIORITY",
+        issuer_id=ai_user.id,
+        customer_id=copilot_data["customer"].id,
+        amount=Decimal("100"),
+        status="pending",
+        invoice_type="revenue",
+        due_date=datetime.now(timezone.utc) - timedelta(days=2),
+    ))
+    db_session.commit()
+    result = service.priorities(actor_user_id=ai_user.id, data_owner_id=ai_user.id, limit=1)
+    assert result["eligible_count"] == 1
+    assert result["total_overdue_amount"] == 100
+    assert result["drafts"][0]["invoice_id"] == "INV-NEXT-PRIORITY"
+
+
+@pytest.mark.parametrize("question", [" ", "\n\t"])
+def test_copilot_rejects_blank_questions_as_validation_errors(client, ai_user, question):
+    response = client.post(
+        "/ai/copilot/ask",
+        headers={"Authorization": f"Bearer {create_access_token(str(ai_user.id))}"},
+        json={"question": question},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("message", [" " * 20, "short"])
+def test_reminders_reject_short_or_blank_messages(client, ai_user, message):
+    response = client.patch(
+        "/ai/collections/drafts/unused",
+        headers={"Authorization": f"Bearer {create_access_token(str(ai_user.id))}"},
+        json={"message": message},
+    )
+    assert response.status_code == 422
 
 
 def test_collections_api_supports_review_edit_send_and_metrics(client, db_session, ai_user, copilot_data):

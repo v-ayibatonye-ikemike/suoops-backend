@@ -219,10 +219,13 @@ class InvoiceStatusMixin:
         return self.get_invoice(issuer_id, invoice_id)
 
     def confirm_transfer(self, invoice_id: str) -> models.Invoice:
+        normalized_id = (invoice_id or "").strip().upper()
         invoice = (
             self.db.query(models.Invoice)
             .options(selectinload(models.Invoice.customer))
-            .filter(models.Invoice.invoice_id == invoice_id)
+            .filter(models.Invoice.invoice_id == normalized_id)
+            .populate_existing()
+            .with_for_update()
             .one_or_none()
         )
         if not invoice:
@@ -231,9 +234,18 @@ class InvoiceStatusMixin:
         if invoice.status in {"paid", "awaiting_confirmation"}:
             return invoice
 
+        if invoice.status != "pending":
+            raise InvalidInvoiceStatusError(
+                current_status=invoice.status,
+                new_status="awaiting_confirmation",
+            )
+
         previous_status = invoice.status
         invoice.status = "awaiting_confirmation"
         self.db.commit()
+        if self.cache:
+            self.cache.invalidate_invoice(invoice.invoice_id)
+            self.cache.invalidate_user_invoices(invoice.issuer_id)
         logger.info(
             "Invoice %s status transitioned %s → awaiting_confirmation after customer confirmation",
             invoice_id,

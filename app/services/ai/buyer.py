@@ -22,6 +22,7 @@ _STOP_WORDS = {
     "and",
     "any",
     "are",
+    "available",
     "buy",
     "can",
     "do",
@@ -35,10 +36,15 @@ _STOP_WORDS = {
     "me",
     "my",
     "of",
+    "options",
+    "physical",
     "please",
     "product",
     "products",
     "show",
+    "service",
+    "services",
+    "digital",
     "something",
     "store",
     "the",
@@ -202,6 +208,7 @@ class BuyerShoppingAssistantService:
 
     @staticmethod
     def _terms(query: str) -> set[str]:
+        query = _NAIRA_RE.sub("", _BUDGET_RE.sub("", query))
         return {
             token
             for token in re.findall(r"[a-z0-9]+", query.lower())

@@ -51,6 +51,11 @@ class CollectionsAssistantService:
         recent_reminder_invoice_ids = select(models.InvoiceReminderLog.invoice_id).where(
             models.InvoiceReminderLog.sent_at >= cutoff
         )
+        closed_draft_invoice_ids = select(AICollectionDraft.invoice_id).where(
+            AICollectionDraft.data_owner_id == data_owner_id,
+            AICollectionDraft.dedupe_key.like(f"{now.date().isoformat()}:%"),
+            AICollectionDraft.status.in_(("sent", "dismissed")),
+        )
         invoices = (
             self._db.query(models.Invoice)
             .join(models.Customer, models.Customer.id == models.Invoice.customer_id)
@@ -59,9 +64,10 @@ class CollectionsAssistantService:
                 models.Invoice.invoice_type == "revenue",
                 models.Invoice.status == "pending",
                 models.Invoice.due_date.isnot(None),
-                models.Invoice.due_date < now,
+                models.Invoice.due_date < now.replace(hour=0, minute=0, second=0, microsecond=0),
                 or_(models.Invoice.channel.is_(None), models.Invoice.channel != "storefront"),
                 ~models.Invoice.id.in_(recent_reminder_invoice_ids),
+                ~models.Invoice.id.in_(closed_draft_invoice_ids),
             )
             .all()
         )
@@ -84,7 +90,7 @@ class CollectionsAssistantService:
         return {
             "generated_at": now,
             "cooldown_days": COLLECTION_COOLDOWN_DAYS,
-            "drafts": [self._draft_out(draft) for draft in drafts if draft.status == "draft"],
+            "drafts": [self._draft_out(draft) for draft in drafts if draft.status in ("draft", "failed")],
             "total_overdue_amount": sum(float(invoice.amount) for invoice, *_ in ranked),
             "eligible_count": len(ranked),
         }
@@ -157,10 +163,12 @@ class CollectionsAssistantService:
         message: str,
     ) -> dict:
         draft = self.get_draft(public_id, data_owner_id, lock=True)
-        if draft.status != "draft":
+        if draft.status not in ("draft", "failed"):
             raise CollectionConflictError(f"Draft is already {draft.status}")
         draft.subject = subject.strip() if subject else None
         draft.message = message.strip()
+        draft.status = "draft"
+        draft.failure_reason = None
         self._db.commit()
         self._db.refresh(draft)
         return self._draft_out(draft)
@@ -220,7 +228,7 @@ class CollectionsAssistantService:
 
     def dismiss_draft(self, public_id: str, *, data_owner_id: int) -> dict:
         draft = self.get_draft(public_id, data_owner_id, lock=True)
-        if draft.status != "draft":
+        if draft.status not in ("draft", "failed"):
             raise CollectionConflictError(f"Draft is already {draft.status}")
         draft.status = "dismissed"
         draft.dismissed_at = dt.datetime.now(dt.timezone.utc)
@@ -303,7 +311,7 @@ class CollectionsAssistantService:
         actor_user_id: int,
         data_owner_id: int,
     ) -> AICollectionDraft:
-        dedupe_key = f"{dt.date.today().isoformat()}:{invoice.id}"
+        dedupe_key = f"{dt.datetime.now(dt.timezone.utc).date().isoformat()}:{invoice.id}"
         existing = cast(
             AICollectionDraft | None,
             self._db.query(AICollectionDraft)

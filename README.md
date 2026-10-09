@@ -61,6 +61,54 @@ accurate profit reporting.
 Existing movements recorded with selling prices are not automatically rewritten:
 their original acquisition costs must be reconciled against purchasing records.
 
+Sales, purchases, and adjustments refresh and lock the product before changing
+stock, so cached session values cannot overwrite a newer balance. Replaying a
+sale for the same invoice line returns its original movement instead of deducting
+stock again. Sales without an invoice-line reference remain separate movements.
+
+### Invoice entry and transfer confirmation
+
+The web invoice form preserves each priced line, using "Item" when its description
+is blank. Quantities must be positive whole numbers, prices must be positive and
+finite, and the submitted total is calculated from those same lines to two decimal
+places. Leaving the due date blank means no due date. Changing currency does not
+convert existing prices; selecting inventory products for USD invoices requires
+a valid exchange rate, while manual USD price entry remains available.
+
+Public transfer confirmations accept the same case-insensitive invoice IDs as
+invoice viewing. Only pending invoices move to awaiting confirmation; cancelled
+invoices are rejected. Repeated confirmations for paid or already-awaiting
+invoices do not send duplicate notifications. Successful transitions invalidate
+the invoice and seller-list caches.
+
+### Expense report dates
+
+Expense summaries and statistics share tax reporting's calendar validation,
+including ISO week boundaries. Impossible dates and non-existent ISO weeks return
+HTTP 400 with an explanation rather than a server error or a different period.
+Years outside 1 through 9999 are rejected by request validation. Omitting period
+parameters retains the existing current-period defaults.
+
+### AI assistant review and recovery
+
+AI advice remains review-first: product copy, featured selections, promotions,
+purchase-order drafts, and collection messages are not applied or sent without
+merchant approval. Background advice refreshes preserve unsaved selections and
+reminder edits. Failures remain visible with retry controls; unavailable recovery
+metrics are not presented as zero.
+
+Collection reminders exclude invoices due today and drafts already dismissed
+that day before applying the priority limit. Failed deliveries remain visible for
+review: save the reviewed draft to re-enable sending, then explicitly confirm it.
+Simply retrying a failed send without this review remains blocked. Reminder
+validation trims whitespace and requires at least 10 message characters and at
+most 180 subject characters; blank Copilot questions return validation errors.
+
+Shopping-assistant budget and service prompts work without an AI provider.
+Changing stores or cancelling a search aborts the request and ignores late
+responses. Match cards use the displayed catalog's names and prices and disable
+adding unavailable, unpriced, or already-added products.
+
 ### Storefront delivery quotes
 
 Physical-order checkout waits for delivery quotes, including the debounce before

@@ -102,6 +102,37 @@ async def test_buyer_assistant_enforces_budget_stock_and_cart(db_session, buyer_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "expected_index"),
+    [("Show me options under ₦10,000", 0), ("What services are available?", 1)],
+)
+async def test_suggested_prompts_work_without_ai(
+    db_session, buyer_store, monkeypatch, query, expected_index
+):
+    owner, products = buyer_store
+    products[1].name = "Weekly housekeeping"
+    products[1].description = "A thorough clean for your home."
+    monkeypatch.setattr(settings, "AI_BUYER_ASSISTANT_ENABLED", False)
+    result = await BuyerShoppingAssistantService(db_session).recommend(
+        owner_id=owner.id, query=query, products=products, cart_product_ids=[]
+    )
+    assert [match["product_id"] for match in result["matches"]] == [products[expected_index].id]
+
+
+@pytest.mark.asyncio
+async def test_budget_does_not_discard_product_search_terms(db_session, buyer_store, monkeypatch):
+    owner, products = buyer_store
+    monkeypatch.setattr(settings, "AI_BUYER_ASSISTANT_ENABLED", False)
+    result = await BuyerShoppingAssistantService(db_session).recommend(
+        owner_id=owner.id,
+        query="shampoo under 10000",
+        products=products,
+        cart_product_ids=[],
+    )
+    assert result["matches"] == []
+
+
+@pytest.mark.asyncio
 async def test_buyer_ai_can_only_select_verified_candidates(db_session, buyer_store, monkeypatch):
     owner, products = buyer_store
     monkeypatch.setattr(settings, "AI_BUYER_ASSISTANT_ENABLED", True)

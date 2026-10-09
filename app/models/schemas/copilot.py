@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CopilotActionOut(BaseModel):
@@ -29,6 +29,8 @@ class CopilotBriefingOut(BaseModel):
 
 
 class CopilotQuestionIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     question: str = Field(min_length=1, max_length=500)
 
 
