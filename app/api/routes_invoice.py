@@ -416,13 +416,15 @@ def list_invoices(
     if start_date:
         try:
             parsed_start = dt.strptime(start_date, "%Y-%m-%d").date()
-        except ValueError:
-            pass
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="start_date must be a valid date in YYYY-MM-DD format") from exc
     if end_date:
         try:
             parsed_end = dt.strptime(end_date, "%Y-%m-%d").date()
-        except ValueError:
-            pass
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="end_date must be a valid date in YYYY-MM-DD format") from exc
+    if parsed_start and parsed_end and parsed_start > parsed_end:
+        raise HTTPException(status_code=422, detail="start_date must not be after end_date")
 
     svc = get_invoice_service_for_user(data_owner_id, db)
     invoices, total = svc.list_invoices(

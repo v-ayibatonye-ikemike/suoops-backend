@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.models.ai_models import AIFeatureControl, AIFeedback, AITenantPreference, AIUsageEvent
 
 FEATURE_REGISTRY: dict[str, str] = {
+    "web_navigation": "Web navigation and guided tasks",
     "daily_briefing": "Commerce Copilot narratives",
     "collection_reminder_draft": "Collections reminder tone",
     "inventory_advice_explanation": "Inventory Adviser explanations",

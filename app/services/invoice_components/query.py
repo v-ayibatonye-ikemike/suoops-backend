@@ -100,7 +100,9 @@ class InvoiceQueryMixin:
         """Return a page of invoices and the total count matching the filters."""
         query = self._base_invoice_query(issuer_id, invoice_type, start_date, end_date, search)
 
-        if status and status != "all":
+        if status == "unpaid":
+            query = query.filter(models.Invoice.status.in_(("pending", "awaiting_confirmation")))
+        elif status and status != "all":
             query = query.filter(models.Invoice.status == status)
 
         # Get total count before applying pagination

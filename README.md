@@ -109,6 +109,39 @@ Changing stores or cancelling a search aborts the request and ignores late
 responses. Match cards use the displayed catalog's names and prices and disable
 adding unavailable, unpriced, or already-added products.
 
+### Ask SuoOps: web navigation and reviewed drafts
+
+The authenticated web dashboard includes **Ask SuoOps**, opened with its floating
+button or **Cmd/Ctrl+K**. Existing menus remain available. It provides page-specific
+help and permission-aware links, including settings tabs and invoice filters.
+Examples: "Open bank details", "Show unpaid invoices last month", and
+"What does awaiting confirmation mean?"
+
+Simple invoice commands such as "Create an invoice for Ada",
+"Invoice Ada 50k for design", and "Invoice John $25.50 for design" prepare an
+editable draft. Users must choose **Review invoice draft**, complete missing
+details, and explicitly submit the existing invoice form. The first version
+supports one explicitly priced line with quantity one; complex quantities,
+multiple lines, discounts, or inferred dates are not guessed. Unsupported input
+opens a blank draft with an explanation. Customer contact information is never
+prefilled. An open invoice form cannot be replaced by an assistant draft.
+
+`GET /ai/web-assistant/context` and rate-limited `POST /ai/web-assistant/ask`
+require authentication and resolve workspace permissions server-side. They do
+not create, send, charge, delete, or update business records. Common requests
+work without a provider or AI allowance. Ambiguous requests can optionally use
+the existing governed gateway under `web_navigation`; tenant opt-out, feature
+controls, rollout, and monthly allowances apply. AI selects only server-owned
+workflow IDs, never arbitrary URLs or business facts. Failures show a notice
+and retain deterministic shortcuts. Users can disable optional interpretation
+in the drawer or workspace AI controls.
+
+Invoice links carry `status`, `start_date`, and `end_date`. "Unpaid" includes
+pending and awaiting-confirmation invoices, not cancelled invoices. Date
+filters use the existing due-date-first semantics, falling back to creation
+date when no due date exists; this is explained in both the assistant and list.
+Invalid or reversed dates return HTTP 422 instead of silently removing a filter.
+
 ### Storefront delivery quotes
 
 Physical-order checkout waits for delivery quotes, including the debounce before

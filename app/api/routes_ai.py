@@ -35,6 +35,7 @@ from app.models.schemas import (
     StorefrontProductActionOut,
     StorefrontPromotionIn,
 )
+from app.models.schemas.web_assistant import AssistantPage, WebAssistantOut, WebAssistantQuestion
 from app.services.ai.collections import (
     CollectionConflictError,
     CollectionDeliveryError,
@@ -49,8 +50,35 @@ from app.services.ai.governance import (
 from app.services.ai.inventory import InventoryAdviceConflictError, InventoryAdviserService
 from app.services.ai.storefront import StorefrontAdviceConflictError, StorefrontAdviserService
 from app.services.ai.usage import usage_summary
+from app.services.ai.web_assistant import WebAssistantService
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+@router.get("/web-assistant/context", response_model=WebAssistantOut)
+def get_web_assistant_context(
+    current_user_id: CurrentUserDep,
+    data_owner_id: DataOwnerDep,
+    db: DbDep,
+    page: AssistantPage = "dashboard",
+) -> WebAssistantOut:
+    return WebAssistantService(db).context(
+        page, actor_user_id=current_user_id, data_owner_id=data_owner_id
+    )
+
+
+@router.post("/web-assistant/ask", response_model=WebAssistantOut)
+@limiter.limit("30/minute")
+async def ask_web_assistant(
+    request: Request,
+    payload: WebAssistantQuestion,
+    current_user_id: CurrentUserDep,
+    data_owner_id: DataOwnerDep,
+    db: DbDep,
+) -> WebAssistantOut:
+    return await WebAssistantService(db).ask(
+        payload, actor_user_id=current_user_id, data_owner_id=data_owner_id
+    )
 
 
 @router.get("/availability", response_model=AIAvailabilityOut)
