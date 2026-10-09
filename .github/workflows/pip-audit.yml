@@ -21,21 +21,12 @@ jobs:
           # Ignore it here so CI stays strict for everything else; remove when a
           # patched weasyprint ships.
           if [ -f requirements.txt ]; then
-            pip-audit -r requirements.txt --ignore-vuln CVE-2026-49452 --output-format json > pip-audit-report.json || true
+            pip-audit -r requirements.txt --ignore-vuln CVE-2026-49452 --format json --output pip-audit-report.json
           else
             echo 'requirements.txt not found'; exit 1
           fi
-      - name: Fail on vulnerabilities
-        run: |
-          if grep -q '"vulns": \[' pip-audit-report.json; then
-            COUNT=$(jq '.dependencies | map(select(.vulns != [])) | length' pip-audit-report.json)
-            if [ "$COUNT" -gt 0 ]; then
-              echo "Found $COUNT vulnerable dependencies";
-              jq '.dependencies | map(select(.vulns != []))' pip-audit-report.json;
-              exit 1;
-            fi
-          fi
       - name: Upload report artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pip-audit-report

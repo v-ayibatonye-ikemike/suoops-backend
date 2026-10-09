@@ -46,7 +46,52 @@ tests/            # pytest suite
 ```
 
 ## High-Level Flow
+
 User sends WhatsApp → webhook → NLP parse → InvoiceService → Payment link → PDF → WhatsApp send.
+
+### Inventory cost reporting
+
+Sale stock movements snapshot the product's acquisition cost, not its selling
+price. Later product cost changes do not rewrite historical COGS. Explicit
+zero-cost stock adjustments remain zero; an omitted adjustment cost uses the
+product's current cost. Missing product costs remain unknown and contribute zero
+to the existing COGS aggregate, so businesses should enter acquisition costs for
+accurate profit reporting.
+
+Existing movements recorded with selling prices are not automatically rewritten:
+their original acquisition costs must be reconciled against purchasing records.
+
+### Storefront delivery quotes
+
+Physical-order checkout waits for delivery quotes, including the debounce before
+the request. A refreshed quote updates the selected courier's price; superseded
+responses cannot overwrite the latest options. If quotes fail, buyers see an
+error and can retry or explicitly choose self-pickup rather than silently ordering
+without delivery. Service/digital-only orders do not request courier quotes.
+Rapid repeated clicks submit only one order, and product QR links respect stores
+that have disabled online payments.
+
+### Dependency security checks
+
+The dependency scan workflow fails on both known vulnerabilities and scanner
+errors, and attempts to upload its JSON report even on failure. To reproduce the
+scan locally, run `pip-audit -r requirements.txt --format json`. The workflow's
+explicit advisory exception remains documented in its configuration.
+
+Both frontend applications use ESLint's flat configuration and the ESLint CLI.
+Their Next.js lint plugin is intentionally pinned to 14.2.35 with patched
+`glob` 10.5: newer plugin versions depend on the vulnerable `braces` toolchain.
+The 21 Next.js rules and recommended/core-web-vitals severities were verified
+against the previous plugin. `@eslint/compat` adapts these rules to ESLint 9;
+the Next.js application framework and its config package remain on 15.5.27.
+Revisit the plugin pin once upstream removes or patches the affected dependency.
+
+The support application now uses Tailwind CSS 4 and `@tailwindcss/postcss`.
+Its theme is defined in `app/globals.css`; the former Tailwind configuration
+was migrated by the official upgrade tool. Class-name changes preserve the
+previous shadow, outline, and gradient behavior. Tailwind 4 requires modern
+browsers (Safari 16.4+, Chrome 111+, Firefox 128+), matching the main application's
+existing Tailwind 4 requirement.
 
 ## Observability & Metrics
 
