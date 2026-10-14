@@ -44,6 +44,10 @@ def _create_celery() -> Celery:
     # Beat schedule (only active outside test env)
     if settings.ENV.lower() not in {"test"}:
         celery.conf.beat_schedule = {
+            "escrow-recover-courier-bookings": {
+                "task": "escrow.recover_courier_bookings",
+                "schedule": crontab(minute="*"),
+            },
             "escrow-release-due-orders": {
                 "task": "escrow.release_due_orders",
                 "schedule": crontab(minute="*/15"),  # every 15 min — pay out elapsed holds

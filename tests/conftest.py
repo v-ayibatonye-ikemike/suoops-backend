@@ -6,6 +6,7 @@ import warnings
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient  # noqa: E402
@@ -67,6 +68,28 @@ warnings.filterwarnings(
     message=r".*datetime\.datetime\.utcnow\(\) is deprecated.*",
     module="botocore.auth",
 )
+
+
+@pytest.fixture(autouse=True)
+def product_cart_store(monkeypatch):
+    """Keep shared product draft tests hermetic without a live Redis."""
+    from app.bot import product_invoice_flow
+
+    values: dict[str, bytes] = {}
+    client = Mock()
+    client.get.side_effect = values.get
+    client.setex.side_effect = lambda key, ttl, value: values.__setitem__(key, value)
+    client.delete.side_effect = lambda key: values.pop(key, None)
+
+    def consume(script, key_count, key, expected):
+        if values.get(key) != expected:
+            return 0
+        del values[key]
+        return 1
+
+    client.eval.side_effect = consume
+    monkeypatch.setattr(product_invoice_flow, "get_redis_client", lambda: client)
+    return client
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -16,21 +16,15 @@ from app.bot.product_invoice_flow import (
     CartItem,
     CartSession,
     ProductInvoiceFlow,
-    _carts,
     _fuzzy_match_product,
     _parse_item_entries,
     clear_cart,
+    consume_cart,
     get_cart,
+    save_cart,
 )
 from app.models.inventory_models import Product
 from app.models.models import User
-
-
-@pytest.fixture(autouse=True)
-def _clear_carts():
-    _carts.clear()
-    yield
-    _carts.clear()
 
 
 @pytest.fixture
@@ -129,12 +123,12 @@ def test_cart_session_total_and_summary():
 def test_get_cart_expired():
     session = CartSession(user_id=1)
     session.created_at -= 10_000  # older than 900s TTL
-    _carts["234801"] = session
+    save_cart("234801", session)
     assert get_cart("234801") is None
 
 
 def test_clear_cart():
-    _carts["234801"] = CartSession(user_id=1)
+    save_cart("234801", CartSession(user_id=1))
     clear_cart("234801")
     assert get_cart("234801") is None
 
@@ -205,6 +199,7 @@ def test_handle_items_reply_merges_duplicates(flow, issuer, db_session):
     # go back to items step and add more of the same
     session = get_cart("234801")
     session.step = "awaiting_items"
+    save_cart("234801", session)
     flow.handle_items_reply("234801", "3 wig")
     session = get_cart("234801")
     assert session.items[0].quantity == 5
@@ -268,7 +263,7 @@ def test_handle_add_more_with_session(flow, issuer, db_session):
 
 
 def test_handle_clear_cart(flow, issuer):
-    _carts["234801"] = CartSession(user_id=issuer.id)
+    save_cart("234801", CartSession(user_id=issuer.id))
     flow.handle_clear_cart("234801")
     assert get_cart("234801") is None
 
@@ -277,3 +272,74 @@ def test_handle_search(flow, issuer, db_session):
     _add_product(db_session, issuer.id, "Brazilian Wig", "SKU1", 5000)
     flow.handle_search("234801", issuer.id, "wig")
     assert "Brazilian Wig" in _last_text(flow)
+
+
+def test_cart_round_trips_across_handlers_without_orm_objects(flow, issuer, db_session, product_cart_store):
+    _add_product(db_session, issuer.id, "Wig", "SKU1", "5000.25")
+    flow.start_browsing("234801", issuer.id)
+    second = ProductInvoiceFlow(db=db_session, client=Mock())
+    second.handle_items_reply("+234801", "2 wig")
+    data = second.handle_customer_reply("234801", "Joy 08012345678")
+    assert data["amount"] == Decimal("10000.50")
+    assert product_cart_store.setex.call_args.args[1] <= 900
+    assert isinstance(product_cart_store.setex.call_args.args[2], bytes)
+
+
+def test_redis_failure_is_not_reported_as_an_empty_or_saved_cart(product_cart_store):
+    from redis.exceptions import ConnectionError
+
+    product_cart_store.get.side_effect = ConnectionError("offline")
+    with pytest.raises(ConnectionError):
+        get_cart("234801")
+    product_cart_store.setex.side_effect = ConnectionError("offline")
+    with pytest.raises(ConnectionError):
+        save_cart("234801", CartSession(user_id=1))
+
+
+def test_only_one_worker_can_consume_the_same_reviewed_cart():
+    save_cart("234801", CartSession(user_id=1))
+    first = get_cart("234801")
+    second = get_cart("234801")
+    assert consume_cart("234801", first)
+    assert not consume_cart("234801", second)
+
+
+def test_stale_worker_cannot_consume_a_newer_draft():
+    save_cart("234801", CartSession(user_id=1))
+    stale = get_cart("234801")
+    current = get_cart("234801")
+    current.items.append(CartItem(1, "Soap", 1, Decimal("500")))
+    save_cart("234801", current)
+    assert not consume_cart("234801", stale)
+    assert get_cart("234801").total == Decimal("500")
+
+
+def test_duplicate_lines_cannot_exceed_current_stock(flow, issuer, db_session):
+    _add_product(db_session, issuer.id, "Wig", "SKU1", 5000, stock=3, track=True)
+    flow.start_browsing("234801", issuer.id)
+    flow.handle_items_reply("234801", "2 wig, 2 wig")
+    assert get_cart("234801").items[0].quantity == 2
+    assert "only 3 in stock" in _last_text(flow)
+
+
+def test_changed_prices_require_review_before_creation(flow, issuer, db_session):
+    product = _add_product(db_session, issuer.id, "Wig", "SKU1", 5000)
+    flow.start_browsing("234801", issuer.id)
+    flow.handle_items_reply("234801", "2 wig")
+    product.selling_price = Decimal("6000")
+    db_session.commit()
+    assert flow.handle_customer_reply("234801", "Joy 08012345678") is None
+    assert "Prices changed" in _last_text(flow)
+    assert get_cart("234801").total == Decimal("12000")
+    assert flow.handle_customer_reply("234801", "Joy 08012345678")["amount"] == Decimal("12000")
+
+
+def test_stock_is_rechecked_before_invoice_data_is_returned(flow, issuer, db_session):
+    product = _add_product(db_session, issuer.id, "Wig", "SKU1", 5000, stock=3, track=True)
+    flow.start_browsing("234801", issuer.id)
+    flow.handle_items_reply("234801", "2 wig")
+    product.quantity_in_stock = 1
+    db_session.commit()
+    assert flow.handle_customer_reply("234801", "Joy") is None
+    assert "Nothing has been created" in _last_text(flow)
+    assert get_cart("234801") is not None

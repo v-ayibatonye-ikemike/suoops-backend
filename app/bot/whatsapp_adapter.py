@@ -65,6 +65,41 @@ class WhatsAppHandler:
             speech_service_factory=self._get_speech_service,
         )
 
+    def _send_order_status(self, sender: str, issuer_id: int) -> None:
+        from urllib.parse import quote
+
+        from app.services.escrow_service import order_next_step
+
+        rows = (
+            self.db.query(models.StorefrontOrderEscrow, models.Invoice.invoice_id)
+            .join(models.Invoice, models.Invoice.id == models.StorefrontOrderEscrow.invoice_id)
+            .filter(
+                models.StorefrontOrderEscrow.seller_id == issuer_id,
+                models.Invoice.issuer_id == issuer_id,
+                models.StorefrontOrderEscrow.status.in_(["held", "disputed", "refund_pending"]),
+            )
+            .order_by(models.StorefrontOrderEscrow.created_at.desc(), models.StorefrontOrderEscrow.id.desc())
+            .limit(10)
+            .all()
+        )
+        if not rows:
+            self.client.send_text(sender, "You have no active paid storefront orders to fulfil or review.")
+            return
+        frontend = settings.FRONTEND_URL.rstrip("/")
+        lines = ["*Your active storefront orders* (up to 10)", ""]
+        for escrow, invoice_id in rows:
+            lines.extend([
+                f"*{invoice_id}*",
+                order_next_step(escrow),
+                f"{frontend}/dashboard/invoices/{quote(invoice_id, safe='')}",
+                "",
+            ])
+        lines.append(
+            "Open an order to take the next step. Courier booking needs your ready confirmation and package photo. "
+            "Nothing was changed by this status check."
+        )
+        self.client.send_text(sender, "\n".join(lines))
+
     def _check_inventory_access(self, sender: str) -> bool:
         """Check if the sender has PRO plan access for inventory/product features.
 
@@ -259,6 +294,16 @@ class WhatsAppHandler:
                 )
                 return
 
+        if text_lower in {"orders", "my orders", "show orders", "order status", "what needs dispatch"}:
+            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+            if issuer_id is None:
+                self.client.send_text(
+                    sender, "Link your WhatsApp number to your business at suoops.com to view orders.",
+                )
+            else:
+                self._send_order_status(sender, issuer_id)
+            return
+
         # Explicit Copilot commands supersede any stale multi-message flow so a
         # merchant can always ask for a briefing or grounded business fact.
         copilot_prefixes = ("copilot", "ask suoops")
@@ -442,6 +487,11 @@ class WhatsAppHandler:
         cart_session = get_cart(sender)
         if cart_session:
             if not self._check_inventory_access(sender):
+                return
+            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+            if cart_session.user_id != issuer_id:
+                clear_cart(sender)
+                self.client.send_text(sender, "Your business account changed. Type *products* to start a new draft.")
                 return
             # User is mid-flow: handle items text or customer details
             if cart_session.step == "awaiting_items":
@@ -1807,6 +1857,7 @@ class WhatsAppHandler:
             "📦 *INVOICE FROM INVENTORY*\n"
             "━━━━━━━━━━━━━━━━━━━━━\n\n"
             "• Type *products* — browse & pick from your stock\n"
+            "• Type *orders* — paid storefront orders and what to do next\n"
             "• Type *search wig* — find a specific product\n"
             "• Select items, set quantities, send invoice!\n\n"
         )

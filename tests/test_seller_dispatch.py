@@ -142,6 +142,8 @@ def test_buyer_thread_shows_dispatch_status():
 
 @pytest.fixture
 def courier_order(db_session, monkeypatch):
+    from app.workers.tasks import escrow_tasks
+
     seller, inv, escrow = _make_held_order(db_session)
     escrow.delivery_courier = "Test Courier"
     escrow.delivery_courier_id = "courier-test"
@@ -159,6 +161,10 @@ def courier_order(db_session, monkeypatch):
         return f"https://example.test/{prefix}/{escrow.id}.jpg"
 
     monkeypatch.setattr(routes_storefront, "_save_proof_photo", save_photo)
+    monkeypatch.setattr(
+        escrow_tasks.book_courier, "delay",
+        lambda escrow_id, invoice_id: routes_storefront._book_courier_pickup(escrow_id, invoice_id),
+    )
     return inv, escrow
 
 
@@ -167,6 +173,139 @@ def request_booking(client, inv):
         f"/inventory/storefront/orders/{inv.invoice_id}/mark-sent",
         files={"file": ("packed.jpg", b"test-photo", "image/jpeg")},
     )
+
+
+def test_unqueued_ready_order_is_recovered_without_duplicate_booking(db_session, courier_order, monkeypatch):
+    from app.workers.tasks.escrow_tasks import recover_courier_bookings
+
+    inv, escrow = courier_order
+    escrow.delivery_status = "booking_pending"
+    escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+    escrow.dispatch_proof_url = "https://example.test/package.jpg"
+    db_session.commit()
+    book = Mock(return_value={"order_id": "RECOVERED-1"})
+    monkeypatch.setattr(shipbubble, "create_shipment", book)
+    result = recover_courier_bookings()
+    assert result == {"queued": 1, "queue_failed": 0, "unknown": 0}
+    recover_courier_bookings()
+    book.assert_called_once()
+    db_session.refresh(escrow)
+    assert escrow.delivery_status == "booked"
+    assert escrow.seller_dispatched_at is None
+
+
+def test_interrupted_booking_becomes_unknown_and_is_never_rebooked(db_session, courier_order, monkeypatch):
+    from app.workers.tasks.escrow_tasks import recover_courier_bookings
+
+    _, escrow = courier_order
+    escrow.delivery_status = "booking_in_progress"
+    escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=11)
+    db_session.commit()
+    book = Mock()
+    monkeypatch.setattr(shipbubble, "create_shipment", book)
+    assert recover_courier_bookings()["unknown"] == 1
+    recover_courier_bookings()
+    db_session.refresh(escrow)
+    assert escrow.delivery_status == "booking_unknown"
+    book.assert_not_called()
+
+
+def test_courier_queue_failure_keeps_request_pending(db_session, client, courier_order, monkeypatch):
+    from kombu.exceptions import OperationalError
+
+    from app.workers.tasks.escrow_tasks import book_courier
+
+    inv, escrow = courier_order
+    monkeypatch.setattr(book_courier, "delay", Mock(side_effect=OperationalError("broker offline")))
+    response = request_booking(client, inv)
+    assert response.status_code == 200
+    db_session.refresh(escrow)
+    assert escrow.delivery_status == "booking_pending"
+    assert escrow.shipbubble_order_id is None
+    assert "processing" in response.json()["escrow"]["next_step"]
+
+
+@pytest.mark.parametrize("ready", [False, True])
+def test_recovery_needs_explicit_readiness_and_package_photo(db_session, courier_order, monkeypatch, ready):
+    from app.workers.tasks.escrow_tasks import recover_courier_bookings
+
+    _, escrow = courier_order
+    escrow.delivery_status = "booking_pending" if ready else None
+    escrow.dispatch_proof_url = None if ready else "https://example.test/package.jpg"
+    escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+    db_session.commit()
+    book = Mock()
+    monkeypatch.setattr(shipbubble, "create_shipment", book)
+    assert recover_courier_bookings()["queued"] == 0
+    book.assert_not_called()
+
+
+def test_whatsapp_order_status_uses_verified_next_step_and_private_web_link(db_session, courier_order):
+    from app.bot.whatsapp_adapter import WhatsAppHandler
+
+    inv, escrow = courier_order
+    handler = WhatsAppHandler(client=Mock(), nlp=Mock(), db=db_session)
+    handler._send_order_status("234801", escrow.seller_id)
+    message = handler.client.send_text.call_args.args[1]
+    assert inv.invoice_id in message
+    assert "package photo" in message
+    assert f"/dashboard/invoices/{inv.invoice_id}" in message
+    assert escrow.confirmation_code not in message
+    assert "2348123456789" not in message
+    handler._send_order_status("234802", escrow.seller_id + 1)
+    assert inv.invoice_id not in handler.client.send_text.call_args.args[1]
+    db_session.refresh(escrow)
+    assert escrow.delivery_status is None
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_orders_does_not_consume_a_product_draft(db_session, courier_order, monkeypatch):
+    from app.bot.product_invoice_flow import CartSession, get_cart, save_cart
+    from app.bot.whatsapp_adapter import WhatsAppHandler
+
+    inv, escrow = courier_order
+    phone = "2349000111222"
+    save_cart(phone, CartSession(user_id=escrow.seller_id, step="awaiting_customer"))
+    handler = WhatsAppHandler(client=Mock(), nlp=Mock(), db=db_session)
+    monkeypatch.setattr(handler.invoice_processor, "_resolve_issuer_id", lambda sender: escrow.seller_id)
+    await handler._handle_text_message(phone, {"text": "my orders"})
+    assert inv.invoice_id in handler.client.send_text.call_args.args[1]
+    assert get_cart(phone).step == "awaiting_customer"
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ({"requires_delivery": False}, "Complete the service"),
+        ({"held_for_review": True}, "Order under review"),
+        ({"delivery_status": "booking_unknown"}, "Contact support"),
+        ({"delivery_status": "booked", "delivery_service_type": "dropoff"}, "drop-off station"),
+        ({"delivery_status": "booked", "delivery_service_type": "pickup"}, "courier collection"),
+        ({"status": "pending"}, "Do not dispatch"),
+    ],
+)
+def test_next_step_respects_verified_order_state(courier_order, values, expected):
+    from app.services.escrow_service import order_next_step
+
+    _, escrow = courier_order
+    for name, value in values.items():
+        setattr(escrow, name, value)
+    assert expected in order_next_step(escrow)
+
+
+def test_booking_worker_and_recovery_schedule_are_registered(monkeypatch):
+    from app.workers.celery_app import _create_celery, celery_app
+
+    assert "escrow.book_courier" in celery_app.tasks
+    assert "escrow.recover_courier_bookings" in celery_app.tasks
+    monkeypatch.setattr(settings, "ENV", "production")
+    scheduled_app = _create_celery()
+    try:
+        job = scheduled_app.conf.beat_schedule["escrow-recover-courier-bookings"]
+        assert job["task"] == "escrow.recover_courier_bookings"
+        assert job["schedule"].minute == set(range(60))
+    finally:
+        scheduled_app.close()
 
 
 @pytest.mark.parametrize("service_type", ["pickup", "dropoff"])

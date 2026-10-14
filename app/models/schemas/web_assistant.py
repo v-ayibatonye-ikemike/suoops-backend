@@ -61,3 +61,4 @@ class WebAssistantOut(BaseModel):
     actions: list[AssistantAction]
     ai_assisted: bool = False
     notice: str | None = None
+    auto_action_id: str | None = None

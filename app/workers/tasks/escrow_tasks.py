@@ -13,11 +13,68 @@ import logging
 from typing import Any
 
 from celery import Task
+from kombu.exceptions import OperationalError
+from redis.exceptions import RedisError
 
 from app.db.session import session_scope
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+@celery_app.task(name="escrow.book_courier", ignore_result=True, acks_late=True, reject_on_worker_lost=True)
+def book_courier(escrow_id: int, invoice_id: str) -> None:
+    from app.api.routes_storefront import _book_courier_pickup
+
+    _book_courier_pickup(escrow_id, invoice_id)
+
+
+def enqueue_courier_booking(escrow_id: int, invoice_id: str) -> bool:
+    try:
+        book_courier.delay(escrow_id, invoice_id)
+    except (OperationalError, RedisError, OSError):
+        logger.exception("Courier queue unavailable for %s; persisted request awaits recovery", invoice_id)
+        return False
+    return True
+
+
+@celery_app.task(name="escrow.recover_courier_bookings", ignore_result=True)
+def recover_courier_bookings() -> dict[str, int]:
+    """Recover unclaimed requests, never repeat a potentially submitted booking."""
+    from app.models.models import Invoice, StorefrontOrderEscrow
+
+    now = dt.datetime.now(dt.timezone.utc)
+    with session_scope() as db:
+        unknown = db.query(StorefrontOrderEscrow).filter(
+            StorefrontOrderEscrow.delivery_status == "booking_in_progress",
+            StorefrontOrderEscrow.delivery_status_at < now - dt.timedelta(minutes=10),
+            StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+        ).update(
+            {"delivery_status": "booking_unknown", "delivery_status_at": now},
+            synchronize_session=False,
+        )
+        db.commit()
+        if unknown:
+            logger.error("%s interrupted courier bookings require reconciliation", unknown)
+        pending = (
+            db.query(StorefrontOrderEscrow.id, Invoice.invoice_id)
+            .join(Invoice, Invoice.id == StorefrontOrderEscrow.invoice_id)
+            .filter(
+                StorefrontOrderEscrow.status == "held",
+                StorefrontOrderEscrow.held_for_review.is_(False),
+                StorefrontOrderEscrow.confirmed_at.is_(None),
+                StorefrontOrderEscrow.requires_delivery.is_(True),
+                StorefrontOrderEscrow.dispatch_proof_url.isnot(None),
+                StorefrontOrderEscrow.delivery_status == "booking_pending",
+                StorefrontOrderEscrow.delivery_status_at < now - dt.timedelta(minutes=1),
+                StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+            )
+            .order_by(StorefrontOrderEscrow.delivery_status_at)
+            .limit(100)
+            .all()
+        )
+    queued = sum(enqueue_courier_booking(escrow_id, invoice_id) for escrow_id, invoice_id in pending)
+    return {"queued": queued, "queue_failed": len(pending) - queued, "unknown": unknown}
 
 
 @celery_app.task(

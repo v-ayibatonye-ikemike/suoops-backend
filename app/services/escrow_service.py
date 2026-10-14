@@ -404,6 +404,52 @@ def create_order_escrow(
     return escrow
 
 
+def order_next_step(escrow: models.StorefrontOrderEscrow) -> str:
+    """Merchant-facing guidance shared by web and WhatsApp; never a financial authorization."""
+    if escrow.status == "pending":
+        return "Waiting for verified payment. Do not dispatch yet."
+    if escrow.status == "canceled":
+        return "This unpaid checkout expired. No dispatch is needed."
+    if escrow.status == "refunded":
+        return "Refund submitted. Bank processing times apply."
+    if escrow.status == "refund_pending":
+        return "Refund outcome is under review. Do not submit another refund."
+    if escrow.status == "released":
+        return "Payment released. No fulfilment action is needed."
+    if escrow.status == "disputed" or escrow.held_for_review:
+        return "Order under review. Check the conversation and provide any requested evidence."
+    if escrow.status != "held":
+        return "Check the order status before taking further action."
+    if escrow.confirmed_at or escrow.release_approved_at or escrow.transfer_reference:
+        return "Fulfilment is cleared. Settlement and payout checks still apply."
+    if not escrow.requires_delivery:
+        return (
+            "Service marked as done. Await buyer confirmation or protection clearance."
+            if escrow.seller_marked_delivered_at
+            else "Complete the service, then mark it as done."
+        )
+    status = escrow.effective_delivery_status
+    if status in {"booking_pending", "booking_in_progress"}:
+        return "Courier booking is processing. Do not book another courier."
+    if status == "booking_unknown":
+        return "Booking outcome is unconfirmed. Contact support before requesting another courier."
+    if status == "booking_failed":
+        return "Courier rejected the booking. Review the details, then retry from this order."
+    if status in {"booked", "pickup_enroute"}:
+        return (
+            "Booking confirmed. Take the package to the selected drop-off station."
+            if escrow.delivery_service_type == "dropoff"
+            else "Booking confirmed. Keep the package ready for courier collection."
+        )
+    if status == "delivered" or escrow.seller_marked_delivered_at:
+        return "Delivery recorded. Await buyer confirmation or protection clearance."
+    if status or escrow.seller_dispatched_at:
+        return "Check delivery progress and the buyer conversation."
+    if escrow.delivery_courier_id or escrow.delivery_courier:
+        return "Pack the order, add a package photo, then confirm it is ready to book the selected courier."
+    return "Arrange delivery, then add a package photo and record dispatch."
+
+
 def activate_escrow_on_payment(
     db: Session,
     invoice: models.Invoice,

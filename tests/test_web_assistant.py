@@ -69,6 +69,86 @@ async def test_common_requests_never_call_ai(db_session, merchant, message, expe
     assert db_session.query(Invoice).count() == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("I want to add produccts", "new_product"),
+        ("Help me add a prodcut", "new_product"),
+        ("I want to add an item", "new_product"),
+        ("Add goods", "new_product"),
+        ("Create a new service", "new_service"),
+        ("Add a servcie", "new_service"),
+        ("Open inventroy", "inventory"),
+        ("Show expences", "expenses"),
+        ("Open my storefrnot", "storefront"),
+        ("Show unpaid invoces", "unpaid_invoices"),
+        ("Create an invioce", "new_invoice"),
+    ],
+)
+async def test_clear_requests_open_verified_workflows_without_ai(db_session, merchant, message, expected):
+    gateway = MagicMock()
+    gateway.generate_structured = AsyncMock()
+    response = await WebAssistantService(db_session, gateway=gateway).ask(
+        WebAssistantQuestion(message=message, allow_ai=False),
+        actor_user_id=merchant.id, data_owner_id=merchant.id,
+    )
+    assert [action.id for action in response.actions] == [expected]
+    assert response.auto_action_id == expected
+    if expected in {"new_product", "new_service"}:
+        action = response.actions[0]
+        assert action.kind == "navigate"
+        parsed = urlsplit(action.href)
+        assert parsed.path == "/dashboard/inventory"
+        assert parse_qs(parsed.query)["create"] == ["1"]
+        assert parse_qs(parsed.query)["assistant"] == ["product"]
+    gateway.generate_structured.assert_not_awaited()
+    assert db_session.query(Invoice).count() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What is inventory?",
+        "Add products or create an invoice",
+        "Don't add products",
+        "I do not want to create an invoice",
+        "Add products and delete all invoices",
+        "I want to add something",
+    ],
+)
+async def test_unclear_informational_or_negated_requests_never_auto_open(db_session, merchant, message):
+    response = await WebAssistantService(db_session).ask(
+        WebAssistantQuestion(message=message, allow_ai=False),
+        actor_user_id=merchant.id, data_owner_id=merchant.id,
+    )
+    assert response.auto_action_id is None
+
+
+@pytest.mark.asyncio
+async def test_typo_matches_never_bypass_product_permissions(db_session, merchant):
+    response = await WebAssistantService(db_session).ask(
+        WebAssistantQuestion(message="I want to add produccts"),
+        actor_user_id=merchant.id + 1, data_owner_id=merchant.id,
+    )
+    assert response.actions == []
+    assert response.auto_action_id is None
+    assert "owner or team admin" in response.message
+
+
+@pytest.mark.asyncio
+async def test_workflow_spelling_does_not_rewrite_customer_names_or_amounts(db_session, merchant):
+    response = await WebAssistantService(db_session).ask(
+        WebAssistantQuestion(message="Create an invoice for Produccts for NGN 15000", allow_ai=False),
+        actor_user_id=merchant.id, data_owner_id=merchant.id,
+    )
+    action = next(action for action in response.actions if action.kind == "invoice_draft")
+    assert action.draft.customer_name == "Produccts"
+    assert action.draft.lines[0].unit_price == 15000
+    assert db_session.query(Invoice).count() == 0
+
+
 @pytest.mark.parametrize(
     ("message", "name", "currency", "price"),
     [
@@ -183,6 +263,7 @@ async def test_ai_can_only_select_permission_filtered_actions(db_session, mercha
     )
     assert [action.id for action in result.actions] == ["invoices"]
     assert result.ai_assisted
+    assert result.auto_action_id is None
     request = gateway.generate_structured.call_args.args[0]
     supplied = json.loads(request.messages[1].content)
     assert "bank_details" not in supplied["allowed_actions"]

@@ -98,6 +98,35 @@ explains time-limited protection rather than a fixed delivery promise.
 Sellers retain read-only conversation history on disputed, refunded
 and released orders; messaging failures expose a retry instead of an empty chat.
 
+### Order processing on web and WhatsApp
+
+Courier booking is merchant-controlled: verified payment alone never books a
+courier. The seller packs the order, supplies a package photo, and explicitly
+confirms readiness. Pickup and drop-off instructions remain distinct.
+The persisted booking request is sent to `escrow.book_courier` on the existing
+Celery worker. `escrow.recover_courier_bookings` runs every minute, recovering
+unclaimed requests older than one minute. Requests interrupted after claiming
+are marked `booking_unknown` after ten minutes; they require provider
+reconciliation and are never automatically rebooked. API, worker, and beat must
+all be deployed for this recovery path. No new database migration is required.
+
+Seller order panels and WhatsApp **orders** / **my orders** share the same
+record-based next-step guidance. WhatsApp lists up to ten active paid storefront
+orders belonging to the linked business, with authenticated links to their web
+details. Status checks do not mutate orders, expose buyer release codes, or
+cancel an unfinished cart. Package-photo confirmation still happens on the web;
+a general WhatsApp image is not interpreted as permission to dispatch.
+
+WhatsApp product-invoice carts use the existing Redis connection rather than
+process memory. They expire fifteen minutes after starting, survive API worker
+restarts while Redis remains available, and reload current product records.
+Prices changed before completion require another review, and stock checks
+include duplicate selections. An atomic compare-and-delete prevents two workers
+from consuming the same reviewed draft. Redis failures are surfaced through the
+existing bot error handler, not treated as an empty or successfully saved cart.
+These are draft invoices, not paid storefront orders or reserved stock. This does
+not yet provide shared web/WhatsApp draft editing or voice-driven order checkout.
+
 ### Inventory cost reporting
 
 Sale stock movements snapshot the product's acquisition cost, not its selling
@@ -166,10 +195,24 @@ help and permission-aware links, including settings tabs and invoice filters.
 Examples: "Open bank details", "Show unpaid invoices last month", and
 "What does awaiting confirmation mean?"
 
+Everyday names and close, unambiguous spelling mistakes are matched against
+supported workflows. For example, "I want to add produccts" opens the existing
+inventory form with a step-by-step guide for name, selling price, stock, and
+storefront description/photo requirements. "Add a service" opens the same form
+in service mode. Guidance focuses the relevant field; it does not invent values
+or save items. Owners and team admins must explicitly choose **Add item**.
+
+Clear, single-workflow requests open the matching screen or editable form
+immediately. Informational, negated, ambiguous, and multiple-workflow requests
+do not auto-open, and optional AI suggestions always require a user choice.
+Spelling corrections are disclosed and apply only to workflow matching, never
+to customer names, amounts, or draft content. Existing unsaved forms are preserved.
+
 Simple invoice commands such as "Create an invoice for Ada",
 "Invoice Ada 50k for design", and "Invoice John $25.50 for design" prepare an
-editable draft. Users must choose **Review invoice draft**, complete missing
-details, and explicitly submit the existing invoice form. The first version
+editable draft. Clear commands open it immediately; suggested drafts have a
+**Review invoice draft** button. Users must complete missing details and
+explicitly submit the existing invoice form. The first version
 supports one explicitly priced line with quantity one; complex quantities,
 multiple lines, discounts, or inferred dates are not guessed. Unsupported input
 opens a blank draft with an explanation. Customer contact information is never

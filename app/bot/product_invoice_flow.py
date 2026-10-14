@@ -10,7 +10,7 @@ Flow:
        shows matched cart and asks for customer
     3. Business replies "Joy 08012345678" → invoice created with product_ids
 
-All state is ephemeral (in-memory with TTL). No DB writes until invoice creation.
+Drafts are shared through Redis with a 15-minute TTL. No DB writes until invoice creation.
 """
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from pydantic import TypeAdapter
 from sqlalchemy.orm import Session
 
 from app.bot.whatsapp_client import WhatsAppClient
+from app.db.redis_client import get_redis_client
 from app.models.inventory_models import Product
 from app.services.inventory.product_service import ProductService
 from app.utils.currency_fmt import fmt_money, get_user_currency
@@ -57,8 +59,7 @@ class CartSession:
     items: list[CartItem] = field(default_factory=list)
     # Conversation step: "awaiting_items" | "awaiting_customer"
     step: str = "awaiting_items"
-    # Cached product catalog for fuzzy matching (name_lower, Product)
-    _products_cache: list[tuple[str, Product]] = field(default_factory=list)
+    product_ids: list[int] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
     @property
@@ -84,23 +85,44 @@ class CartSession:
         return self.cart_summary_fmt("NGN")
 
 
-# In-memory cart store (phone → CartSession)
-# In production with multiple workers, use Redis. For single-worker Render, this is fine.
-_carts: dict[str, CartSession] = {}
+_cart_adapter = TypeAdapter(CartSession)
+
+
+def _cart_key(phone: str) -> str:
+    return f"bot:product_cart:{phone.lstrip('+')}"
+
+
+def save_cart(phone: str, session: CartSession) -> None:
+    remaining = int(CART_TTL_SECONDS - (time.time() - session.created_at))
+    if remaining <= 0:
+        clear_cart(phone)
+        return
+    get_redis_client().setex(_cart_key(phone), remaining, _cart_adapter.dump_json(session))
 
 
 def get_cart(phone: str) -> CartSession | None:
     """Get active cart for phone, or None if expired/missing."""
-    session = _carts.get(phone)
-    if session and session.is_expired:
-        del _carts[phone]
+    raw = get_redis_client().get(_cart_key(phone))
+    if raw is None:
+        return None
+    session = _cart_adapter.validate_json(raw)
+    if session.is_expired:
+        clear_cart(phone)
         return None
     return session
 
 
 def clear_cart(phone: str) -> None:
     """Remove cart for phone."""
-    _carts.pop(phone, None)
+    get_redis_client().delete(_cart_key(phone))
+
+
+def consume_cart(phone: str, session: CartSession) -> bool:
+    """Only one worker can submit the exact draft that was reviewed."""
+    return bool(get_redis_client().eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        1, _cart_key(phone), _cart_adapter.dump_json(session),
+    ))
 
 
 def _fuzzy_match_product(
@@ -271,18 +293,15 @@ class ProductInvoiceFlow:
                 )
             return
 
-        # Build product catalog cache for fuzzy matching
-        product_cache = [(p.name.lower(), p) for p in products]
-
         # Preserve existing cart items if session exists (for "Add More")
         existing_session = get_cart(phone)
         if existing_session and existing_session.user_id == user_id:
-            existing_session._products_cache = product_cache
+            existing_session.product_ids = [p.id for p in products]
             existing_session.step = "awaiting_items"
             session = existing_session
         else:
-            session = CartSession(user_id=user_id, _products_cache=product_cache)
-            _carts[phone] = session
+            session = CartSession(user_id=user_id, product_ids=[p.id for p in products])
+        save_cart(phone, session)
 
         # Resolve user's preferred display currency
         currency = get_user_currency(self.db, user_id)
@@ -327,11 +346,17 @@ class ProductInvoiceFlow:
         if not session or session.step != "awaiting_items":
             return False
 
-        # Reload product cache if empty
-        if not session._products_cache:
-            product_svc = ProductService(self.db, session.user_id)
-            products, _ = product_svc.list_products(page=1, page_size=50)
-            session._products_cache = [(p.name.lower(), p) for p in products]
+        products = (
+            self.db.query(Product)
+            .filter(
+                Product.user_id == session.user_id,
+                Product.id.in_(session.product_ids),
+                Product.is_active.is_(True),
+            )
+            .populate_existing()
+            .all()
+        )
+        product_cache = [(p.name.lower(), p) for p in products]
 
         entries = _parse_item_entries(text)
         if not entries:
@@ -342,16 +367,25 @@ class ProductInvoiceFlow:
         stock_warnings: list[str] = []
 
         for qty, desc in entries:
-            product = _fuzzy_match_product(desc, session._products_cache)
+            product = _fuzzy_match_product(desc, product_cache)
             if product:
+                already_added = sum(
+                    item.quantity for item in [*session.items, *matched] if item.product_id == product.id
+                )
                 # Check stock
-                if product.track_stock and qty > product.quantity_in_stock:
+                if qty < 1:
+                    stock_warnings.append(f"⚠️ *{product.name}*: quantity must be at least 1.")
+                    continue
+                if product.track_stock and qty + already_added > product.quantity_in_stock:
                     stock_warnings.append(
                         f"⚠️ *{product.name}*: only {product.quantity_in_stock} in stock (you asked for {qty})"
                     )
                     continue
 
                 price = product.selling_price or Decimal("0")
+                if price <= 0:
+                    stock_warnings.append(f"⚠️ *{product.name}*: set a selling price in inventory first.")
+                    continue
                 matched.append(
                     CartItem(
                         product_id=product.id,
@@ -399,6 +433,7 @@ class ProductInvoiceFlow:
             warn_text += "\n" + "\n".join(stock_warnings)
 
         session.step = "awaiting_customer"
+        save_cart(phone, session)
 
         self.client.send_text(
             phone,
@@ -434,6 +469,42 @@ class ProductInvoiceFlow:
         if text_lower in ("clear", "cancel", "reset"):
             clear_cart(phone)
             self.client.send_text(phone, "🗑️ Cart cleared.\n\nType *products* to start again.")
+            return None
+
+        products = {
+            p.id: p for p in self.db.query(Product).filter(
+                Product.user_id == session.user_id,
+                Product.id.in_([item.product_id for item in session.items]),
+                Product.is_active.is_(True),
+            ).populate_existing().all()
+        }
+        changed_price = False
+        for item in session.items:
+            product = products.get(item.product_id)
+            if (
+                product is None
+                or not product.selling_price
+                or product.selling_price <= 0
+                or (product.track_stock and product.quantity_in_stock < item.quantity)
+            ):
+                self.client.send_text(
+                    phone,
+                    f"*{item.product_name}* is no longer available at this quantity or has no selling price. "
+                    "Nothing has been created. Type *clear* to choose items again.",
+                )
+                return None
+            if item.unit_price != product.selling_price:
+                item.unit_price = product.selling_price
+                changed_price = True
+        if changed_price:
+            save_cart(phone, session)
+            currency = get_user_currency(self.db, session.user_id)
+            self.client.send_text(
+                phone,
+                "Prices changed since you selected these items. Please review:\n\n"
+                f"{session.cart_summary_fmt(currency)}\n\n"
+                "To accept these prices, send the customer details again. Or type *clear* to start over.",
+            )
             return None
 
         # Parse customer name and phone from text
@@ -475,8 +546,12 @@ class ProductInvoiceFlow:
             # invoice won't trigger overdue reminders.
         }
 
-        # Clear the cart
-        clear_cart(phone)
+        if not consume_cart(phone, session):
+            self.client.send_text(
+                phone,
+                "This draft changed or is already being processed. Check your invoices before trying again.",
+            )
+            return None
 
         return invoice_data
 

@@ -595,8 +595,11 @@ def _delivery_status_label(code: str | None, service_type: str | None = None) ->
 
 def _escrow_summary(escrow: models.StorefrontOrderEscrow, buyer: models.Customer | None) -> dict:
     """Business-safe escrow summary. NEVER includes the buyer-only delivery code."""
+    from app.services.escrow_service import order_next_step
+
     delivery_status = escrow.effective_delivery_status
     return {
+        "next_step": order_next_step(escrow),
         "status": escrow.status,
         "held": escrow.status == "held",
         "release_due_at": escrow.release_due_at.isoformat() if escrow.release_due_at else None,
@@ -755,6 +758,8 @@ def _book_courier_pickup(escrow_id: int, invoice_id: str) -> None:
             models.StorefrontOrderEscrow.confirmed_at.is_(None),
             models.StorefrontOrderEscrow.delivery_status == "booking_pending",
             models.StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+            models.StorefrontOrderEscrow.dispatch_proof_url.isnot(None),
+            models.StorefrontOrderEscrow.requires_delivery.is_(True),
         ).update(
             {"delivery_status": "booking_in_progress", "delivery_status_at": dt.datetime.now(dt.timezone.utc)},
             synchronize_session=False,
@@ -910,7 +915,9 @@ async def mark_order_sent(
     db.refresh(escrow)
 
     if courier_order:
-        background_tasks.add_task(_book_courier_pickup, escrow.id, invoice_id)
+        from app.workers.tasks.escrow_tasks import enqueue_courier_booking
+
+        background_tasks.add_task(enqueue_courier_booking, escrow.id, invoice_id)
         return {"escrow": _escrow_summary(escrow, buyer)}
 
     # Tell the buyer their order is on the way (system notice in the thread).
