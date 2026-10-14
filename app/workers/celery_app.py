@@ -77,9 +77,10 @@ def _create_celery() -> Celery:
                 "task": "engagement.send_lifecycle_emails",
                 "schedule": crontab(minute=0, hour=9),  # 09:00 UTC = 10:00 WAT
             },
+            # Keep the persisted RedBeat key so updates preserve last_run_at.
             "daily-merchant-retention": {
                 "task": "retention.refresh_merchants",
-                "schedule": crontab(minute=0, hour=9),
+                "schedule": crontab(minute=0, hour=9, day_of_week="mon,thu"),
             },
             "weekly-dormant-customer-nudges": {
                 "task": "customer_engagement.send_dormant_customer_nudges",

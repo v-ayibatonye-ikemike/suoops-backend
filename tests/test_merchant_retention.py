@@ -34,8 +34,29 @@ from app.services.merchant_retention import (
     unsubscribe_email,
 )
 from app.services.retention_metrics import retention_metrics
+from app.workers.celery_app import _create_celery
 
 NOW = dt.datetime(2026, 10, 14, 9, tzinfo=UTC)
+
+
+def test_retention_schedule_runs_only_monday_and_thursday_at_10_wat(monkeypatch):
+    monkeypatch.setattr(settings, "ENV", "production")
+    with _create_celery() as celery:
+        entries = {
+            name: entry for name, entry in celery.conf.beat_schedule.items()
+            if entry["task"] == "retention.refresh_merchants"
+        }
+        assert set(entries) == {"daily-merchant-retention"}
+        assert celery.conf.timezone == "UTC"
+        schedule = entries["daily-merchant-retention"]["schedule"]
+        assert schedule.day_of_week == {1, 4}
+        monday = dt.datetime(2026, 10, 12, 9, tzinfo=UTC)
+        for day in range(7):
+            for minute in (-1, 0, 1):
+                now = monday + dt.timedelta(days=day, minutes=minute)
+                schedule.nowfun = lambda now=now: now
+                due = schedule.is_due(now - dt.timedelta(minutes=1)).is_due
+                assert due == (day in {0, 3} and minute == 0), now
 
 
 def merchant(db, index=1, age=90):

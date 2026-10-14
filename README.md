@@ -146,7 +146,7 @@ Invalid or reversed dates return HTTP 422 instead of silently removing a filter.
 
 The merchant lifecycle reuses Business Intelligence's health-score calculation,
 Commerce Copilot, Collections, inventory advice, and Ask SuoOps. It is not a
-second invoice/reminder sender. The daily `retention.refresh_merchants` task
+second invoice/reminder sender. The twice-weekly `retention.refresh_merchants` task
 maintains New, Activated, Engaged, Healthy, At Risk, Dormant, and Reactivated
 states from non-cancelled invoices, recorded payments, expenses and explicit
 stock work (including purchases, excluding automatic reversals). Logins and
@@ -201,8 +201,9 @@ Rollout (nothing sends merely by deploying):
    **Business Intelligence > Merchant retention outreach**, or use authorized
    `PATCH /admin/retention/outreach` with `{"enabled": true}`. Both gates are
    required. Pause through the same control with `false`.
-5. The existing task runs daily at 09:00 UTC (10:00 WAT). A super admin can start
-   it immediately via `POST /admin/tasks/retention/trigger`. Processing batches
+5. The existing task runs Mondays and Thursdays at 09:00 UTC (10:00 WAT).
+   The one-message-per-merchant-per-week limit remains unchanged. A super admin
+   can start it immediately via `POST /admin/tasks/retention/trigger`. Processing batches
    of 50 are pagination, not a pilot or recipient cap. There is no enrollment,
    control group or 30-day expiry. Internal/test, team-member and flagged
    accounts remain excluded; only merchants with useful recommendations qualify.
