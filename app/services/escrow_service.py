@@ -334,6 +334,7 @@ def create_order_escrow(
     customer_lng: float | None,
     review_reason: str | None = None,
     no_delivery: bool = False,
+    commit: bool = True,
 ) -> models.StorefrontOrderEscrow:
     """Create the PENDING escrow hold for a fresh storefront order.
 
@@ -388,8 +389,11 @@ def create_order_escrow(
         review_reason=review_reason,
     )
     db.add(escrow)
-    db.commit()
-    db.refresh(escrow)
+    if commit:
+        db.commit()
+        db.refresh(escrow)
+    else:
+        db.flush()
     if review_reason:
         logger.warning(
             "Storefront order %s flagged for review (seller %s): %s",

@@ -50,3 +50,14 @@ def test_different_invoice_not_deduped(db_session):
         consume_balance=True,
     )
     assert i1.invoice_id != i3.invoice_id
+
+
+def test_manual_invoice_does_not_reuse_a_storefront_checkout(db_session):
+    user = models.User(name="Biz", email="store-dedup@example.test", wallet_balance_kobo=500000)
+    db_session.add(user)
+    db_session.commit()
+    svc = build_invoice_service(db_session)
+    checkout = svc.create_invoice(user.id, _data(channel="storefront"), consume_balance=False)
+    manual = svc.create_invoice(user.id, _data(), consume_balance=True)
+    assert manual.invoice_id != checkout.invoice_id
+    assert manual.channel != "storefront"

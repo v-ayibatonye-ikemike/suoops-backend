@@ -43,7 +43,9 @@ class InvoiceCreationMixin:
         # real business activity, so this guard only applies to named-customer
         # invoices where a repeat really does look like an accidental
         # double-submit.
-        if data.get("channel") == "quick_sale":
+        # A storefront checkout owns its own delivery selection and escrow code.
+        # Matching goods/customer/total does not make two checkouts the same order.
+        if data.get("channel") in {"quick_sale", "storefront"}:
             return None
         name = str(data.get("customer_name") or "").strip().lower()
         if not name:
@@ -67,6 +69,7 @@ class InvoiceCreationMixin:
             .filter(
                 models.Invoice.issuer_id == issuer_id,
                 models.Invoice.invoice_type == "revenue",
+                models.Invoice.channel.is_distinct_from("storefront"),
                 models.Invoice.amount == amount,
                 models.Invoice.created_at >= cutoff,
             )

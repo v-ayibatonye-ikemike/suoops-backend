@@ -17,7 +17,7 @@ from typing import Annotated
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -212,6 +212,14 @@ class StoreOrderIn(BaseModel):
     # validates the fee for this courier — the client can't set the price.
     delivery_courier_id: str | None = Field(default=None, max_length=60)
     delivery_service_code: str | None = Field(default=None, max_length=60)
+    expected_total_kobo: int | None = Field(default=None, gt=0)
+
+    @field_validator("items")
+    @classmethod
+    def unique_products(cls, items: list[StoreOrderItem]) -> list[StoreOrderItem]:
+        if len({item.product_id for item in items}) != len(items):
+            raise ValueError("Each product must appear only once. Update its quantity instead.")
+        return items
 
 
 def _link_for(slug: str | None) -> str | None:
@@ -1558,6 +1566,14 @@ async def create_store_order(
 
     service_fee_kobo = platform_fee_kobo(total)
     charge_kobo = int(total * 100) + service_fee_kobo + int(delivery_fee * 100)
+    if payload.expected_total_kobo is not None and payload.expected_total_kobo != charge_kobo:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Prices or delivery fees have changed. Refresh this store and review your order before paying. "
+                "No payment was started."
+            ),
+        )
 
     svc = build_invoice_service(db)
     invoice = svc.create_invoice(
@@ -1594,15 +1610,10 @@ async def create_store_order(
         invoice.notes = header + "\n" + "\n".join(delivery_lines)
         db.commit()
 
-    try:
-        pay = await start_invoice_payment(db, invoice, owner, hold=held, charge_amount_kobo=charge_kobo)
-    except PaymentInitError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-
-    # Only held orders get an escrow row (trusted sellers settle normally via
-    # the subaccount split). Never let escrow bookkeeping break the order flow.
+    # Persist the entire protection record before any payment can be initialized.
     delivery_code: str | None = None
     if held:
+        order_invoice_id = invoice.invoice_id
         try:
             # Self-dealing detection: buyer sharing the seller's IP / sitting on
             # the seller's own location → hold for admin review, never auto-release.
@@ -1628,6 +1639,7 @@ async def create_store_order(
                 customer_lng=payload.customer_lng,
                 review_reason=review_reason,
                 no_delivery=no_delivery,
+                commit=False,
             )
             delivery_code = escrow.confirmation_code
             if delivery_sel:
@@ -1642,12 +1654,21 @@ async def create_store_order(
                 escrow.delivery_request_token = delivery_sel["token"][:200]
                 escrow.delivery_courier_id = delivery_sel["courier_id"][:60]
                 escrow.delivery_service_code = delivery_sel["service_code"][:60]
-                db.commit()
             if review_reason:
                 owner.flagged_for_review = True
-                db.commit()
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to create escrow hold for order %s", invoice.invoice_id)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception("Failed to create escrow hold for order %s", order_invoice_id)
+            raise HTTPException(
+                status_code=503,
+                detail="Could not set up buyer protection. No payment was started. Please try again.",
+            ) from exc
+
+    try:
+        pay = await start_invoice_payment(db, invoice, owner, hold=held, charge_amount_kobo=charge_kobo)
+    except PaymentInitError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     logger.info(
         "Storefront order %s created for store %s (user %s, held=%s)",

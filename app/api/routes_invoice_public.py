@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.rate_limit import limiter
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import schemas
 from app.services.invoice_service import build_invoice_service
-from app.services.paystack_http import paystack_async_client
 from app.utils.invoice_delivery import invoice_has_contact, is_online_only
 
 router = APIRouter(tags=["invoices-public"])
@@ -150,6 +151,11 @@ async def initialize_invoice_payment(request: Request, invoice_id: str, db: Sess
         )
         .first()
     )
+    if invoice.channel == "storefront" and settings.ESCROW_ENABLED and held_escrow is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Buyer protection is not ready for this order. Please return to the store and try again.",
+        )
     if held_escrow is not None and held_escrow.status != "pending":
         raise HTTPException(
             status_code=409,
@@ -181,59 +187,35 @@ async def verify_invoice_payment(
     reference: str,
     db: Session = Depends(get_db),
 ) -> dict:
-    """
-    Public: verify a Paystack payment on return from checkout and confirm the
-    invoice — a pull-based fallback so a delayed/missed webhook doesn't leave the
-    customer stuck on "pending". Only marks paid when Paystack itself reports
-    success for a reference that belongs to this invoice.
-    """
-    import logging
-
-    from app.core.config import settings
-    from app.models.payment_models import PaymentStatus, PaymentTransaction
-
-    logger = logging.getLogger(__name__)
+    """Reconcile a checkout return on its original collecting rail, including escrow."""
+    from app.api.routes_webhooks import (
+        _handle_flutterwave_invoice_payment,
+        _handle_paystack_invoice_payment,
+    )
+    from app.models.payment_models import PaymentTransaction
 
     svc = build_invoice_service(db)
     try:
-        invoice, issuer = svc.get_public_invoice(invoice_id)
+        invoice, _issuer = svc.get_public_invoice(invoice_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if invoice.status == "paid":
-        return {"status": "paid"}
-
-    # The reference must be the one we created for THIS invoice's payment.
     txn = db.query(PaymentTransaction).filter(PaymentTransaction.reference == reference).one_or_none()
     meta_invoice = (txn.payment_metadata or {}).get("invoice_id") if txn else None
-    if not reference.startswith("INVPAY-") or (txn and meta_invoice != invoice.invoice_id):
-        return {"status": invoice.status}
+    if txn is None or not reference.startswith("INVPAY-") or meta_invoice != invoice.invoice_id:
+        raise HTTPException(status_code=400, detail="Payment reference does not belong to this invoice.")
 
-    if not settings.PAYSTACK_SECRET:
-        return {"status": invoice.status}
-
-    # Ask Paystack directly whether this transaction succeeded.
-    try:
-        async with paystack_async_client(timeout=15.0) as client:
-            resp = await client.get(
-                f"https://api.paystack.co/transaction/verify/{reference}",
-                headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET}"},
-            )
-        body = resp.json() if resp.content else {}
-    except Exception as exc:  # pragma: no cover - network failure
-        logger.warning("Paystack verify failed for %s: %s", reference, exc)
-        return {"status": invoice.status}
-
-    tx = body.get("data") or {}
-    if resp.status_code == 200 and tx.get("status") == "success":
-        try:
-            svc.update_status(issuer.id, invoice.invoice_id, "paid", via_online=True)
-        except Exception:  # pragma: no cover
-            logger.exception("verify: failed to mark invoice %s paid", invoice.invoice_id)
-        if txn:
-            txn.status = PaymentStatus.SUCCESS
-            db.commit()
-        logger.info("✅ Invoice %s confirmed paid via verify-on-return (ref=%s)", invoice.invoice_id, reference)
-        return {"status": "paid"}
-
+    collector = (txn.payment_metadata or {}).get("collector", "paystack")
+    if collector == "flutterwave":
+        handler = _handle_flutterwave_invoice_payment
+        payload = {"event": "charge.completed", "data": {"tx_ref": reference, "status": "successful"}}
+    elif collector == "paystack":
+        handler = _handle_paystack_invoice_payment
+        payload = {"event": "charge.success", "data": {"reference": reference}}
+    else:
+        raise HTTPException(status_code=503, detail="Payment provider requires reconciliation. Contact support.")
+    result = await run_in_threadpool(handler, payload, db, None)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=409, detail="Payment could not be confirmed. Please contact support.")
+    db.refresh(invoice)
     return {"status": invoice.status}

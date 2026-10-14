@@ -75,6 +75,29 @@ order support remains available when a store is offline, while new purchases
 remain disabled. Seller evidence can be submitted during a dispute without
 releasing funds. Release codes are not reused across a seller's order history.
 
+Checkout persists the complete protection record and courier selection before
+initializing payment. A failed protection setup cannot return a payment link,
+including through invoice payment retry. Storefront checkouts do not use the
+manual-invoice similarity deduplicator: separate purchases must not share an
+invoice or release code. Repeated product IDs are rejected; carts allow up to
+20 products and 50 units per product. Current storefront clients submit their
+displayed total in kobo; changed prices or delivery fees require buyer review
+before payment starts.
+
+Webhook retries reconcile incomplete invoice/escrow state even when an event
+record already exists. Transient verification/finalization failures return 503
+so providers can retry. Checkout-return verification uses the original collecting
+provider, checks the invoice/reference association, amount and currency, and
+activates protection through the same finalizer. It also repairs a paid invoice
+whose escrow activation is incomplete. No refund or seller transfer is initiated
+by this reconciliation.
+
+The storefront reuses the accessible checkout drawer, supports cart edits and
+empty-search recovery, and explains missing checkout details. Buyer messaging
+explains time-limited protection rather than a fixed delivery promise.
+Sellers retain read-only conversation history on disputed, refunded
+and released orders; messaging failures expose a retry instead of an empty chat.
+
 ### Inventory cost reporting
 
 Sale stock movements snapshot the product's acquisition cost, not its selling

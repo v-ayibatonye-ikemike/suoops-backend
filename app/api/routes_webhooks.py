@@ -550,6 +550,22 @@ def _handle_paystack_invoice_pack(payload: dict, db: Session, signature: str | N
     return result
 
 
+def _invoice_payment_completed(db: Session, invoice_id, transaction) -> bool:
+    from app.models.payment_models import PaymentStatus
+
+    if transaction is not None:
+        db.refresh(transaction)
+        if transaction.status != PaymentStatus.SUCCESS:
+            return False
+    invoice = db.query(models.Invoice).filter(models.Invoice.invoice_id == invoice_id).first()
+    if invoice is None or invoice.status != "paid":
+        return False
+    escrow = db.query(models.StorefrontOrderEscrow).filter_by(invoice_id=invoice.id).first()
+    if escrow is None:
+        return not (transaction and (transaction.payment_metadata or {}).get("collector"))
+    return escrow.status not in {"pending", "canceled"}
+
+
 def _finalize_invoice_payment(
     db: Session,
     *,
@@ -569,14 +585,17 @@ def _finalize_invoice_payment(
         invoice, issuer = service.get_public_invoice(invoice_id)
     except ValueError:
         logger.error("%s webhook invoice %s not found (ref=%s)", provider_label, invoice_id, reference)
-        db.commit()
-        return {"status": "error", "message": "Invoice not found"}
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Payment invoice could not be found. Retry later.") from None
 
+    db.refresh(invoice, with_for_update=True)
     if invoice.status != "paid":
         try:
             service.update_status(issuer.id, invoice_id, "paid", via_online=True)
-        except Exception:
+        except Exception as exc:
+            db.rollback()
             logger.exception("%s: failed to mark invoice %s paid", provider_label, invoice_id)
+            raise HTTPException(status_code=503, detail="Payment confirmation incomplete. Retry later.") from exc
 
     # Card-fraud gate: a blocked or over-velocity funding card holds the order for
     # review (never auto-releases) instead of paying the seller.
@@ -587,12 +606,17 @@ def _finalize_invoice_payment(
         review_reason = card_hold_reason(db, card_fingerprint)
     except Exception:  # noqa: BLE001 — risk scoring must never block a payment
         logger.exception("Card risk check failed (ref=%s)", reference)
+        review_reason = "Payment risk checks unavailable — needs review"
 
     # Activate the buyer-protection hold (pending -> held) for storefront orders.
-    # Idempotent + best-effort; never break payment confirmation.
+    # A paid invoice alone is not complete: retry until the hold is activated.
     try:
         from app.services.escrow_service import activate_escrow_on_payment
 
+        if transaction and (transaction.payment_metadata or {}).get("collector"):
+            escrow = db.query(models.StorefrontOrderEscrow).filter_by(invoice_id=invoice.id).first()
+            if escrow is None:
+                raise RuntimeError("Held payment has no buyer-protection record")
         activate_escrow_on_payment(
             db,
             invoice,
@@ -600,8 +624,10 @@ def _finalize_invoice_payment(
             card_fingerprint=card_fingerprint,
             review_reason=review_reason,
         )
-    except Exception:
+    except Exception as exc:
+        db.rollback()
         logger.exception("%s: failed to activate escrow for invoice %s", provider_label, invoice_id)
+        raise HTTPException(status_code=503, detail="Payment protection incomplete. Retry later.") from exc
 
     if transaction:
         transaction.status = PaymentStatus.SUCCESS
@@ -644,22 +670,31 @@ def _handle_paystack_invoice_payment(payload: dict, db: Session, signature: str 
 
     try:
         status = get_collection_provider_named("paystack").verify_charge(reference)
-    except Exception:  # noqa: BLE001 — transient → let Paystack retry
+    except Exception as exc:
         logger.exception("Paystack verify failed (ref=%s)", reference)
-        return {"status": "error", "message": "verify failed"}
+        raise HTTPException(status_code=503, detail="Payment verification unavailable. Retry later.") from exc
     if status.status != "successful":
         return {"status": "ignored", "reason": "charge not successful on verify"}
-    if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) < int(transaction.amount):
+    if transaction is not None and (
+        status.amount_kobo is None
+        or (status.currency or "").upper() != transaction.currency.upper()
+        or int(status.amount_kobo) < int(transaction.amount)
+    ):
         logger.error(
-            "Paystack webhook amount mismatch ref=%s verify=%s expected=%s",
+            "Paystack webhook amount/currency mismatch ref=%s verify=%s %s expected=%s %s",
             reference,
             status.amount_kobo,
+            status.currency,
             transaction.amount,
+            transaction.currency,
         )
-        return {"status": "error", "message": "amount mismatch"}
+        return {"status": "error", "message": "amount or currency mismatch"}
 
     # Confirmed genuine — record dedup (only now) then finalize.
-    if _record_webhook(db, "paystack:invoice_payment", reference, signature):
+    if (
+        _record_webhook(db, "paystack:invoice_payment", reference, signature)
+        and _invoice_payment_completed(db, invoice_id, transaction)
+    ):
         logger.info("Paystack invoice payment webhook duplicate for %s", reference)
         return {"status": "duplicate", "reference": reference}
 
@@ -707,19 +742,25 @@ def _handle_flutterwave_invoice_payment(payload: dict, db: Session, signature: s
     # recording the dedup key so a transient verify failure can be retried by FW.
     try:
         status = get_collection_provider_named("flutterwave").verify_charge(reference)
-    except Exception:
+    except Exception as exc:
         logger.exception("FLW webhook verify failed (ref=%s)", reference)
-        return {"status": "error", "message": "verify failed"}
+        raise HTTPException(status_code=503, detail="Payment verification unavailable. Retry later.") from exc
     if status.status != "successful":
         return {"status": "ignored", "reason": f"verify={status.status}"}
-    if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) < int(transaction.amount):
+    if transaction is not None and (
+        status.amount_kobo is None
+        or (status.currency or "").upper() != transaction.currency.upper()
+        or int(status.amount_kobo) < int(transaction.amount)
+    ):
         logger.error(
-            "FLW webhook amount mismatch (ref=%s): verified %s < expected %s",
+            "FLW webhook amount/currency mismatch ref=%s verify=%s %s expected=%s %s",
             reference,
             status.amount_kobo,
+            status.currency,
             transaction.amount,
+            transaction.currency,
         )
-        return {"status": "error", "message": "amount mismatch"}
+        return {"status": "error", "message": "amount or currency mismatch"}
     if transaction is not None and status.amount_kobo is not None and int(status.amount_kobo) > int(transaction.amount):
         # Overpayment: accept it (the buyer paid) but audit it — the excess sits
         # in the hold and should be reconciled/refunded manually.
@@ -730,11 +771,10 @@ def _handle_flutterwave_invoice_payment(payload: dict, db: Session, signature: s
             transaction.amount,
         )
 
-    # Confirmed successful — record the dedup key and finalize atomically. A repeat
-    # of the same successful event is short-circuited here (and finalize is itself
-    # idempotent: it won't re-pay an already-paid invoice or re-activate a hold).
+    # A dedup record can survive a partial finalization commit. Only acknowledge
+    # a duplicate once both invoice and protection state are complete.
     duplicate = _record_webhook(db, "flutterwave:invoice_payment", reference, signature)
-    if duplicate:
+    if duplicate and _invoice_payment_completed(db, invoice_id, transaction):
         logger.info("Flutterwave invoice payment webhook duplicate for %s", reference)
         return {"status": "duplicate", "reference": reference}
 
