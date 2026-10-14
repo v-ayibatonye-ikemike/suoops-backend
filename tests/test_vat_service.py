@@ -5,36 +5,19 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from app.db.base_class import Base
 from app.models.models import Customer, Invoice, User
 from app.models.tax_models import TaxProfile, VATReturn
 from app.services.vat_service import ComplianceChecker, VATService
 
-engine = create_engine("sqlite:///:memory:")
-SessionLocal = sessionmaker(bind=engine)
-Base.metadata.create_all(bind=engine)
-
 
 @pytest.fixture
-def db_session():
-    """Create a fresh database session for each test."""
-    session = SessionLocal()
-    yield session
-    session.close()
-
-
-@pytest.fixture
-def test_user(db_session, request):
+def test_user(db_session):
     """Create a test user."""
-    # Generate unique email/phone per test using test node name hash
-    test_hash = str(hash(request.node.name) % 100000).zfill(5)
     user = User(
-        phone=f"+23412345680{test_hash[:2]}",
+        phone="+2341234568000",
         name="VATTestUser",
-        email=f"vat-test-{test_hash}@example.com",
+        email="vat-test@example.com",
     )
     db_session.add(user)
     db_session.commit()

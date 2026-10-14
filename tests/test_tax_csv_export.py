@@ -5,7 +5,6 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 
 from app.api.main import app
-from app.db.session import get_db
 from app.models.models import Customer, Invoice, SubscriptionPlan, User
 
 
@@ -46,13 +45,12 @@ def _setup_entities(db):
     return user
 
 
-def test_monthly_tax_report_csv_export(monkeypatch):
+def test_monthly_tax_report_csv_export(monkeypatch, db_session):
     client = TestClient(app)
-    db = next(get_db())
-    user = _setup_entities(db)
+    user = _setup_entities(db_session)
     from app.api import routes_auth
 
-    app.dependency_overrides[routes_auth.get_current_user_id] = lambda: user.id
+    monkeypatch.setitem(app.dependency_overrides, routes_auth.get_current_user_id, lambda: user.id)
     headers = {"Authorization": "Bearer test"}
     r = client.post("/tax/reports/generate?year=2025&month=10&basis=paid", headers=headers)
     assert r.status_code == 200, r.text
