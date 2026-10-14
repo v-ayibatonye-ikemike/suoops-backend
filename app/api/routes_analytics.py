@@ -255,6 +255,7 @@ def get_conversion_funnel(
 
 
 class CashPositionOut(BaseModel):
+    outstanding_count: int = 0
     cash_collected_today: float
     cash_collected_this_week: float
     total_outstanding: float

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_data_owner_id
 from app.bot.conversation_window import mark_conversation_active
 from app.bot.expense_intent_processor import ExpenseIntentProcessor
 from app.bot.invoice_intent_processor import (
@@ -34,6 +36,7 @@ from app.services.analytics_service import (
     calculate_revenue_metrics,
     get_conversion_rate,
     get_date_range,
+    revenue_invoice_filters,
 )
 from app.services.invoice_service import build_invoice_service
 from app.services.merchant_retention import record_delivery, record_response, set_consent, whatsapp_event_time
@@ -43,6 +46,11 @@ from app.utils.phone import get_phone_variants
 logger = logging.getLogger(__name__)
 
 __all__ = ["WhatsAppClient", "WhatsAppHandler"]
+
+_GREETINGS = {
+    "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+    "start", "yo", "sup", "what's up", "whats up", "howdy", "hiya",
+}
 
 
 class WhatsAppHandler:
@@ -65,11 +73,38 @@ class WhatsAppHandler:
             speech_service_factory=self._get_speech_service,
         )
 
+    def _handle_read_command(self, sender: str, text: str) -> bool:
+        routes = (
+            ({"orders", "my orders", "show orders", "order status", "what needs dispatch"}, self._send_order_status),
+            ({"status", "my invoices", "my invoice", "balance", "how many invoices", "invoice balance"},
+             self._send_quick_status),
+            ({"owed", "pending", "unpaid", "outstanding", "who owes me", "who owes me money", "owes me"},
+             self._send_owed_list),
+            ({"report", "analytics", "insights", "dashboard", "stats", "my stats", "my report"}, self._send_analytics),
+            ({"help", "menu", "guide", "how", "instructions", "commands"}, self._send_help_guide),
+            ({"account", "me", "whoami", "my account", "profile", "my profile"}, self._send_account_status),
+            (_GREETINGS, self._send_business_greeting),
+        )
+        for commands, respond in routes:
+            if text not in commands:
+                continue
+            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+            if issuer_id is None:
+                if text in _GREETINGS or text in {"help", "menu", "guide", "how", "instructions", "commands"}:
+                    return False
+                self.client.send_text(sender, "Link your WhatsApp number to your business at suoops.com to view this.")
+                return True
+            if text not in _GREETINGS or not self.invoice_processor.handle_customer_optin(sender):
+                respond(sender, issuer_id)
+            return True
+        return False
+
     def _send_order_status(self, sender: str, issuer_id: int) -> None:
         from urllib.parse import quote
 
         from app.services.escrow_service import order_next_step
 
+        issuer_id = get_data_owner_id(issuer_id, self.db)
         rows = (
             self.db.query(models.StorefrontOrderEscrow, models.Invoice.invoice_id)
             .join(models.Invoice, models.Invoice.id == models.StorefrontOrderEscrow.invoice_id)
@@ -294,15 +329,39 @@ class WhatsAppHandler:
                 )
                 return
 
-        if text_lower in {"orders", "my orders", "show orders", "order status", "what needs dispatch"}:
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is None:
-                self.client.send_text(
-                    sender, "Link your WhatsApp number to your business at suoops.com to view orders.",
-                )
-            else:
-                self._send_order_status(sender, issuer_id)
+        if self._handle_read_command(sender, text_lower):
             return
+
+        selection = re.fullmatch(r"(\d{1,2})(?:\s+(paid|remind|cancel|void))?", text_lower)
+        if selection:
+            from app.bot.owed_list_session import get_owed_list
+
+            if selection.group(2) or get_owed_list(sender):
+                self._maybe_handle_owed_list_reply(sender, text_lower)
+                return
+
+        if len(text) <= 500 and {"add", "create", "register", "upload"} & set(text_lower.split()):
+            from app.models.schemas.web_assistant import WebAssistantQuestion
+            from app.services.ai.web_assistant import WebAssistantService
+
+            actor_id = self.invoice_processor._resolve_issuer_id(sender)
+            if actor_id is not None:
+                answer = await WebAssistantService(self.db).ask(
+                    WebAssistantQuestion(message=text, allow_ai=False),
+                    actor_user_id=actor_id, data_owner_id=get_data_owner_id(actor_id, self.db),
+                )
+                if answer.auto_action_id in {"new_product", "new_service"}:
+                    action = answer.actions[0]
+                    if action.kind == "navigate":
+                        notice = f"{answer.notice}\n\n" if answer.notice else ""
+                        self.client.send_text(sender, (
+                            f"{notice}*{action.title}*\n{action.description}\n\n"
+                            f"{settings.FRONTEND_URL.rstrip('/')}{action.href}\n\nNothing has been saved."
+                        ))
+                        return
+                if not answer.actions and "owner or team admin" in answer.message:
+                    self.client.send_text(sender, answer.message)
+                    return
 
         # Explicit Copilot commands supersede any stale multi-message flow so a
         # merchant can always ask for a briefing or grounded business fact.
@@ -318,9 +377,6 @@ class WhatsAppHandler:
         if text_lower in copilot_briefing_keywords or any(
             text_lower == prefix or text_lower.startswith(f"{prefix} ") for prefix in copilot_prefixes
         ):
-            clear_onboarding(sender)
-            clear_cart(sender)
-            clear_pending_price_session(sender)
             issuer_id = self.invoice_processor._resolve_issuer_id(sender)
             if issuer_id is None:
                 self.client.send_text(
@@ -392,25 +448,10 @@ class WhatsAppHandler:
 
         # Separate help vs greeting for different responses
         help_keywords = {"help", "menu", "guide", "how", "instructions", "commands"}
-        greeting_keywords = {
-            "hi",
-            "hello",
-            "hey",
-            "good morning",
-            "good afternoon",
-            "good evening",
-            "start",
-            "yo",
-            "sup",
-            "what's up",
-            "whats up",
-            "howdy",
-            "hiya",
-        }
         optin_keywords = {"ok", "yes", "sure", "yea", "yeah", "yep", "👍", "okay"}
 
         is_help = text_lower in help_keywords
-        is_greeting = text_lower in greeting_keywords
+        is_greeting = text_lower in _GREETINGS
         is_optin = text_lower in optin_keywords
 
         # ── "I want to create an invoice" intent (no actual data yet) ──
@@ -431,10 +472,9 @@ class WhatsAppHandler:
             "want to invoice",
             "want to create an invoice",
             "want to make an invoice",
-            "how do i create",
+            "how do i create an invoice",
             "how to create an invoice",
             "how to invoice",
-            "i want to create",
             "raise an invoice",
             "raise invoice",
             "issue an invoice",
@@ -560,64 +600,11 @@ class WhatsAppHandler:
                     return
         # ── End product browsing flow ──────────────────────────────
 
-        # ── Quick Status Check (all users, free) ─────────────────
-        status_keywords = {"status", "my invoices", "my invoice", "balance", "how many invoices", "invoice balance"}
-        if text_lower in status_keywords:
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is not None:
-                self._send_quick_status(sender, issuer_id)
-            else:
-                self.client.send_text(
-                    sender,
-                    "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!",
-                )
-            return
-        # ── End status check ──────────────────────────────────────
-
-        # ── "Who owes me money?" — numbered list with quick actions ──
-        owed_keywords = {
-            "owed",
-            "pending",
-            "unpaid",
-            "outstanding",
-            "who owes me",
-            "who owes me money",
-            "owes me",
-        }
-        if text_lower in owed_keywords:
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is not None:
-                self._send_owed_list(sender, issuer_id)
-            else:
-                self.client.send_text(
-                    sender,
-                    "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!",
-                )
-            return
-        # ── End owed list ──────────────────────────────────────────
-
         # ── Owed-list reply: "1", "1 paid", "1 remind", "1 cancel" ──
         # Only treats short numeric leads as a row selection if there's
         # an active owed-list session for this sender.
         if self._maybe_handle_owed_list_reply(sender, text_lower):
             return
-
-        # ── Account / status command — Tier 4 trust signals ─────────
-        account_keywords = {"account", "me", "whoami", "my account", "profile", "my profile"}
-        if text_lower in account_keywords:
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is not None:
-                self._send_account_status(sender, issuer_id)
-            else:
-                self.client.send_text(
-                    sender,
-                    "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!",
-                )
-            return
-        # ── End account status ─────────────────────────────────────
 
         # ── Undo last invoice (5-minute window) ────────────────────
         undo_keywords = {
@@ -641,30 +628,6 @@ class WhatsAppHandler:
                 )
             return
         # ── End undo ───────────────────────────────────────────────
-
-        # ── Analytics / Insights command ─────────────────────────
-        analytics_keywords = {
-            "report",
-            "analytics",
-            "insights",
-            "summary",
-            "dashboard",
-            "stats",
-            "my stats",
-            "my report",
-        }
-        if text_lower in analytics_keywords:
-            issuer_id = self.invoice_processor._resolve_issuer_id(sender)
-            if issuer_id is not None:
-                self._send_analytics(sender, issuer_id)
-            else:
-                self.client.send_text(
-                    sender,
-                    "❌ Your WhatsApp number isn't linked to a business account.\n"
-                    "Register at suoops.com to start invoicing!",
-                )
-            return
-        # ── End analytics ─────────────────────────────────────────
 
         # ── Tax report download ───────────────────────────────────
         tax_keywords = {"tax report", "tax", "my tax", "download tax", "tax pdf"}
@@ -865,10 +828,8 @@ class WhatsAppHandler:
         """
         import datetime as _dt
 
-        from sqlalchemy import func as sqlfunc
-
         user = self.db.query(models.User).filter(models.User.id == issuer_id).first()
-        name = getattr(user, "business_name", None) or getattr(user, "full_name", None) or ""
+        name = getattr(user, "name", None) or getattr(user, "business_name", None) or ""
 
         # Time-of-day greeting (WAT = UTC+1)
         hour = (_dt.datetime.now(_dt.timezone.utc).hour + 1) % 24
@@ -885,42 +846,26 @@ class WhatsAppHandler:
         else:
             lines = [f"👋 {time_greeting}!"]
 
-        # Contextual business snapshot — single most-useful number.
-        # NOTE: avoid wrapping the currency string in `*…*` because iOS
-        # WhatsApp can mis-render bold around the ₦ symbol + comma as
-        # strikethrough. Plain text reads fine on every client.
-        from app.models.models import Invoice
-
-        pending_total = (
-            self.db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
-            .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
-                Invoice.status.in_(["pending", "awaiting_confirmation"]),
-            )
-            .scalar()
-        )
-        pending_count = (
-            self.db.query(sqlfunc.count(Invoice.id))
-            .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
-                Invoice.status.in_(["pending", "awaiting_confirmation"]),
-            )
-            .scalar()
-        ) or 0
-
-        if pending_count > 0 and float(pending_total) > 0:
-            currency = get_user_currency(self.db, issuer_id)
-            money = fmt_money(float(pending_total), currency, convert=False)
+        cash = calculate_cash_position(self.db, get_data_owner_id(issuer_id, self.db))
+        pending_count = cash["outstanding_count"]
+        currency = get_user_currency(self.db, issuer_id)
+        lines.append("")
+        if pending_count > 0:
+            money = fmt_money(cash["total_outstanding"], currency, decimals=currency == "USD")
             s = "s" if pending_count != 1 else ""
-            lines.append("")
-            lines.append(f"💰 {money} unpaid across {pending_count} invoice{s}.")
+            lines.append(f"💰 Outstanding: {money} across {pending_count} invoice{s}.")
+        else:
+            lines.append("✅ No outstanding customer invoices.")
+        lines.append("All dates · unpaid storefront checkouts excluded.")
+        if cash["awaiting_confirmation_count"]:
+            lines.append(f"🔔 {cash['awaiting_confirmation_count']} awaiting payment confirmation.")
 
         lines.append("")
         lines.append("Quick actions:")
         lines.append("📝 New invoice → reply *invoice*")
         lines.append("📊 See your numbers → reply *report*")
+        lines.append("💰 Follow up invoices → reply *owed*")
+        lines.append("📦 Process orders → reply *orders*")
         lines.append("❓ Anything else → reply *help*")
 
         self.client.send_text(sender, "\n".join(lines))
@@ -949,61 +894,26 @@ class WhatsAppHandler:
 
     def _send_quick_status(self, sender: str, issuer_id: int) -> None:
         """Send a quick invoice status summary — available to all users for free."""
-        from sqlalchemy import func as sqlfunc
+        cash = calculate_cash_position(self.db, get_data_owner_id(issuer_id, self.db))
+        currency = get_user_currency(self.db, issuer_id)
 
-        from app.models.models import Invoice
+        def money(key: str) -> str:
+            return fmt_money(cash[key], currency, decimals=currency == "USD")
 
-        user = self.db.query(models.User).filter(models.User.id == issuer_id).first()
-        if not user:
-            return
-
-        pending_total = float(
-            self.db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
-            .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
-                Invoice.status.in_(["pending", "awaiting_confirmation"]),
-            )
-            .scalar()
-        )
-        pending_count = (
-            self.db.query(sqlfunc.count(Invoice.id))
-            .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
-                Invoice.status.in_(["pending", "awaiting_confirmation"]),
-            )
-            .scalar()
-        ) or 0
-        paid_count = (
-            self.db.query(sqlfunc.count(Invoice.id))
-            .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
-                Invoice.status == "paid",
-            )
-            .scalar()
-        ) or 0
-        wallet_naira = int(getattr(user, "wallet_balance_kobo", 0) or 0) // 100
-
-        msg = "📊 *Your Quick Status*\n\n"
-        if pending_count > 0:
-            s = "s" if pending_count != 1 else ""
-            msg += f"⏳ Pending: {pending_count} invoice{s} — ₦{pending_total:,.0f}\n"
-        else:
-            msg += "✅ No pending invoices\n"
-        msg += f"✅ Paid: {paid_count} invoices\n"
-        msg += f"👛 Wallet: ₦{wallet_naira:,}\n"
-
-        if wallet_naira < 500:
-            msg += "\n⚠️ Wallet low — top up at suoops.com/dashboard/billing/purchase"
-
-        self.client.send_text(sender, msg)
+        self.client.send_text(sender, (
+            f"📊 *Your Dashboard Snapshot ({currency})*\n\n"
+            f"💰 Cash in today (WAT): {money('cash_collected_today')}\n"
+            f"⏳ Outstanding (all dates): {money('total_outstanding')} — {cash['outstanding_count']} invoices\n"
+            f"🔴 Overdue: {money('total_overdue')} — {cash['overdue_count']} invoices\n"
+            f"📅 Expected in 7 days: {money('expected_inflow_7_days')}\n"
+            f"🔔 Awaiting confirmation: {cash['awaiting_confirmation_count']}\n"
+            f"✅ Paid invoices (all dates): {cash['paid_count']}\n\n"
+            "Unpaid storefront checkouts are excluded. Reply *owed* to review invoices or *orders* for fulfilment.\n"
+            f"{settings.FRONTEND_URL.rstrip('/')}/dashboard"
+        ))
 
     async def _send_copilot_response(self, sender: str, issuer_id: int, text: str) -> None:
         """Send only verified, tenant-scoped commerce facts over WhatsApp."""
-        from app.api.dependencies import get_data_owner_id
-
         data_owner_id = get_data_owner_id(issuer_id, self.db)
         service = CommerceCopilotService(self.db)
         normalized = " ".join(text.strip().split())
@@ -1103,12 +1013,12 @@ class WhatsAppHandler:
         from app.bot.owed_list_session import clear_owed_list, save_owed_list
         from app.models.models import Invoice
 
+        data_owner_id = get_data_owner_id(issuer_id, self.db)
         invoices = (
             self.db.query(Invoice)
             .options(joinedload(Invoice.customer))
             .filter(
-                Invoice.issuer_id == issuer_id,
-                Invoice.invoice_type == "revenue",
+                *revenue_invoice_filters(data_owner_id),
                 Invoice.status.in_(["pending", "awaiting_confirmation"]),
             )
             .order_by(Invoice.created_at.desc())
@@ -1120,16 +1030,29 @@ class WhatsAppHandler:
             clear_owed_list(sender)
             self.client.send_text(
                 sender,
-                "✅ Nothing pending — every invoice has been paid. Nice work! 🎉",
+                "✅ No outstanding customer invoices. Unpaid storefront checkouts are excluded.",
             )
             return
 
         currency = get_user_currency(self.db, issuer_id)
         now = _dt.datetime.now(_dt.timezone.utc)
-        lines: list[str] = ["💰 *Who owes you*\n"]
+        cash = calculate_cash_position(self.db, data_owner_id)
+        total = fmt_money(cash["total_outstanding"], currency, decimals=currency == "USD")
+        saved = save_owed_list(sender, [inv.invoice_id for inv in invoices])
+        if not saved:
+            self.client.send_text(
+                sender,
+                "I couldn't prepare safe numbered actions right now. No invoices were changed. "
+                f"Please retry *owed* or open {settings.FRONTEND_URL.rstrip('/')}/dashboard/invoices",
+            )
+            return
+        lines: list[str] = [
+            f"💰 *Who owes you*\nOutstanding (all dates): {total}",
+            f"Showing {len(invoices)} of {cash['outstanding_count']} invoices. Unpaid checkouts excluded.\n",
+        ]
         for idx, inv in enumerate(invoices, start=1):
             cname = (inv.customer.name if inv.customer else None) or "Customer"
-            money = fmt_money(float(inv.amount), inv.currency or currency, convert=False)
+            money = fmt_money(inv.amount, inv.currency or currency, decimals=True, convert=False)
             created_at = inv.created_at
             if created_at and created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=_dt.timezone.utc)
@@ -1143,14 +1066,14 @@ class WhatsAppHandler:
             elif days > 0:
                 age = f" ({days}d)"
             lines.append(f"{idx}. {cname} — {money}{age}")
+            lines.append(f"   {inv.invoice_id} · {inv.status.replace('_', ' ')}")
 
         lines.append("")
-        lines.append("Reply with a number to act:")
-        lines.append("• `1 paid` — mark #1 as paid")
+        lines.append("Reply with a number to view details — this does not change payment status.")
+        lines.append("• `1 paid` — record payment only after you verify money was received")
         lines.append("• `1 remind` — nudge the customer")
         lines.append("• `1 cancel` — void the invoice")
 
-        save_owed_list(sender, [inv.invoice_id for inv in invoices])
         self.client.send_text(sender, "\n".join(lines))
 
     def _maybe_handle_owed_list_reply(self, sender: str, text_lower: str) -> bool:
@@ -1166,9 +1089,10 @@ class WhatsAppHandler:
             return False
         invoice_ids = get_owed_list(sender)
         if not invoice_ids:
-            return False
+            self.client.send_text(sender, "That invoice list expired or is unavailable. Reply *owed* to refresh it.")
+            return True
         idx = int(m.group(1)) - 1
-        action = (m.group(2) or "paid").lower()
+        action = (m.group(2) or "view").lower()
         if idx < 0 or idx >= len(invoice_ids):
             self.client.send_text(
                 sender,
@@ -1178,6 +1102,34 @@ class WhatsAppHandler:
         invoice_id = invoice_ids[idx]
         issuer_id = self.invoice_processor._resolve_issuer_id(sender)
         if issuer_id is None:
+            self.client.send_text(sender, "Link your WhatsApp number to your business before accessing invoices.")
+            return True
+
+        data_owner_id = get_data_owner_id(issuer_id, self.db)
+        invoice = self.db.query(models.Invoice).filter(
+            *revenue_invoice_filters(data_owner_id),
+            models.Invoice.invoice_id == invoice_id,
+            models.Invoice.status.in_(["pending", "awaiting_confirmation"]),
+        ).first()
+        if invoice is None:
+            self.client.send_text(
+                sender, "This invoice is no longer outstanding in your workspace. Reply *owed* to refresh.",
+            )
+            return True
+        if action == "view":
+            from urllib.parse import quote
+
+            amount = fmt_money(invoice.amount, invoice.currency or "NGN", decimals=True, convert=False)
+            self.client.send_text(sender, (
+                f"*{invoice.invoice_id}*\n{amount} · {invoice.status.replace('_', ' ')}\n"
+                f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/invoices/{quote(invoice.invoice_id, safe='')}\n\n"
+                f"No changes made. Reply '{idx + 1} paid' only after verifying receipt of the money."
+            ))
+            return True
+        if issuer_id != data_owner_id:
+            self.client.send_text(
+                sender, "Your team role is read-only. Ask the business owner or admin to change invoices.",
+            )
             return True
 
         if action in {"paid"}:
@@ -1257,7 +1209,7 @@ class WhatsAppHandler:
                 _send_customer_whatsapp_reminder,
             )
 
-            tier = "customer_overdue_1d"
+            tier = "customer_manual"
             business_name = invoice.issuer.business_name or invoice.issuer.name
             ok = _send_customer_whatsapp_reminder(
                 invoice,
@@ -1544,16 +1496,18 @@ class WhatsAppHandler:
             period = "30d"
             start_date, end_date = get_date_range(period)
             conversion_rate = get_conversion_rate("NGN")
+            data_owner_id = get_data_owner_id(issuer_id, self.db)
 
-            revenue = calculate_revenue_metrics(self.db, issuer_id, start_date, end_date, conversion_rate)
-            invoices = calculate_invoice_metrics(self.db, issuer_id, start_date, end_date)
-            customers = calculate_customer_metrics(self.db, issuer_id, start_date, end_date)
+            revenue = calculate_revenue_metrics(self.db, data_owner_id, start_date, end_date, conversion_rate)
+            invoices = calculate_invoice_metrics(self.db, data_owner_id, start_date, end_date)
+            customers = calculate_customer_metrics(self.db, data_owner_id, start_date, end_date)
+            cash = calculate_cash_position(self.db, data_owner_id)
 
             # Resolve user's preferred display currency
             currency = get_user_currency(self.db, issuer_id)
 
             def fmt(amount: float) -> str:
-                return fmt_money(amount, currency, compact=True)
+                return fmt_money(amount, currency, decimals=currency == "USD")
 
             # Build growth indicator
             growth = revenue.growth_rate
@@ -1571,7 +1525,11 @@ class WhatsAppHandler:
             collection = (invoices.paid_invoices / invoices.total_invoices * 100) if invoices.total_invoices > 0 else 0
 
             msg = (
-                "📊 *Your Business Report (30 days)*\n"
+                f"📊 *Your Business Report ({currency})*\n"
+                f"💰 Cash in today (WAT): {fmt(cash['cash_collected_today'])}\n"
+                f"⏳ Outstanding (all dates): {fmt(cash['total_outstanding'])}\n"
+                f"🔴 Overdue (all dates): {fmt(cash['total_overdue'])}\n\n"
+                f"*Invoices created {start_date:%d %b}–{end_date:%d %b %Y}*\n"
                 "━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{growth_icon} *Revenue {growth_text} vs prev*\n"
                 f"💰 Total: {fmt(revenue.total_revenue)}\n"
@@ -1610,7 +1568,7 @@ class WhatsAppHandler:
 
             # Mobile-optimized visual cash snapshot (non-fatal if it fails)
             try:
-                self._send_cash_snapshot_image(sender, issuer_id, currency)
+                self._send_cash_snapshot_image(sender, data_owner_id, currency)
             except Exception as img_err:  # noqa: BLE001
                 logger.warning("Cash snapshot image failed for user %s: %s", issuer_id, img_err)
 

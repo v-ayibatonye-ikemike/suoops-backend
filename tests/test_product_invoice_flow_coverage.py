@@ -212,6 +212,15 @@ def test_handle_customer_reply_no_session(flow):
     assert flow.handle_customer_reply("234801", "Joy") is None
 
 
+def test_numeric_reply_cannot_become_an_unnamed_customer(flow, issuer, db_session):
+    _add_product(db_session, issuer.id, "Wig", "SKU1", 5000)
+    flow.start_browsing("234801", issuer.id)
+    flow.handle_items_reply("234801", "1 wig")
+    assert flow.handle_customer_reply("234801", "1") is None
+    assert "customer's name" in _last_text(flow)
+    assert get_cart("234801") is not None
+
+
 def test_handle_customer_reply_builds_invoice_data(flow, issuer, db_session):
     _add_product(db_session, issuer.id, "Wig", "SKU1", 5000)
     flow.start_browsing("234801", issuer.id)

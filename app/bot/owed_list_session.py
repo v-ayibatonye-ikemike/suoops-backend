@@ -25,6 +25,7 @@ def _redis():
 
         return get_redis_client()
     except Exception:
+        logger.exception("Could not connect to the owed-list session store")
         return None
 
 
@@ -32,15 +33,18 @@ def _key(phone: str) -> str:
     return f"{_KEY_PREFIX}{phone}"
 
 
-def save_owed_list(phone: str, invoice_ids: list[str]) -> None:
+def save_owed_list(phone: str, invoice_ids: list[str]) -> bool:
     """Remember the numbered list of invoice IDs for this phone."""
     r = _redis()
     if r is None:
-        return
+        return False
     try:
         r.setex(_key(phone), _TTL, json.dumps(invoice_ids))
+        return True
     except Exception:
         logger.exception("Failed to save owed-list session for %s", phone)
+        clear_owed_list(phone)
+        return False
 
 
 def get_owed_list(phone: str) -> list[str] | None:

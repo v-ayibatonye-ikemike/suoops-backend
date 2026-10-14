@@ -127,6 +127,38 @@ existing bot error handler, not treated as an empty or successfully saved cart.
 These are draft invoices, not paid storefront orders or reserved stock. This does
 not yet provide shared web/WhatsApp draft editing or voice-driven order checkout.
 
+### WhatsApp and dashboard reconciliation
+
+WhatsApp greetings, `status`, report cash figures, and scheduled daily summaries
+use the same cash-position calculation as the web dashboard. Outstanding debt
+includes revenue invoices that are pending or awaiting confirmation, but excludes
+unpaid storefront checkouts. Paid, cancelled and failed invoices are not debt.
+Team members read their shared workspace, with their own display-currency
+preference; a read-only team role cannot change invoices through the owed list.
+
+Cash totals normalize native USD invoice amounts to NGN before aggregation and
+then apply the selected display currency. Daily cash boundaries use WAT. The
+collected/expected seven-day windows include today plus six preceding/following
+calendar days. The report separately labels all-date outstanding balances and
+the date range of its invoice-creation analytics; these are not the same scope.
+The web cash card shows the outstanding invoice count, its exclusions, and an
+explicit retry state if data is unavailable.
+
+Read-only commands such as `report`, `status`, `owed`, `orders`, greetings, and
+Copilot questions do not consume an unfinished invoice conversation. A bare
+number in the owed list opens details; only an explicit `1 paid`, `1 remind`,
+or `1 cancel` requests an action, and the current workspace/status is rechecked.
+If numbered-list state cannot be stored, the bot offers a web link rather than
+unsafe actions. A numeric-only customer reply cannot submit a product invoice.
+Manual reminders without a due date do not claim to be overdue; the existing
+overdue template is used only for genuinely overdue invoices, with the original
+invoice currency. Other reminders require the existing WhatsApp conversation
+window or another delivery channel.
+
+Clear product/service requests (including `I want to add produccts`) reuse the
+web assistant's deterministic matching and permission checks, linking to the
+existing guided form. They never start an unrelated invoice or save an item.
+
 ### Inventory cost reporting
 
 Sale stock movements snapshot the product's acquisition cost, not its selling

@@ -7,6 +7,8 @@ from decimal import Decimal
 
 from sqlalchemy import and_, case, extract, func, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
+from zoneinfo import ZoneInfo
 
 from app.models import models
 from app.models.schemas import (
@@ -34,6 +36,25 @@ def exclude_abandoned_storefront():
     )
 
 
+def revenue_invoice_filters(user_id: int) -> list[ColumnElement[bool]]:
+    return [
+        models.Invoice.issuer_id == user_id,
+        models.Invoice.invoice_type == "revenue",
+        exclude_abandoned_storefront(),
+    ]
+
+
+def invoice_amount_ngn(db: Session, user_id: int) -> ColumnElement[Decimal]:
+    """Normalize native invoice amounts before adding different currencies."""
+    has_usd = db.query(models.Invoice.id).filter(
+        models.Invoice.issuer_id == user_id, models.Invoice.currency == "USD",
+    ).first()
+    rate = get_conversion_rate("USD") if has_usd else Decimal("1")
+    if not rate.is_finite() or rate <= 0:
+        raise ValueError("A valid exchange rate is required to calculate this business snapshot")
+    return case((models.Invoice.currency == "USD", models.Invoice.amount * rate), else_=models.Invoice.amount)
+
+
 def calculate_revenue_metrics(
     db: Session,
     user_id: int,
@@ -48,13 +69,14 @@ def calculate_revenue_metrics(
     """
     end_dt = datetime.combine(end_date, datetime.max.time())
     start_dt = datetime.combine(start_date, datetime.min.time())
+    amount = invoice_amount_ngn(db, user_id)
 
     # Single query with conditional aggregation
     row = (
         db.query(
-            func.coalesce(func.sum(models.Invoice.amount), 0).label("total"),
+            func.coalesce(func.sum(amount), 0).label("total"),
             func.coalesce(
-                func.sum(case((models.Invoice.status == "paid", models.Invoice.amount), else_=0)),
+                func.sum(case((models.Invoice.status == "paid", amount), else_=0)),
                 0,
             ).label("paid"),
             func.coalesce(
@@ -66,7 +88,7 @@ def calculate_revenue_metrics(
                                 models.Invoice.due_date != None,  # noqa: E711
                                 models.Invoice.due_date < end_dt,
                             ),
-                            models.Invoice.amount,
+                            amount,
                         ),
                         else_=0,
                     )
@@ -84,9 +106,9 @@ def calculate_revenue_metrics(
                                     models.Invoice.due_date >= end_dt,
                                 ),
                             ),
-                            models.Invoice.amount,
+                            amount,
                         ),
-                        (models.Invoice.status == "awaiting_confirmation", models.Invoice.amount),
+                        (models.Invoice.status == "awaiting_confirmation", amount),
                         else_=0,
                     )
                 ),
@@ -115,7 +137,7 @@ def calculate_revenue_metrics(
     prev_start = start_date - timedelta(days=period_days)
 
     prev_revenue = (
-        db.query(func.sum(models.Invoice.amount))
+        db.query(func.sum(amount))
         .filter(
             models.Invoice.issuer_id == user_id,
             models.Invoice.invoice_type == "revenue",
@@ -646,49 +668,54 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
     Gives business owners an instant snapshot of *money movement* rather
     than abstract accounting metrics.
     """
-    today = date.today()
-    week_ago = today - timedelta(days=7)
-    next_week = today + timedelta(days=7)
-    start_of_today = datetime.combine(today, datetime.min.time())
-    start_of_week = datetime.combine(week_ago, datetime.min.time())
-    end_of_next_week = datetime.combine(next_week, datetime.max.time())
+    today = datetime.now(ZoneInfo("Africa/Lagos")).date()
+    week_ago = today - timedelta(days=6)
+    next_week = today + timedelta(days=6)
+    start_of_today = datetime.combine(today, datetime.min.time(), ZoneInfo("Africa/Lagos")).astimezone(timezone.utc)
+    end_of_today = start_of_today + timedelta(days=1)
+    start_of_week = datetime.combine(week_ago, datetime.min.time(), ZoneInfo("Africa/Lagos")).astimezone(timezone.utc)
+    end_of_next_week = datetime.combine(
+        next_week, datetime.max.time(), ZoneInfo("Africa/Lagos"),
+    ).astimezone(timezone.utc)
 
-    base = [
-        models.Invoice.issuer_id == user_id,
-        models.Invoice.invoice_type == "revenue",
-        exclude_abandoned_storefront(),
-    ]
+    base = revenue_invoice_filters(user_id)
+    amount = invoice_amount_ngn(db, user_id)
 
     # Cash collected this week
     cash_this_week = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
+        db.query(func.coalesce(func.sum(amount), 0))
         .filter(
             *base,
             models.Invoice.status == "paid",
             models.Invoice.paid_at >= start_of_week,
+            models.Invoice.paid_at < end_of_today,
         )
         .scalar()
     )
 
     # Cash collected today
     cash_today = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
+        db.query(func.coalesce(func.sum(amount), 0))
         .filter(
             *base,
             models.Invoice.status == "paid",
             models.Invoice.paid_at >= start_of_today,
+            models.Invoice.paid_at < end_of_today,
         )
         .scalar()
     )
 
     # Total outstanding (unpaid revenue invoices)
-    outstanding = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
-        .filter(
-            *base,
-            models.Invoice.status.in_(["pending", "awaiting_confirmation"]),
+    unpaid = models.Invoice.status.in_(["pending", "awaiting_confirmation"])
+    balances = (
+        db.query(
+            func.coalesce(func.sum(case((unpaid, amount), else_=0)), 0).label("outstanding"),
+            func.count(case((unpaid, 1))).label("outstanding_count"),
+            func.count(case((models.Invoice.status == "awaiting_confirmation", 1))).label("awaiting_count"),
+            func.count(case((models.Invoice.status == "paid", 1))).label("paid_count"),
         )
-        .scalar()
+        .filter(*base)
+        .one()
     )
 
     # Overdue amount + count
@@ -698,12 +725,12 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
         models.Invoice.due_date != None,  # noqa: E711
         models.Invoice.due_date < start_of_today,
     ]
-    overdue_amount = db.query(func.coalesce(func.sum(models.Invoice.amount), 0)).filter(*overdue_filters).scalar()
+    overdue_amount = db.query(func.coalesce(func.sum(amount), 0)).filter(*overdue_filters).scalar()
     overdue_count = (db.query(func.count(models.Invoice.id)).filter(*overdue_filters).scalar()) or 0
 
     # Expected inflow next 7 days
     expected_inflow = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
+        db.query(func.coalesce(func.sum(amount), 0))
         .filter(
             *base,
             models.Invoice.status.in_(["pending", "awaiting_confirmation"]),
@@ -716,16 +743,19 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
 
     # Invoices created today
     invoices_today = (
-        db.query(func.count(models.Invoice.id)).filter(*base, models.Invoice.created_at >= start_of_today).scalar()
+        db.query(func.count(models.Invoice.id)).filter(
+            *base, models.Invoice.created_at >= start_of_today, models.Invoice.created_at < end_of_today,
+        ).scalar()
     ) or 0
 
     # Expenses today
     expenses_today = (
-        db.query(func.coalesce(func.sum(models.Invoice.amount), 0))
+        db.query(func.coalesce(func.sum(amount), 0))
         .filter(
             models.Invoice.issuer_id == user_id,
             models.Invoice.invoice_type == "expense",
             models.Invoice.created_at >= start_of_today,
+            models.Invoice.created_at < end_of_today,
         )
         .scalar()
     )
@@ -733,7 +763,10 @@ def calculate_cash_position(db: Session, user_id: int) -> dict:
     return {
         "cash_collected_today": float(cash_today),
         "cash_collected_this_week": float(cash_this_week),
-        "total_outstanding": float(outstanding),
+        "total_outstanding": float(balances.outstanding),
+        "outstanding_count": balances.outstanding_count,
+        "awaiting_confirmation_count": balances.awaiting_count,
+        "paid_count": balances.paid_count,
         "total_overdue": float(overdue_amount),
         "overdue_count": overdue_count,
         "expected_inflow_7_days": float(expected_inflow),

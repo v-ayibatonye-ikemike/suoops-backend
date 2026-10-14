@@ -171,12 +171,14 @@ def build_cash_snapshot_png(cash: dict, business_name: str, currency: str = "NGN
     Shared by the WhatsApp `report` command and the daily-summary task so the
     layout and copy stay consistent.
     """
-    from datetime import date
+    from datetime import datetime
+
+    from zoneinfo import ZoneInfo
 
     from app.utils.currency_fmt import fmt_money
 
     def fmt(value) -> str:
-        return fmt_money(float(value or 0), currency, compact=True)
+        return fmt_money(float(value or 0), currency, compact=currency != "USD", decimals=currency == "USD")
 
     net = cash.get("net_today", 0) or 0
     net_accent = "#047857" if net >= 0 else "#B91C1C"
@@ -202,7 +204,7 @@ def build_cash_snapshot_png(cash: dict, business_name: str, currency: str = "NGN
             "accent": TEAL,
         },
         {
-            "label": "Collected this week",
+            "label": "Collected (7 days)",
             "value": fmt(cash.get("cash_collected_this_week")),
             "sub": "Last 7 days",
             "accent": "#047857",
@@ -216,7 +218,7 @@ def build_cash_snapshot_png(cash: dict, business_name: str, currency: str = "NGN
     ]
     return render_cash_dashboard_png(
         title=str(business_name or "Your Business"),
-        subtitle="Cash Snapshot • " + date.today().strftime("%b %d, %Y"),
+        subtitle="Cash Snapshot (WAT) • " + datetime.now(ZoneInfo("Africa/Lagos")).strftime("%b %d, %Y"),
         highlights=highlights,
         cards=cards,
         footer="SuoOps • suoops.com/dashboard",

@@ -786,14 +786,17 @@ def _send_customer_whatsapp_reminder(
 ) -> bool:
     """Send a WhatsApp payment reminder to a customer.
 
-    Prefers the ``payment_reminder`` template (deliverable outside the 24-hour
-    window) and falls back to free-form text when the template is not configured.
+    Uses the ``payment_reminder`` template for overdue invoices (deliverable
+    outside the 24-hour window), otherwise falls back to free-form text.
     Checks the 24h conversation window before attempting plain text.
     Budget-gated as priority sends (payment collection = revenue-generating).
     """
     try:
+        from zoneinfo import ZoneInfo
+
         from app.bot.conversation_window import is_window_open
         from app.core.whatsapp import get_whatsapp_client
+        from app.utils.currency_fmt import fmt_money
         from app.utils.whatsapp_budget import can_send_whatsapp, record_whatsapp_send
 
         # Payment reminders are priority (help users collect money)
@@ -802,19 +805,15 @@ def _send_customer_whatsapp_reminder(
 
         client = get_whatsapp_client()
 
-        # Prefer template (works outside 24h window)
+        today = datetime.now(ZoneInfo("Africa/Lagos")).date()
         template_name = settings.WHATSAPP_TEMPLATE_PAYMENT_REMINDER
-        if template_name:
+        if template_name and inv.due_date and inv.due_date.date() < today:
             customer_name = customer.name or "Customer"
-            amount_str = f"₦{inv.amount:,.0f}"
+            amount_str = fmt_money(inv.amount, getattr(inv, "currency", None) or "NGN", decimals=True, convert=False)
             payment_link = f"{settings.FRONTEND_URL}/pay/{inv.invoice_id}"
 
-            days_until_due = (inv.due_date.date() - date.today()).days
             # Template text: "⏰ Overdue: {{4}} days" — send just the number
-            if days_until_due >= 0:
-                days_info = str(days_until_due)
-            else:
-                days_info = str(abs(days_until_due))
+            days_info = str((today - inv.due_date.date()).days)
 
             from app.utils.invoice_delivery import template_bank_params
 
@@ -1193,10 +1192,20 @@ def send_mark_paid_nudges() -> dict[str, Any]:
 
 def _format_customer_reminder(inv: Any, tier: str, business_name: str) -> str:
     """Format a customer-facing payment reminder message."""
+    from app.utils.currency_fmt import fmt_money
+
     payment_link = f"{settings.FRONTEND_URL}/pay/{inv.invoice_id}"
-    amount_str = f"₦{inv.amount:,.0f}"
+    amount_str = fmt_money(inv.amount, getattr(inv, "currency", None) or "NGN", decimals=True, convert=False)
     due_str = inv.due_date.strftime("%d %b %Y") if inv.due_date else "N/A"
 
+    if tier == "customer_manual":
+        return (
+            f"👋 Hi{_name_greeting(inv.customer)},\n\n"
+            f"A payment reminder for invoice {inv.invoice_id} from *{business_name}*: {amount_str}.\n"
+            f"{'Due date: ' + due_str if inv.due_date else 'No due date has been set.'}\n\n"
+            f"💳 Review and pay: {payment_link}\n\n"
+            "If you've already paid, please contact the business so they can verify it."
+        )
     if tier == "customer_pre_due":
         return (
             f"👋 Hi{_name_greeting(inv.customer)},\n\n"
@@ -1397,9 +1406,11 @@ def send_daily_summaries() -> dict[str, Any]:
     activity for the day so it never feels like spam.
     """
     from sqlalchemy import func as sqlfunc
-    from sqlalchemy import or_
 
+    from app.api.dependencies import get_data_owner_id
     from app.models.models import Invoice, SubscriptionPlan, User
+    from app.services.analytics_service import calculate_cash_position
+    from app.utils.currency_fmt import fmt_money, get_user_currency
 
     sent = 0
     failed = 0
@@ -1407,9 +1418,6 @@ def send_daily_summaries() -> dict[str, Any]:
 
     try:
         with session_scope() as db:
-            now_utc = datetime.now(timezone.utc)
-            start_of_day = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-
             # Debug: count PRO / pro_override users first
             pro_count = (
                 db.query(sqlfunc.count(User.id))
@@ -1467,70 +1475,13 @@ def send_daily_summaries() -> dict[str, Any]:
                 try:
                     has_phone = _is_valid_phone(user.phone)
 
-                    # Revenue collected today
-                    revenue_today = (
-                        db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
-                        .filter(
-                            Invoice.issuer_id == user.id,
-                            Invoice.invoice_type == "revenue",
-                            Invoice.status == "paid",
-                            Invoice.paid_at >= start_of_day,
-                        )
-                        .scalar()
-                    )
-
-                    # Expenses recorded today
-                    expenses_today = (
-                        db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
-                        .filter(
-                            Invoice.issuer_id == user.id,
-                            Invoice.invoice_type == "expense",
-                            Invoice.created_at >= start_of_day,
-                        )
-                        .scalar()
-                    )
-
-                    # Total outstanding
-                    outstanding = (
-                        db.query(sqlfunc.coalesce(sqlfunc.sum(Invoice.amount), 0))
-                        .filter(
-                            Invoice.issuer_id == user.id,
-                            Invoice.invoice_type == "revenue",
-                            Invoice.status.in_(["pending", "awaiting_confirmation"]),
-                            # Abandoned/unpaid storefront carts aren't money owed —
-                            # exclude them so this matches the web dashboard's
-                            # Outstanding figure (calculate_cash_position).
-                            or_(
-                                Invoice.channel.is_(None),
-                                Invoice.channel != "storefront",
-                                Invoice.status != "pending",
-                            ),
-                        )
-                        .scalar()
-                    )
-
-                    # Overdue count
-                    overdue_count = (
-                        db.query(sqlfunc.count(Invoice.id))
-                        .filter(
-                            Invoice.issuer_id == user.id,
-                            Invoice.invoice_type == "revenue",
-                            Invoice.status == "pending",
-                            Invoice.due_date != None,  # noqa: E711
-                            Invoice.due_date < start_of_day,
-                            # Same storefront-cart exclusion as Outstanding above.
-                            or_(
-                                Invoice.channel.is_(None),
-                                Invoice.channel != "storefront",
-                            ),
-                        )
-                        .scalar()
-                    ) or 0
-
-                    rev = float(revenue_today)
-                    exp = float(expenses_today)
-                    net = rev - exp
-                    out = float(outstanding)
+                    cash = calculate_cash_position(db, get_data_owner_id(user.id, db))
+                    currency = get_user_currency(db, user.id)
+                    rev = cash["cash_collected_today"]
+                    exp = cash["expenses_today"]
+                    net = cash["net_today"]
+                    out = cash["total_outstanding"]
+                    overdue_count = cash["overdue_count"]
 
                     logger.info(
                         "Daily summary user %s: rev=%.0f exp=%.0f outstanding=%.0f overdue=%d",
@@ -1543,7 +1494,7 @@ def send_daily_summaries() -> dict[str, Any]:
 
                     # PRO users always get a daily summary, even on quiet days
 
-                    message = _format_daily_summary(revenue_today, expenses_today, outstanding, overdue_count)
+                    message = _format_daily_summary(rev, exp, out, overdue_count, currency=currency)
 
                     # Email is the primary channel (free). WhatsApp is only used
                     # for users with no email on file — this keeps the daily
@@ -1557,6 +1508,7 @@ def send_daily_summaries() -> dict[str, Any]:
                             net=net,
                             outstanding=out,
                             overdue_count=overdue_count,
+                            currency=currency,
                         )
                         if email_ok:
                             email_sent += 1
@@ -1577,10 +1529,22 @@ def send_daily_summaries() -> dict[str, Any]:
                                     {
                                         "type": "body",
                                         "parameters": [
-                                            {"type": "text", "text": f"₦{rev:,.0f}"},
-                                            {"type": "text", "text": f"₦{exp:,.0f}"},
-                                            {"type": "text", "text": f"₦{net:,.0f}"},
-                                            {"type": "text", "text": f"₦{out:,.0f}"},
+                                            {
+                                                "type": "text",
+                                                "text": fmt_money(rev, currency, decimals=currency == "USD"),
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": fmt_money(exp, currency, decimals=currency == "USD"),
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": fmt_money(net, currency, decimals=currency == "USD"),
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": fmt_money(out, currency, decimals=currency == "USD"),
+                                            },
                                             {"type": "text", "text": str(overdue_count)},
                                         ],
                                     }
@@ -1656,11 +1620,12 @@ def _send_daily_cash_image(db, client, user, window_check) -> None:
     if not user.phone or not window_check(user.phone):
         return
 
+    from app.api.dependencies import get_data_owner_id
     from app.services.analytics_service import calculate_cash_position
     from app.services.cash_dashboard_image import build_cash_snapshot_png
     from app.utils.currency_fmt import get_user_currency
 
-    cash = calculate_cash_position(db, user.id)
+    cash = calculate_cash_position(db, get_data_owner_id(user.id, db))
     if not any(
         cash.get(k)
         for k in (
@@ -1682,38 +1647,42 @@ def _send_daily_cash_image(db, client, user, window_check) -> None:
         client.send_image(user.phone, media_id, caption="💰 Your cash snapshot")
 
 
-def _format_daily_summary(revenue: Any, expenses: Any, outstanding: Any, overdue_count: int) -> str:
+def _format_daily_summary(
+    revenue: Any, expenses: Any, outstanding: Any, overdue_count: int, *, currency: str = "NGN",
+) -> str:
     """Format the daily WhatsApp summary message."""
+    from app.utils.currency_fmt import fmt_money
+
     rev = float(revenue)
     exp = float(expenses)
     net = rev - exp
     out = float(outstanding)
 
-    msg = "📊 *Today's Business Summary*\n\n"
+    msg = f"📊 *Today's Business Summary ({currency}, WAT)*\n\n"
 
     if rev == 0 and exp == 0 and out == 0 and overdue_count == 0:
         msg += "✨ All clear today — no new transactions or outstanding invoices.\n"
         msg += "💡 Create an invoice to start tracking your cash flow!\n"
     else:
         if rev > 0:
-            msg += f"💰 Cash In: ₦{rev:,.0f}\n"
+            msg += f"💰 Cash In: {fmt_money(rev, currency, decimals=currency == 'USD')}\n"
         if exp > 0:
-            msg += f"💸 Expenses: ₦{exp:,.0f}\n"
+            msg += f"💸 Expenses: {fmt_money(exp, currency, decimals=currency == 'USD')}\n"
         if rev > 0 or exp > 0:
             emoji = "📈" if net >= 0 else "📉"
-            msg += f"{emoji} Net: ₦{net:,.0f}\n"
+            msg += f"{emoji} Net: {fmt_money(net, currency, decimals=currency == 'USD')}\n"
 
         msg += "\n"
 
         if out > 0:
-            msg += f"⏳ Outstanding: ₦{out:,.0f}\n"
+            msg += f"⏳ Outstanding (all dates): {fmt_money(out, currency, decimals=currency == 'USD')}\n"
         if overdue_count > 0:
             s = "s" if overdue_count != 1 else ""
             msg += (
                 f"⚠️ Overdue: {overdue_count} invoice{s}\n" "💡 Send reminders from your dashboard to collect faster!\n"
             )
 
-    msg += "\n🔗 suoops.com/dashboard"
+    msg += "\nUnpaid storefront checkouts are excluded.\n🔗 suoops.com/dashboard"
     return msg
 
 
@@ -1725,6 +1694,7 @@ def _send_daily_summary_email(
     net: float,
     outstanding: float,
     overdue_count: int,
+    currency: str = "NGN",
 ) -> bool:
     """Send the daily business summary via email when WhatsApp is unavailable."""
     import os
@@ -1734,19 +1704,23 @@ def _send_daily_summary_email(
 
     from jinja2 import Template
 
+    from app.utils.currency_fmt import fmt_money
+
     display_name = (name or "").split()[0] if name else "there"
 
     # Build HTML body
     lines: list[str] = []
     if revenue > 0:
-        lines.append(f"💰 Cash In: <b>₦{revenue:,.0f}</b>")
+        lines.append(f"💰 Cash In: <b>{fmt_money(revenue, currency, decimals=currency == 'USD')}</b>")
     if expenses > 0:
-        lines.append(f"💸 Expenses: <b>₦{expenses:,.0f}</b>")
+        lines.append(f"💸 Expenses: <b>{fmt_money(expenses, currency, decimals=currency == 'USD')}</b>")
     if revenue > 0 or expenses > 0:
         emoji = "📈" if net >= 0 else "📉"
-        lines.append(f"{emoji} Net: <b>₦{net:,.0f}</b>")
+        lines.append(f"{emoji} Net: <b>{fmt_money(net, currency, decimals=currency == 'USD')}</b>")
     if outstanding > 0:
-        lines.append(f"⏳ Outstanding: <b>₦{outstanding:,.0f}</b>")
+        lines.append(
+            f"⏳ Outstanding (all dates): <b>{fmt_money(outstanding, currency, decimals=currency == 'USD')}</b>"
+        )
     if overdue_count > 0:
         s = "s" if overdue_count != 1 else ""
         lines.append(f"⚠️ Overdue: <b>{overdue_count}</b> invoice{s}")
@@ -1756,7 +1730,7 @@ def _send_daily_summary_email(
     else:
         body_html = "<br>".join(lines)
 
-    headline = "Your Daily Business Summary"
+    headline = f"Your Daily Business Summary ({currency}, WAT)"
 
     tpl_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "templates", "email", "engagement_tip.html")
     try:

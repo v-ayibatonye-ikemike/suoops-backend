@@ -516,12 +516,17 @@ class ProductInvoiceFlow:
 
         # Extract name: first word that isn't a phone number
         tokens = text.strip().split()
-        customer_name = "Customer"
+        customer_name: str | None = None
         for token in tokens:
             clean = token.replace("+", "").replace("-", "").replace(",", "")
             if not clean.isdigit() and len(token) >= 2:
                 customer_name = token.capitalize()
                 break
+        if customer_name is None:
+            self.client.send_text(
+                phone, "Please include the customer's name, for example *Joy 08012345678*. Your draft is still saved.",
+            )
+            return None
 
         # Build line items with product_id for inventory integration
         lines = []

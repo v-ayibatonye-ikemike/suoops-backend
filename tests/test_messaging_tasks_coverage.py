@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 import smtplib
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -248,6 +249,28 @@ def test_name_greeting():
     c3 = MagicMock()
     c3.name = "   "
     assert mt._name_greeting(c3) == ""
+
+
+def test_daily_summary_preserves_usd_cents(monkeypatch):
+    monkeypatch.setattr("app.utils.currency_fmt._get_rate", lambda: Decimal("1500"))
+    message = mt._format_daily_summary(15375, 0, 15375, 0, currency="USD")
+    assert "$10.25" in message
+    assert "₦" not in message
+
+
+def test_manual_reminder_without_due_date_does_not_claim_overdue(db_session, wa, monkeypatch):
+    monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_REMINDER", "overdue_template")
+    user = _make_user(db_session)
+    customer = _make_customer(db_session)
+    invoice = _make_invoice(db_session, user, customer, amount=10.25)
+    invoice.currency = "USD"
+    db_session.commit()
+    assert mt._send_customer_whatsapp_reminder(invoice, customer, user, "customer_manual", "Ada Stores")
+    wa.send_template.assert_not_called()
+    message = wa.send_text.call_args.args[1]
+    assert "$10.25" in message
+    assert "overdue" not in message.lower()
+    assert "No due date" in message
 
 
 def test_format_daily_summary_populated():
@@ -775,7 +798,10 @@ def test_daily_summaries_plain_text_and_cash_image(db_session, wa, monkeypatch):
     monkeypatch.setattr("app.bot.conversation_window.is_window_open", lambda phone: True, raising=True)
     monkeypatch.setattr(
         "app.services.analytics_service.calculate_cash_position",
-        lambda db, uid: {"cash_collected_today": 15000, "total_outstanding": 0},
+        lambda db, uid: {
+            "cash_collected_today": 15000, "total_outstanding": 0,
+            "expenses_today": 0, "net_today": 15000, "overdue_count": 0,
+        },
         raising=True,
     )
     monkeypatch.setattr(
@@ -889,6 +915,24 @@ def test_send_customer_whatsapp_reminder_template(db_session, wa, monkeypatch):
     ok = mt._send_customer_whatsapp_reminder(inv, cust, user, "customer_overdue_1d", "Ada Stores")
     assert ok is True
     wa.send_template.assert_called()
+
+
+@pytest.mark.parametrize("days_until_due", [None, 2])
+@pytest.mark.parametrize("window_open", [False, True])
+def test_not_overdue_reminders_respect_conversation_window(
+    db_session, wa, monkeypatch, days_until_due, window_open,
+):
+    monkeypatch.setattr(settings, "WHATSAPP_TEMPLATE_PAYMENT_REMINDER", "overdue_template")
+    monkeypatch.setattr("app.bot.conversation_window.is_window_open", lambda phone: window_open)
+    user = _make_user(db_session)
+    customer = _make_customer(db_session)
+    due_date = datetime.now(timezone.utc) + timedelta(days=days_until_due) if days_until_due is not None else None
+    invoice = _make_invoice(db_session, user, customer, amount=1000, due_date=due_date)
+    assert mt._send_customer_whatsapp_reminder(
+        invoice, customer, user, "customer_manual", "Ada Stores",
+    ) is window_open
+    wa.send_template.assert_not_called()
+    assert wa.send_text.call_count == int(window_open)
 
 
 def test_send_customer_email_reminder(db_session, base_url, monkeypatch):
