@@ -10,7 +10,14 @@ from app.core.config import settings
 from app.models.inventory_models import StockMovement
 from app.models.models import Invoice
 from app.models.retention_models import RetentionContact, RetentionEnrollment, RetentionExperiment
-from app.services.merchant_retention import meaningful_stock_records, merchant_query, outreach_configured, utc
+from app.services.merchant_retention import (
+    meaningful_stock_records,
+    merchant_query,
+    outreach_channels,
+    outreach_configured,
+    outreach_enabled,
+    utc,
+)
 
 
 def _rate(numerator: int, denominator: int) -> dict:
@@ -181,9 +188,29 @@ def retention_metrics(db: Session, now: dt.datetime) -> dict:
             experiment["reactivation_lift_percentage_points"] = (
                 round(treatment - control, 2) if treatment is not None and control is not None else None
             )
+    recent_contacts = db.query(RetentionContact).filter(
+        RetentionContact.created_at >= now - dt.timedelta(days=30),
+        RetentionContact.created_at <= now,
+        RetentionContact.experiment_id.is_(None),
+    ).all()
+    accepted = [c for c in recent_contacts if c.status in {"accepted", "delivered"}]
+    dormant_contacted = {c.user_id for c in accepted if c.state == "dormant"}
+    returned = {
+        uid for uid in dormant_contacted
+        if any(utc(c.created_at) < event <= now for c in accepted if c.user_id == uid for event in events(uid))
+    }
     return {
         "as_of": now,
         "outreach_configured": outreach_configured(),
+        "outreach": {
+            "enabled": outreach_enabled(db),
+            "channels": outreach_channels(),
+            "accepted_last_30_days": {
+                channel: sum(c.channel == channel for c in accepted) for channel in ("email", "whatsapp")
+            },
+            "unknown_or_failed": sum(c.status in {"reserved", "unknown", "failed"} for c in recent_contacts),
+            "active_after_contact": _rate(len(returned), len(dormant_contacted)),
+        },
         "activation_7_day": _rate(activation_success, activation_eligible),
         "retention": {str(days): _rate(counts[0], counts[1]) for days, counts in retention.items()},
         "mean_hours_to_first_invoice": round(mean(invoice_times), 2) if invoice_times else None,
@@ -208,6 +235,10 @@ def retention_metrics(db: Session, now: dt.datetime) -> dict:
             "experiment": (
                 "Fixed assignments, intention-to-treat comparison over 30 days; "
                 "contacted-only rate is descriptive, not causal."
+            ),
+            "ongoing_outreach": (
+                "Ongoing existing-account outreach, not a controlled experiment. Email acceptance is not delivery. "
+                "Active-after-contact uses accepted submissions and subsequent activity; it is not causal attribution."
             ),
         },
     }

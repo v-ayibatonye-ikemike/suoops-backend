@@ -72,7 +72,6 @@ class BaseAppSettings(BaseSettings):
     WHATSAPP_TEMPLATE_PRO_UPGRADE: str | None = None  # Invoice milestone nudge (all features free at 3%)
     WHATSAPP_TEMPLATE_WIN_BACK: str | None = None  # Inactive user re-engagement
     RETENTION_OUTREACH_ENABLED: bool = False
-    WHATSAPP_TEMPLATE_RETENTION: str | None = None
     WHATSAPP_TEMPLATE_LOW_STOCK_ALERT: str | None = None  # Low inventory alert
     WHATSAPP_TEMPLATE_OVERDUE_REPORT: str | None = None  # Owner overdue summary
     WHATSAPP_TEMPLATE_MARK_PAID_NUDGE: str | None = None  # Owner mark-as-paid nudge
@@ -83,7 +82,7 @@ class BaseAppSettings(BaseSettings):
     WHATSAPP_TEMPLATE_FEEDBACK: str | None = None  # Feedback/testimonial request
     WHATSAPP_TEMPLATE_UNPAID_ALERT: str | None = None  # Aggregate unpaid notification
     WHATSAPP_TEMPLATE_PAYMENT_UPSELL: str | None = None  # Payment-triggered growth nudge (3% model)
-    WHATSAPP_TEMPLATE_FEATURE_ANNOUNCEMENT: str | None = None  # One-off product announcement (params: name, body)
+    WHATSAPP_TEMPLATE_FEATURE_ANNOUNCEMENT: str | None = None  # One-off product announcement (params: name)
     WHATSAPP_TEMPLATE_LANGUAGE: str = "en"
 
     @field_validator("WHATSAPP_PHONE_NUMBER_ID", mode="before")

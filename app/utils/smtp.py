@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import logging
 import smtplib
+from collections.abc import Sequence
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class EmailOutcomeUnknown(RuntimeError):
+    """SMTP submission began but acceptance could not be confirmed."""
 
 # Reusable SMTP connection for batch sends (avoids reconnect per email)
 _smtp_connection: smtplib.SMTP | None = None
@@ -102,6 +107,11 @@ def get_smtp_config() -> tuple[str, int, str | None, str | None, str]:
 _get_smtp_config = get_smtp_config
 
 
+def get_retention_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
+    """Reuse Brevo for commercial mail; never fall back to transactional-only ZeptoMail."""
+    return [config for config in get_smtp_configs() if config[0].lower() == "smtp-relay.brevo.com"]
+
+
 def send_email_with_fallback(
     to_email: str,
     subject: str,
@@ -110,6 +120,8 @@ def send_email_with_fallback(
     *,
     check_suppression: bool = True,
     timeout: int = 15,
+    provider_configs: Sequence[tuple[str, int, str | None, str | None, str]] | None = None,
+    unsubscribe_url: str | None = None,
 ) -> bool:
     """Send one email, trying each configured provider until one accepts it.
 
@@ -118,7 +130,7 @@ def send_email_with_fallback(
     auth failure (SMTP 535) falls back to Brevo automatically. ``check_suppression``
     is skipped for critical mail (e.g. login OTP) that must send regardless.
     """
-    configs = get_smtp_configs()
+    configs = get_smtp_configs() if provider_configs is None else provider_configs
     if not configs:
         logger.warning("SMTP not configured, skipping email to %s", to_email)
         return False
@@ -136,17 +148,27 @@ def send_email_with_fallback(
         msg["From"] = from_email
         msg["To"] = to_email
         msg["Subject"] = subject
+        if unsubscribe_url:
+            msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         msg.attach(MIMEText(plain_body, "plain"))
         if html_body:
             msg.attach(MIMEText(html_body, "html"))
+        submitted = False
         try:
             with smtplib.SMTP(host, port, timeout=timeout) as server:
                 server.starttls()
                 server.login(user, password)
-                server.send_message(msg)
+                submitted = True
+                refused = server.send_message(msg)
+                if unsubscribe_url and refused:
+                    logger.warning("Retention email recipient was refused by %s", host)
+                    return False
             logger.info("SMTP provider %s accepted email for %s", host, to_email)
             return True
         except Exception as e:  # noqa: BLE001 — fall through to the next provider
+            if unsubscribe_url and submitted and not isinstance(e, smtplib.SMTPRecipientsRefused):
+                raise EmailOutcomeUnknown("SMTP acceptance is unknown; do not retry on another channel") from e
             last_error = f"{host}: {e}"
             logger.warning("SMTP send via %s failed for %s: %s", host, to_email, e)
             continue
@@ -154,6 +176,13 @@ def send_email_with_fallback(
     logger.error("All SMTP providers failed for %s (last error: %s)", to_email, last_error)
     return False
 
+
+def send_retention_email(to_email: str, subject: str, plain_body: str, unsubscribe_url: str) -> bool:
+    return send_email_with_fallback(
+        to_email, subject, None, plain_body,
+        provider_configs=get_retention_smtp_configs(),
+        unsubscribe_url=unsubscribe_url,
+    )
 
 def send_smtp_email(to_email: str, subject: str, html_body: str | None, plain_body: str) -> bool:
     """Send an email via SMTP with automatic provider fallback. Returns True on success."""

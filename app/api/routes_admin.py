@@ -3999,6 +3999,7 @@ def export_users_csv(
 # ============================================================================
 
 ALLOWED_TASKS = {
+    "retention": "retention.refresh_merchants",
     "welcome": "welcome.broadcast_welcome",
     "engagement": "engagement.send_lifecycle_emails",
     "daily_summary": "summary.send_daily_summaries",

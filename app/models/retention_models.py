@@ -20,12 +20,13 @@ class MerchantLifecycle(Base):
     consent_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     consent_source: Mapped[str | None] = mapped_column(String(30))
     consented_phone: Mapped[str | None] = mapped_column(String(32))
+    email_opted_out: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 
 class RetentionExperiment(Base):
     __tablename__ = "retention_experiment"
 
-    # One bounded pilot, not a general-purpose campaign builder.
+    # Keep the legacy table for the shared pause control and historical results.
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
     enabled: Mapped[bool] = mapped_column(default=False, server_default="false")
     started_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
@@ -50,7 +51,8 @@ class RetentionContact(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
-    experiment_id: Mapped[int] = mapped_column(ForeignKey("retention_experiment.id"), index=True)
+    experiment_id: Mapped[int | None] = mapped_column(ForeignKey("retention_experiment.id"), index=True)
+    channel: Mapped[str] = mapped_column(String(20), default="whatsapp", server_default="whatsapp")
     trigger: Mapped[str] = mapped_column(String(40))
     dedupe_key: Mapped[str] = mapped_column(String(120))
     state: Mapped[str] = mapped_column(String(20))

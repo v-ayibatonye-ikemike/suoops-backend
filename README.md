@@ -142,7 +142,7 @@ filters use the existing due-date-first semantics, falling back to creation
 date when no due date exists; this is explained in both the assistant and list.
 Invalid or reversed dates return HTTP 422 instead of silently removing a filter.
 
-### Merchant retention pilot
+### Ongoing merchant retention outreach
 
 The merchant lifecycle reuses Business Intelligence's health-score calculation,
 Commerce Copilot, Collections, inventory advice, and Ask SuoOps. It is not a
@@ -181,66 +181,70 @@ previous courier orders or awareness of the feature. The message
 explains buyer-paid delivery, the seller's package photo and booking request,
 waiting for confirmation, and the difference between pickup and drop-off.
 Options remain subject to address and courier availability; no live quote is
-requested merely to prepare a nudge. These messages reuse the same pilot,
-approved-template requirement, consent, cooldowns and disabled-by-default gate.
+requested merely to prepare a nudge. Personalized messages use existing Brevo
+SMTP; no new Meta template is needed.
 
 Rollout (nothing sends merely by deploying):
 
-1. Apply Alembic migration `20261014_merchant_retention` before starting updated
-   web/worker processes.
-2. Merchants explicitly opt in under **Settings > AI controls > WhatsApp business
-   nudges**, or send `START NUDGES` from their verified number. Consent is bound
-   to that number, not inferred from phone verification. `STOP`, `STOP NUDGES`
-   and `UNSUBSCRIBE` revoke it. `SUMMARY` opens the existing grounded Copilot
-   briefing, including collections and stock.
-3. A super admin uses **Business Intelligence > Merchant retention pilot** to
-   preview recommendations and select exactly 50 opted-in, phone-verified,
-   at-risk/dormant sellers. Internal/test accounts, team-member accounts and
-   flagged businesses are excluded. Enrollment randomly freezes 25 control /
-   25 treatment assignments; it creates a **paused** pilot.
-4. Obtain Meta approval for a business-nudge template with three body parameters:
-   business name, verified recommendation, and dashboard action URL. Suggested
-   fixed text: `Hi {{1}}. {{2}} Review: {{3}}. Reply SUMMARY for your business
-   briefing or STOP to stop business nudges.` Use the appropriate Meta category
-   for re-engagement; do not send free-form messages outside the conversation window.
-5. Configure `WHATSAPP_TEMPLATE_RETENTION` and explicitly set
-   `RETENTION_OUTREACH_ENABLED=true` on the API and worker. Then review the
-   cohort/template and enable the pilot in the admin panel. The 30-day window
-   begins only on first enable; pause/resume never resets it. The default flag
-   is false. The worker's flag and the admin pause control both gate sends.
+1. Apply Alembic through `20261014_ongoing_retention` before starting updated
+   web/worker processes. Historical experiment/contact data remains intact.
+2. Reuse `BREVO_SMTP_LOGIN` and `BREVO_SMTP_KEY` for email. ZeptoMail remains
+   available for transactional messages, never as a retention-email fallback.
+   Email is preferred for existing merchants with an address who have not opted
+   out or been suppressed for bounces/complaints.
+3. WhatsApp requires explicit, verified-number-bound consent in **Settings >
+   AI controls > Business nudges** or `START NUDGES`. Phone verification alone
+   is not consent. The existing `WHATSAPP_TEMPLATE_UNPAID_ALERT` is used only
+   for outstanding NGN invoices, with its established name/amount/count fields.
+   Arbitrary tax/storefront text is not inserted into a fixed Meta template.
+4. Set `RETENTION_OUTREACH_ENABLED=true` on both API and worker, then enable
+   **Business Intelligence > Merchant retention outreach**, or use authorized
+   `PATCH /admin/retention/outreach` with `{"enabled": true}`. Both gates are
+   required. Pause through the same control with `false`.
+5. The existing task runs daily at 09:00 UTC (10:00 WAT). A super admin can start
+   it immediately via `POST /admin/tasks/retention/trigger`. Processing batches
+   of 50 are pagination, not a pilot or recipient cap. There is no enrollment,
+   control group or 30-day expiry. Internal/test, team-member and flagged
+   accounts remain excluded; only merchants with useful recommendations qualify.
 
-At most one nudge per merchant per seven days, within the shared WhatsApp budget.
+Email includes a signed unsubscribe link and one-click unsubscribe headers.
+GET shows confirmation without changing preferences; POST opts out. Merchants
+can also change email and WhatsApp preferences in settings. WhatsApp `STOP`,
+`STOP NUDGES` and `UNSUBSCRIBE` stop business nudges without switching them to
+email. `SUMMARY` still opens their existing grounded Copilot briefing.
+Unsubscribing does not disable account login, invoice or receipt emails.
+
+At most one nudge per merchant per seven days across both channels; WhatsApp
+also respects the existing shared budget and recent legacy lifecycle emails.
 Database reservations and unique episode keys prevent overlapping workers from
 sending the same action again. Reservations persist before the provider call;
 ambiguous failures are surfaced as unknown and **not retried automatically**.
-Only a real provider message ID counts as accepted; delivery webhooks establish
-delivery separately. Re-check provider logs before manually resolving an unknown
+SMTP acceptance or a WhatsApp provider message ID counts as accepted, not inbox
+delivery. WhatsApp delivery webhooks establish delivery separately.
+Re-check provider logs before manually resolving an unknown
 outcome. Never reset the dedupe key merely to force a retry.
 
-Both pilot arms are excluded from overlapping activation, win-back, aggregate
-unpaid, growth, expense-habit, feedback and morning-tip campaigns while enrolled
-or within the experiment window, including while paused. Explicit opt-outs also
-suppress those merchant campaigns. Normal transaction notifications and existing
-customer collections behavior are unchanged. Legacy non-pilot campaigns remain
-available; the unreachable old phone-verification and rotating-tip email helpers
-have been removed rather than duplicated.
+When the global flag is enabled, this engine replaces overlapping activation,
+win-back, aggregate unpaid, growth, expense-habit, feedback and morning-tip
+campaigns, including while the admin control is paused. Explicit opt-outs and
+recent retention contacts also suppress those merchant campaigns if the flag
+is later disabled. Normal transaction notifications and existing customer
+collections behavior are unchanged. Historical experiment exclusions remain
+respected; obsolete pilot-creation controls have been removed.
 
 The panel reports activation, matured 30/60/90-day retention, mean time to first
 invoice/payment, GMV and recorded commission per active merchant, conversion,
-and fixed-arm experiment outcomes. Retention means meaningful activity in days
+and accepted outreach by channel. Retention means meaningful activity in days
 N through N+6 after signup, excluding immature cohorts. GMV is based on recorded
 paid invoices, including merchant-marked payments, not verified bank settlement.
 Only persisted commission fees are counted; missing historical fees are explicit.
 Naira GMV is not mixed with other currencies.
 
-Compare intention-to-treat reactivation across the original 25 businesses per
-arm; deleted accounts do not shrink that denominator. The additional requested
-rate is dormant businesses active **after delivery** divided by dormant
-businesses delivered a nudge. Zero denominators return null, not a misleading
-0%. WhatsApp response rate is inbound activity within seven days of a delivered
-nudge (exact reply context when provided), an attribution window rather than
-causal proof. The 30-day cutoff is fixed; do not treat this small pilot's observed
-lift as statistically established improvement.
+Ongoing activity-after-contact is measured after accepted submission and is
+observational, not proof that outreach caused the return. Zero denominators
+return null rather than a misleading 0%. Historical experiment reporting is
+preserved separately with its original fixed arms, delivery-based attribution
+and fixed cutoff; ongoing contacts are not added to those experiment results.
 
 ### Storefront delivery quotes
 

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="retention.refresh_merchants", soft_time_limit=300, time_limit=360)
 def refresh_merchants() -> dict:
-    """Refresh every business in bounded batches; never bulk-enroll or implicitly send."""
+    """Refresh businesses and send useful ongoing outreach when explicitly enabled."""
     after_id = 0
     stats = {"processed": 0, "accepted": 0, "unknown": 0, "skipped": 0, "failed": 0}
     while True:
@@ -37,10 +37,12 @@ def refresh_merchants() -> dict:
                     outcome = send_retention_contact(db, user_id, now)
                     stats["accepted"] += outcome == "accepted"
                     stats["unknown"] += outcome == "unknown"
-                    stats["skipped"] += outcome not in {"accepted", "unknown"}
+                    stats["failed"] += outcome == "failed"
+                    stats["skipped"] += outcome not in {"accepted", "unknown", "failed"}
                     stats["processed"] += 1
             except Exception:
                 logger.exception("Retention processing failed for business %s", user_id)
                 stats["failed"] += 1
         after_id = ids[-1]
+    logger.info("Ongoing retention outreach completed: %s", stats)
     return stats

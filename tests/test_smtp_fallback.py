@@ -3,6 +3,7 @@ the next configured provider (Brevo) so transactional mail still sends.
 """
 
 import smtplib
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -109,3 +110,31 @@ def test_returns_false_when_all_providers_fail(two_providers, monkeypatch):
     ok = smtp_mod.send_email_with_fallback("user@example.com", "Subject", None, "hi", check_suppression=False)
     assert ok is False
     assert sent == []
+
+
+@pytest.mark.parametrize(
+    "failure", [None, smtplib.SMTPAuthenticationError(535, b"rejected"), TimeoutError("response lost")]
+)
+def test_retention_uses_brevo_only_and_never_retries_uncertain_submission(two_providers, monkeypatch, failure):
+    monkeypatch.setattr("app.services.email_suppression.is_suppressed", lambda email: False)
+    server = MagicMock()
+    server.send_message.return_value = {}
+    connection = MagicMock()
+    connection.return_value.__enter__.return_value = server
+    monkeypatch.setattr(smtp_mod.smtplib, "SMTP", connection)
+    if isinstance(failure, smtplib.SMTPAuthenticationError):
+        server.login.side_effect = failure
+    else:
+        server.send_message.side_effect = failure
+    unsubscribe_url = "https://api.suoops.com/ai/retention/unsubscribe?token=signed"
+    if isinstance(failure, TimeoutError):
+        with pytest.raises(smtp_mod.EmailOutcomeUnknown):
+            smtp_mod.send_retention_email("user@example.com", "Business records", "Your records", unsubscribe_url)
+    else:
+        result = smtp_mod.send_retention_email("user@example.com", "Business records", "Your records", unsubscribe_url)
+        assert result is (failure is None)
+    connection.assert_called_once_with("smtp-relay.brevo.com", 587, timeout=15)
+    if failure is None:
+        message = server.send_message.call_args.args[0]
+        assert message["List-Unsubscribe"] == f"<{unsubscribe_url}>"
+        assert message["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
