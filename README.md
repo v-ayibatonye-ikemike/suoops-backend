@@ -159,6 +159,30 @@ Clear product/service requests (including `I want to add produccts`) reuse the
 web assistant's deterministic matching and permission checks, linking to the
 existing guided form. They never start an unrelated invoice or save an item.
 
+### Everyday WhatsApp conversations
+
+Common tasks accept polite natural language, punctuation, and unambiguous
+single-word typos: `Please show me my balance?`, `Who hasn't paid me?`,
+`Show me my orders`, and `reprot`. These commands use deterministic routing,
+not an AI request. Typo correction is restricted to read commands; it never
+rewrites invoice values or guesses payment, cancellation, or reminder actions.
+
+`help` now gives a short task menu, or the next step of an active draft.
+`full guide` retains the detailed invoice and expense examples. `continue`,
+`resume`, and `where was I?` redisplay the current guided-invoice, product-cart,
+or missing-price prompt without submitting it. Drafts retain their existing
+expiry times; an expired draft is explicitly reported as unavailable.
+`cancel draft` discards unfinished conversations, not saved invoices. Starting
+a different invoice does not silently replace an unfinished draft.
+
+Questions, support requests, thanks, and read commands do not become customer
+details. Product search works within the cart flow, and invalid item selections
+get an actionable prompt instead of silence. Invoice commands take priority
+over a pending feedback request. Drafts belonging to a different account cannot
+be resumed or advanced. `STOP` still opts out of business nudges, but changing
+outreach consent no longer discards an invoice draft. Outreach schedules and
+the existing explicit invoice-confirmation rules are unchanged.
+
 ### Inventory cost reporting
 
 Sale stock movements snapshot the product's acquisition cost, not its selling

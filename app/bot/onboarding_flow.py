@@ -283,11 +283,23 @@ def start_guided_invoice(
 
     _save_session(phone, session)
 
-    examples = _money_examples(session.currency)
-
-    # Decide first prompt based on what's still missing.
     if not session.customer_name:
         session.step = "customer_name"
+    elif not session.amount:
+        session.step = "amount"
+    elif not session.customer_phone:
+        session.step = "phone"
+    else:
+        session.step = "review"
+    _save_session(phone, session)
+    send_current_prompt(client, phone, session)
+    return session
+
+
+def send_current_prompt(client, phone: str, session: OnboardingSession) -> None:
+    """Show the current step without changing or submitting the draft."""
+    examples = _money_examples(session.currency)
+    if session.step == "customer_name":
         client.send_text(
             phone,
             "👋 Sure — let's get that invoice out!\n\n"
@@ -295,8 +307,7 @@ def start_guided_invoice(
             "_Just type their name (e.g. Joy, Mrs Bello, ABC Ltd)_\n\n"
             "_Type *cancel* to stop._",
         )
-    elif not session.amount:
-        session.step = "amount"
+    elif session.step == "amount":
         client.send_text(
             phone,
             f"👍 Got it — invoice for *{session.customer_name}*.\n\n"
@@ -307,8 +318,7 @@ def start_guided_invoice(
             f"• `{examples[2]}`\n\n"
             "_Type *cancel* to stop._",
         )
-    elif not session.customer_phone:
-        session.step = "phone"
+    elif session.step == "phone":
         money = _money_label(session.amount, session.currency)
         desc = f" for *{session.description}*" if session.description else ""
         client.send_text(
@@ -318,18 +328,8 @@ def start_guided_invoice(
             "_So they get the invoice on WhatsApp._\n"
             "_Type *skip* to send without one._",
         )
-    else:
-        # All slots already filled — jump straight to review.
-        session.step = "review"
-        _save_session(phone, session)
+    elif session.step == "review":
         _send_review(client, phone, session)
-
-    # Persist the step chosen above (customer_name / amount / phone). The earlier
-    # _save_session ran BEFORE these mutations, so without this the step was lost
-    # and the next reply was handled at the wrong slot — causing a double
-    # "how much?" prompt and breaking the review buttons.
-    _save_session(phone, session)
-    return session
 
 
 def clear_onboarding(phone: str) -> None:

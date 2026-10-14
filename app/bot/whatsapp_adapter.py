@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_data_owner_id
+from app.bot.conversation_commands import command_text, match_command
 from app.bot.conversation_window import mark_conversation_active
 from app.bot.expense_intent_processor import ExpenseIntentProcessor
 from app.bot.invoice_intent_processor import (
@@ -21,6 +22,7 @@ from app.bot.onboarding_flow import (
     clear_onboarding,
     get_onboarding_session,
     handle_onboarding_reply,
+    send_current_prompt,
 )
 from app.bot.product_invoice_flow import ProductInvoiceFlow, clear_cart, get_cart
 from app.bot.support_handler import SupportHandler
@@ -75,14 +77,16 @@ class WhatsAppHandler:
 
     def _handle_read_command(self, sender: str, text: str) -> bool:
         routes = (
-            ({"orders", "my orders", "show orders", "order status", "what needs dispatch"}, self._send_order_status),
-            ({"status", "my invoices", "my invoice", "balance", "how many invoices", "invoice balance"},
-             self._send_quick_status),
-            ({"owed", "pending", "unpaid", "outstanding", "who owes me", "who owes me money", "owes me"},
-             self._send_owed_list),
-            ({"report", "analytics", "insights", "dashboard", "stats", "my stats", "my report"}, self._send_analytics),
-            ({"help", "menu", "guide", "how", "instructions", "commands"}, self._send_help_guide),
-            ({"account", "me", "whoami", "my account", "profile", "my profile"}, self._send_account_status),
+            ({"orders"}, self._send_order_status),
+            ({"status"}, self._send_quick_status),
+            ({"owed"}, self._send_owed_list),
+            ({"report"}, self._send_analytics),
+            ({"help"}, self._send_help_guide),
+            ({"full guide"}, self._send_full_help_guide),
+            ({"account"}, self._send_account_status),
+            ({"wallet"}, self._send_wallet),
+            ({"storefront"}, self._send_storefront_link),
+            ({"tax report"}, self._send_tax_report),
             (_GREETINGS, self._send_business_greeting),
         )
         for commands, respond in routes:
@@ -98,6 +102,37 @@ class WhatsAppHandler:
                 respond(sender, issuer_id)
             return True
         return False
+
+    def _send_draft_guidance(self, sender: str) -> bool:
+        onboarding = get_onboarding_session(sender)
+        cart = get_cart(sender)
+        pending = get_pending_price_session(sender)
+        active = onboarding or cart or pending
+        if active is None:
+            return False
+        actor_id = self.invoice_processor._resolve_issuer_id(sender)
+        if actor_id is None or active.user_id != actor_id:
+            self.client.send_text(
+                sender,
+                "This draft belongs to a different business account. Type *cancel draft* before starting again.",
+            )
+            return True
+        if onboarding:
+            send_current_prompt(self.client, sender, onboarding)
+        elif cart:
+            summary = cart.cart_summary_fmt(get_user_currency(self.db, actor_id)) if cart.items else ""
+            next_step = (
+                "Reply with items and quantities, e.g. `2 wig, 1 shoe`. Type *products* to browse or *search wig*."
+                if cart.step == "awaiting_items"
+                else "Reply with the customer's name and phone, e.g. `Joy 08012345678`, to create this invoice. "
+                "Type *more* to add items."
+            )
+            self.client.send_text(
+                sender, f"*Your product invoice draft*\n{summary}\n\n{next_step}\n*cancel draft* discards this draft.",
+            )
+        elif pending:
+            self.invoice_processor.send_price_prompt(sender, pending)
+        return True
 
     def _send_order_status(self, sender: str, issuer_id: int) -> None:
         from urllib.parse import quote
@@ -304,7 +339,8 @@ class WhatsAppHandler:
             logger.info("Received empty text message from %s", sender)
             return
 
-        text_lower = text.lower()
+        text_lower = command_text(text)
+        command = match_command(text)
         if text_lower in {"stop", "stop nudges", "unsubscribe", "start nudges"}:
             merchant = self.db.query(models.User).filter(
                 models.User.phone.in_(get_phone_variants(sender)),
@@ -318,9 +354,6 @@ class WhatsAppHandler:
                 except ValueError as exc:
                     self.client.send_text(sender, str(exc))
                     return
-                clear_onboarding(sender)
-                clear_cart(sender)
-                clear_pending_price_session(sender)
                 self.client.send_text(
                     sender,
                     "Business nudges enabled (at most once a week). Reply STOP to opt out."
@@ -329,7 +362,7 @@ class WhatsAppHandler:
                 )
                 return
 
-        if self._handle_read_command(sender, text_lower):
+        if self._handle_read_command(sender, command or text_lower):
             return
 
         selection = re.fullmatch(r"(\d{1,2})(?:\s+(paid|remind|cancel|void))?", text_lower)
@@ -339,6 +372,71 @@ class WhatsAppHandler:
             if selection.group(2) or get_owed_list(sender):
                 self._maybe_handle_owed_list_reply(sender, text_lower)
                 return
+
+        if command == "continue":
+            if not self._send_draft_guidance(sender):
+                self.client.send_text(
+                    sender, "You have no active draft here. It may have expired or already been completed.\n"
+                    "Type *invoice* to start step by step, or *products* to invoice from stock.",
+                )
+            return
+        if command == "cancel draft":
+            clear_onboarding(sender)
+            clear_cart(sender)
+            clear_pending_price_session(sender)
+            self.client.send_text(
+                sender, "Drafts cleared. Your existing invoices have not been changed.\n"
+                "Type *invoice* to start again or *help* for options.",
+            )
+            return
+        if command in {"support", "setup"} and self.support_handler.try_handle(sender, command):
+            return
+        if command == "invoice actions":
+            self.client.send_text(
+                sender, "Which invoice do you mean? Type *owed* to see outstanding invoices, then use its number "
+                "with *paid*, *remind*, or *cancel*, e.g. *1 remind*.\nNo existing invoice has been changed.",
+            )
+            return
+
+        onboarding = get_onboarding_session(sender)
+        cart_session = get_cart(sender)
+        pending_price = get_pending_price_session(sender)
+        active_draft = onboarding or cart_session or pending_price
+
+        if command == "invoice" or (active_draft and text_lower.startswith("invoice ")):
+            if active_draft:
+                self.client.send_text(
+                    sender, "You already have an unfinished invoice. Type *continue* to resume, "
+                    "or *cancel draft* before starting another one. Nothing has been replaced.",
+                )
+            else:
+                issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+                if issuer_id is None:
+                    self.client.send_text(sender, "Link your WhatsApp number at suoops.com to create an invoice.")
+                else:
+                    from app.bot.onboarding_flow import start_guided_invoice
+
+                    start_guided_invoice(
+                        self.client, sender, issuer_id, db=self.db, currency=get_user_currency(self.db, issuer_id),
+                    )
+            return
+
+        search_match = re.fullmatch(r"(?:search|find)\s+(.+)", text, re.IGNORECASE)
+        if command == "products" or search_match:
+            if onboarding or pending_price:
+                self.client.send_text(
+                    sender, "Your current invoice draft is still open. Type *continue* to finish it or "
+                    "*cancel draft* before browsing products for another invoice.",
+                )
+                return
+            if self._check_inventory_access(sender):
+                issuer_id = self.invoice_processor._resolve_issuer_id(sender)
+                if issuer_id is not None:
+                    if search_match:
+                        self.product_flow.handle_search(sender, issuer_id, search_match[1].strip())
+                    else:
+                        self.product_flow.start_browsing(sender, issuer_id)
+            return
 
         if len(text) <= 500 and {"add", "create", "register", "upload"} & set(text_lower.split()):
             from app.models.schemas.web_assistant import WebAssistantQuestion
@@ -388,9 +486,30 @@ class WhatsAppHandler:
             await self._send_copilot_response(sender, issuer_id, text)
             return
 
+        if (
+            (not active_draft or text_lower not in {"✅", "❌", "👍"})
+            and self._handle_conversational(sender, text_lower)
+        ):
+            return
+        is_question = bool(re.match(
+            r"^(?:how|what|why|where|when|who|can you|could you|is it|does|do you|help me)\b", text_lower,
+        ))
+        is_negated = bool(re.match(r"^(?:(?:please|i|we)\s+)*(?:don't|dont|do not|never)\b", text_lower))
+        if is_question or is_negated:
+            if self.support_handler.try_handle(sender, text):
+                return
+            self.client.send_text(
+                sender, "I haven't changed or submitted anything. Type *help* to choose a task, "
+                "*continue* for your draft's next step, or *support* for help.\n"
+                "For business facts, ask *Copilot*, e.g. `Copilot what is low on stock?`.",
+            )
+            return
+
         # ── Guided onboarding flow (new users creating first invoice) ──
-        onboarding = get_onboarding_session(sender)
         if onboarding:
+            if onboarding.user_id != self.invoice_processor._resolve_issuer_id(sender):
+                self._send_draft_guidance(sender)
+                return
             # Let user break out of onboarding with explicit commands
             if text_lower in {"help", "menu", "invoice"} or text_lower.startswith("invoice "):
                 clear_onboarding(sender)
@@ -433,18 +552,6 @@ class WhatsAppHandler:
                     return
             except Exception:
                 logger.exception("inline edit handler failed")
-
-        # ── Feedback collection ──────────────────────────────────
-        # If user has a pending feedback request and sends a substantial
-        # reply (10+ chars, not a short keyword), capture it as a testimonial.
-        if len(text) >= 10 and text_lower not in {"help", "menu", "hi", "hello", "hey", "start", "invoice", "report"}:
-            from app.workers.tasks.feedback_tasks import (
-                is_feedback_pending,
-            )
-
-            if is_feedback_pending(sender):
-                if self._save_feedback(sender, text):
-                    return
 
         # Separate help vs greeting for different responses
         help_keywords = {"help", "menu", "guide", "how", "instructions", "commands"}
@@ -524,7 +631,6 @@ class WhatsAppHandler:
 
         # ── Product browsing flow ───────────────────────────────────
         # Check if user has an active cart session (mid-flow)
-        cart_session = get_cart(sender)
         if cart_session:
             if not self._check_inventory_access(sender):
                 return
@@ -551,8 +657,10 @@ class WhatsAppHandler:
                 return
 
         # ── Pending-price session (qty-only items needing prices) ──
-        pending_price = get_pending_price_session(sender)
         if pending_price:
+            if pending_price.user_id != self.invoice_processor._resolve_issuer_id(sender):
+                self._send_draft_guidance(sender)
+                return
             # Let user cancel or start a new invoice
             if text_lower in {"cancel", "stop", "nevermind", "no"}:
                 clear_pending_price_session(sender)
@@ -786,6 +894,12 @@ class WhatsAppHandler:
         except Exception as exc:
             logger.exception("Error in support handler: %s", exc)
         # ── End support ───────────────────────────────────────────
+
+        if len(text) >= 10:
+            from app.workers.tasks.feedback_tasks import is_feedback_pending
+
+            if is_feedback_pending(sender) and self._save_feedback(sender, text):
+                return
 
         # If we get here with an unknown intent, send a friendly nudge
         issuer_id = self.invoice_processor._resolve_issuer_id(sender)
@@ -1378,7 +1492,7 @@ class WhatsAppHandler:
             "cool thanks",
             "wonderful",
         }
-        if text_lower in thank_phrases or text_lower.startswith("thank"):
+        if text_lower in thank_phrases:
             self.client.send_text(
                 sender, "You're welcome! 😊\n\n" "Let me know if you need anything else — I'm always here."
             )
@@ -1794,6 +1908,27 @@ class WhatsAppHandler:
             )
 
     def _send_help_guide(self, sender: str, issuer_id: int) -> None:
+        if self._send_draft_guidance(sender):
+            return
+        self.client.send_text(
+            sender,
+            "*What would you like to do?*\n\n"
+            "*invoice* - create an invoice step by step\n"
+            "*products* - invoice from your stock\n"
+            "*add product* - open the guided product form\n"
+            "*owed* - see unpaid invoices and choose a follow-up\n"
+            "*status* - cash today and outstanding balances\n"
+            "*orders* - paid store orders and next steps\n"
+            "*storefront* - get your store link\n"
+            "*wallet* - check your invoicing wallet\n"
+            "*report* - business figures; *summary* - business priorities\n\n"
+            "You can say \"Who hasn't paid me?\" or \"Show me my balance\".\n"
+            "*continue* resumes a draft; *cancel draft* discards it without changing existing invoices.\n"
+            "*full guide* - all invoice and expense examples\n"
+            "*support* - reach our team",
+        )
+
+    def _send_full_help_guide(self, sender: str, issuer_id: int) -> None:
         """Send comprehensive help guide to a business user."""
         help_message = (
             "📖 *SuoOps Invoice Guide*\n\n"

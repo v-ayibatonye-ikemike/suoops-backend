@@ -360,6 +360,10 @@ class ProductInvoiceFlow:
 
         entries = _parse_item_entries(text)
         if not entries:
+            self.client.send_text(
+                phone, "Please include a product name and quantity, e.g. *2 wig*.\n"
+                "Type *products* to browse or *cancel draft* to stop.",
+            )
             return False
 
         matched: list[CartItem] = []
@@ -522,7 +526,7 @@ class ProductInvoiceFlow:
             if not clean.isdigit() and len(token) >= 2:
                 customer_name = token.capitalize()
                 break
-        if customer_name is None:
+        if customer_name is None or (tokens[0].isdigit() and not customer_phone):
             self.client.send_text(
                 phone, "Please include the customer's name, for example *Joy 08012345678*. Your draft is still saved.",
             )

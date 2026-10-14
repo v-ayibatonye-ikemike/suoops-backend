@@ -429,6 +429,10 @@ class SupportHandler:
 
         for entry in _FAQ_ENTRIES:
             for pattern in entry["patterns"]:
+                if pattern in {"price", "how much"} and text != pattern and not re.search(
+                    r"\b(?:suoops|fees?|pricing|plans?|subscription)\b", text,
+                ):
+                    continue
                 # Exact substring match
                 if pattern in text:
                     score = len(pattern)  # Longer matches win

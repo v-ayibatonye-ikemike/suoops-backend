@@ -1327,11 +1327,13 @@ class InvoiceIntentProcessor:
             data={k: v for k, v in data.items() if k not in ("lines", "amount")},
         )
         _pending_prices[sender] = session
+        self.send_price_prompt(sender, session)
 
+    def send_price_prompt(self, sender: str, session: PendingPriceSession) -> None:
         items_list = "\n".join(
             f"  {i + 1}. {line['description'].title()} (×{line['quantity']})" for i, line in enumerate(session.lines)
         )
-        customer = data.get("customer_name", "your customer")
+        customer = session.data.get("customer_name", "your customer")
         n = len(session.lines)
         example = ", ".join(["5000"] * n)
 
