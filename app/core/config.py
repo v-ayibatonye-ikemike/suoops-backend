@@ -71,6 +71,8 @@ class BaseAppSettings(BaseSettings):
     WHATSAPP_TEMPLATE_INVOICE_PACK_PROMO: str | None = None  # Wallet empty — top up prompt
     WHATSAPP_TEMPLATE_PRO_UPGRADE: str | None = None  # Invoice milestone nudge (all features free at 3%)
     WHATSAPP_TEMPLATE_WIN_BACK: str | None = None  # Inactive user re-engagement
+    RETENTION_OUTREACH_ENABLED: bool = False
+    WHATSAPP_TEMPLATE_RETENTION: str | None = None
     WHATSAPP_TEMPLATE_LOW_STOCK_ALERT: str | None = None  # Low inventory alert
     WHATSAPP_TEMPLATE_OVERDUE_REPORT: str | None = None  # Owner overdue summary
     WHATSAPP_TEMPLATE_MARK_PAID_NUDGE: str | None = None  # Owner mark-as-paid nudge

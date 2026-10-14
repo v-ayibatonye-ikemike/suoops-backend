@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.rate_limit import limiter
 from app.api.routes_admin_auth import get_current_admin
+from app.api.routes_retention import admin_router as retention_admin_router
 from app.core.audit import log_audit_event
 from app.core.cache import cached
 from app.db.session import get_db
@@ -21,11 +22,13 @@ from app.models.schemas.ai_governance import (
     AIGovernanceOverviewOut,
 )
 from app.models.schemas.dispute_ai import DisputeAssistantOut
+from app.services.business_health import business_health_score
 from app.utils.feature_gate import INVOICE_PACK_SIZE
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+router.include_router(retention_admin_router)
 
 # Safety ceiling for admin analytics list queries that load full result sets
 # into memory. Generous enough to never truncate real data at current scale,
@@ -3096,45 +3099,7 @@ def get_business_intelligence(
                 last_inv = last_inv.replace(tzinfo=dt.timezone.utc)
             days_since = (now - last_inv).days
 
-        # ── Health Score (0–100) ──
-        score = 50  # baseline
-
-        # Activity (+/- 30)
-        if days_since is not None:
-            if days_since <= 3:
-                score += 30
-            elif days_since <= 7:
-                score += 20
-            elif days_since <= 14:
-                score += 10
-            elif days_since <= 30:
-                score += 0
-            elif days_since <= 60:
-                score -= 10
-            else:
-                score -= 20
-        else:
-            # never created an invoice
-            score -= 25
-
-        # Collection rate (+/- 15)
-        if total_rev_count >= 3:
-            if collection >= 70:
-                score += 15
-            elif collection >= 40:
-                score += 5
-            else:
-                score -= 10
-
-        # Invoice volume (+/- 10)
-        if inv_this_month >= 10:
-            score += 10
-        elif inv_this_month >= 3:
-            score += 5
-        elif inv_total == 0:
-            score -= 5
-
-        score = max(0, min(100, score))
+        score = business_health_score(days_since, total_rev_count, collection, inv_this_month, inv_total)
 
         # Risk flags
         flags: list[str] = []

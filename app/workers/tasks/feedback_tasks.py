@@ -146,6 +146,10 @@ def collect_user_feedback() -> dict[str, Any]:
             logger.info("Feedback collection: %d candidate users", len(users_with_counts))
 
             for user, invoice_count in users_with_counts:
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    continue
                 try:
                     # Check milestone
                     hit_milestone = any(invoice_count >= m for m in MILESTONES)

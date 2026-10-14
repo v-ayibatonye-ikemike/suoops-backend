@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import Any
 
@@ -35,7 +36,9 @@ from app.services.analytics_service import (
     get_date_range,
 )
 from app.services.invoice_service import build_invoice_service
+from app.services.merchant_retention import record_delivery, record_response, set_consent, whatsapp_event_time
 from app.utils.currency_fmt import fmt_money, get_user_currency
+from app.utils.phone import get_phone_variants
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,13 @@ class WhatsAppHandler:
         """Handle incoming WhatsApp webhook payload with robust error handling."""
         sender = None  # Initialise early so the except block can safely check it
         try:
+            for entry in payload.get("entry", []):
+                for change in entry.get("changes", []):
+                    for receipt in change.get("value", {}).get("statuses", []):
+                        if receipt.get("id") and receipt.get("status") in {"delivered", "read", "failed"}:
+                            event_time = whatsapp_event_time(receipt.get("timestamp"))
+                            if event_time:
+                                record_delivery(self.db, receipt["id"], receipt["status"], event_time)
             message = extract_message(payload)
             if not message:
                 # Status webhooks (sent/delivered/read) are normal — not errors
@@ -98,6 +108,17 @@ class WhatsAppHandler:
 
             # Track 24-hour conversation window for outbound messaging
             mark_conversation_active(sender)
+            merchant = self.db.query(models.User).filter(
+                models.User.phone.in_(get_phone_variants(sender)),
+            ).order_by(models.User.phone_verified.desc()).first()
+            if merchant and message.get("timestamp"):
+                event_time = whatsapp_event_time(message["timestamp"])
+            else:
+                event_time = None
+            if merchant and event_time:
+                record_response(
+                    self.db, merchant.id, event_time, message.get("context_id"),
+                )
 
             msg_type = message.get("type", "text")
 
@@ -214,11 +235,35 @@ class WhatsAppHandler:
             return
 
         text_lower = text.lower()
+        if text_lower in {"stop", "stop nudges", "unsubscribe", "start nudges"}:
+            merchant = self.db.query(models.User).filter(
+                models.User.phone.in_(get_phone_variants(sender)),
+            ).order_by(models.User.phone_verified.desc()).first()
+            if merchant:
+                try:
+                    set_consent(
+                        self.db, merchant.id, text_lower == "start nudges", "whatsapp",
+                        dt.datetime.now(dt.timezone.utc),
+                    )
+                except ValueError as exc:
+                    self.client.send_text(sender, str(exc))
+                    return
+                clear_onboarding(sender)
+                clear_cart(sender)
+                clear_pending_price_session(sender)
+                self.client.send_text(
+                    sender,
+                    "Business nudges enabled (at most once a week). Reply STOP to opt out."
+                    if text_lower == "start nudges"
+                    else "Business nudges stopped. Requested help and transaction updates remain available.",
+                )
+                return
 
         # Explicit Copilot commands supersede any stale multi-message flow so a
         # merchant can always ask for a briefing or grounded business fact.
         copilot_prefixes = ("copilot", "ask suoops")
         copilot_briefing_keywords = {
+            "summary",
             "briefing",
             "daily briefing",
             "today's priorities",
@@ -920,6 +965,7 @@ class WhatsAppHandler:
                 break
 
         is_briefing = lowered in {
+            "summary",
             "copilot",
             "briefing",
             "daily briefing",

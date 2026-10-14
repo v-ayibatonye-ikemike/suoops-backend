@@ -6,7 +6,7 @@ Celery tasks for lifecycle email notifications:
 - Monetization: Nudge to keep the prepaid wallet topped up once value is felt
   (3+ invoices, wallet low, wallet empty). Every feature is free — users only pay
   commission (manual 0.5%, storefront 3%). No plans/subscriptions.
-- Education: Tips every 2 days for active users
+Pilot participants and explicit nudge opt-outs are suppressed here.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from sqlalchemy import func
 
 from app.core.config import settings
 from app.db.session import session_scope
+from app.services.merchant_retention import pilot_protected
 from app.utils.smtp import send_smtp_email as _send_smtp_email
 from app.workers.celery_app import celery_app
 
@@ -45,63 +46,6 @@ EMAIL_NUDGE_DAY14 = "activation_day14"
 EMAIL_3_INVOICES_SENT = "monetization_3_invoices"
 EMAIL_80PCT_LIMIT = "monetization_80pct_limit"
 EMAIL_LIMIT_REACHED = "monetization_limit_reached"
-
-# Phone verification nudge (email-only, users without verified phone)
-EMAIL_PHONE_NUDGE_DAY5 = "phone_nudge_day5"
-EMAIL_PHONE_NUDGE_DAY10 = "phone_nudge_day10"
-
-# Education tips (rotating, tracked by index)
-EMAIL_TIP_PREFIX = "tip_"
-
-# Tips pool — rotated every 2 days
-TIPS = [
-    {
-        "subject": "Get paid faster with payment verification",
-        "headline": "Tip: Get Paid Faster",
-        "body": "When a customer says they've paid, verify it instantly on SuoOps. "
-        "Mark invoices as paid and your records stay accurate — no more guessing.",
-        "tip": "Go to any pending invoice → Mark as Paid. Your cash position updates automatically.",
-        "cta_url": "https://suoops.com/dashboard",
-        "cta_label": "Check Your Invoices →",
-    },
-    {
-        "subject": "Your professionalism score matters",
-        "headline": "Tip: Look Professional",
-        "body": "Businesses that add their logo and bank details to invoices get paid 40% faster. "
-        "Your professionalism score shows how complete your setup is.",
-        "tip": "Upload your logo in Settings → Business Profile to boost your score.",
-        "cta_url": "https://suoops.com/dashboard/settings",
-        "cta_label": "Update Your Profile →",
-    },
-    {
-        "subject": "Send invoices via WhatsApp — it's faster",
-        "headline": "Tip: WhatsApp Delivery",
-        "body": "You can create and send invoices right from WhatsApp. "
-        "Just message your SuoOps number with the customer name, item, and amount.",
-        "tip": 'Try it: Send "Invoice Amina ₦5000 for consulting" to your SuoOps WhatsApp.',
-        "cta_url": None,
-        "cta_label": None,
-    },
-    {
-        "subject": "Track your expenses alongside revenue",
-        "headline": "Tip: Track Expenses Too",
-        "body": "SuoOps isn't just for invoices. Record your business expenses so you can see "
-        "your true profit — not just revenue.",
-        "tip": "Go to Dashboard → Expenses → Add Expense to start tracking.",
-        "cta_url": "https://suoops.com/dashboard/expenses",
-        "cta_label": "Add an Expense →",
-    },
-    {
-        "subject": "Beware of fake payment alerts",
-        "headline": "Tip: Spot Fake Alerts",
-        "body": "Fake bank alerts are everywhere. Always verify payments through your actual bank app "
-        "before releasing goods. SuoOps helps you track what's truly paid vs. pending.",
-        "tip": "Never rely on screenshots alone. Check your bank, then mark it paid on SuoOps.",
-        "cta_url": "https://suoops.com/dashboard",
-        "cta_label": "Review Pending Invoices →",
-    },
-]
-
 
 def _was_sent(db, user_id: int, email_type: str) -> bool:
     """Check if this email type was already sent to this user."""
@@ -207,8 +151,8 @@ def send_engagement_emails() -> dict[str, Any]:
 
     Segments:
     1. Activation — new users who haven't created an invoice yet (Day 0/1/3)
-    2. Monetization — active users approaching or at invoice limits
-    3. Tips — every-2-days education for active FREE-tier users
+    2. Monetization — active users with a low prepaid wallet
+    Education and phone-verification email sequences are retired.
     """
     from app.models.models import Invoice, User
 
@@ -294,6 +238,10 @@ def _process_user(
     """Determine which email (if any) to send to a single user."""
     from app.models.models import Invoice
 
+    if pilot_protected(db, user.id, now):
+        stats["skipped"] += 1
+        return
+
     name = _get_user_name(user)
     signup_age = (
         now - user.created_at.replace(tzinfo=timezone.utc) if user.created_at.tzinfo is None else now - user.created_at
@@ -370,72 +318,6 @@ def _process_user(
         return
 
     stats["skipped"] += 1
-
-
-# ── Phone-verification nudge ─────────────────────────────────────────
-
-
-def _send_phone_nudge(db, user, name: str, days_since_signup: int, stats: dict[str, int]) -> None:
-    """Email users who haven't verified a phone number to connect WhatsApp.
-
-    - Day 5:  First nudge ("Create invoices via WhatsApp")
-    - Day 10: Second nudge ("You're missing out — WhatsApp invoicing is faster")
-
-    Uses the existing ``whatsapp_bot_promotion.html`` template.
-    Only sent via email (can't reach these users on WhatsApp by definition).
-    """
-    from datetime import datetime
-
-    nudge_map: dict[int, tuple[str, str]] = {
-        5: (
-            EMAIL_PHONE_NUDGE_DAY5,
-            "Create invoices via WhatsApp — connect your number!",
-        ),
-        10: (
-            EMAIL_PHONE_NUDGE_DAY10,
-            "You're missing out — WhatsApp invoicing is faster",
-        ),
-    }
-
-    entry = nudge_map.get(days_since_signup)
-    if not entry:
-        return
-
-    email_type, subject = entry
-
-    if not user.email:
-        return
-
-    if _was_sent(db, user.id, email_type):
-        return
-
-    template = _jinja_env.get_template("whatsapp_bot_promotion.html")
-    html = template.render(
-        user_name=name,
-        dashboard_url="https://suoops.com/dashboard/settings",
-        help_url="https://support.suoops.com",
-        unsubscribe_url="https://suoops.com/unsubscribe",
-        current_year=datetime.now().year,
-    )
-    plain = (
-        f"Hi {name},\n\n"
-        "You signed up for SuoOps but haven't connected your WhatsApp yet.\n"
-        "With the WhatsApp bot you can create invoices in seconds — just send a message!\n\n"
-        "Steps:\n"
-        "1. Log in at suoops.com → Settings\n"
-        "2. Click 'Connect WhatsApp'\n"
-        "3. Enter your phone number and verify with the OTP\n\n"
-        "Our WhatsApp number: +234 818 376 3636\n\n"
-        "Connect now: https://suoops.com/dashboard/settings\n\n"
-        "— SuoOps"
-    )
-
-    if _send_smtp_email(user.email, subject, html, plain):
-        _record_sent(db, user.id, email_type)
-        stats["phone_nudge_sent"] += 1
-        logger.info("Sent phone nudge '%s' to user %s", email_type, user.id)
-    else:
-        stats["failed"] += 1
 
 
 def _send_zero_invoice_nudge(db, user, name: str, day: int, stats: dict[str, int]) -> None:
@@ -677,53 +559,3 @@ def _send_monetization(db, user, name: str, invoice_count: int, stats: dict[str,
     # (which drives payment) so we don't pay for redundant owner nudges.
 
     return True
-
-
-def _send_tip(db, user, name: str, stats: dict[str, int]) -> None:
-    """Send next unsent tip to a user (max one every 2 days)."""
-    from app.models.models import UserEmailLog
-
-    # Check when the last tip was sent
-    last_tip = (
-        db.query(UserEmailLog.sent_at)
-        .filter(
-            UserEmailLog.user_id == user.id,
-            UserEmailLog.email_type.like(f"{EMAIL_TIP_PREFIX}%"),
-        )
-        .order_by(UserEmailLog.sent_at.desc())
-        .first()
-    )
-
-    if last_tip:
-        last_sent = last_tip[0]
-        if last_sent.tzinfo is None:
-            last_sent = last_sent.replace(tzinfo=timezone.utc)
-        if (datetime.now(timezone.utc) - last_sent).days < 4:
-            stats["skipped"] += 1
-            return
-
-    # Find next unsent tip
-    for i, tip in enumerate(TIPS):
-        tip_type = f"{EMAIL_TIP_PREFIX}{i}"
-        if not _was_sent(db, user.id, tip_type):
-            template = _jinja_env.get_template("engagement_tip.html")
-            html = template.render(
-                name=name,
-                headline=tip["headline"],
-                body_text=tip["body"],
-                tip_text=tip["tip"],
-                cta_url=tip.get("cta_url"),
-                cta_label=tip.get("cta_label"),
-            )
-            plain = f"Hi {name},\n\n{tip['body']}\n\n💡 {tip['tip']}\n\n— SuoOps"
-
-            if _send_smtp_email(user.email, tip["subject"], html, plain):
-                _record_sent(db, user.id, tip_type)
-                stats["tips_sent"] += 1
-                logger.info("Sent tip_%d to user %s", i, user.id)
-            else:
-                stats["failed"] += 1
-            return
-
-    # All tips sent — nothing more to do
-    stats["skipped"] += 1

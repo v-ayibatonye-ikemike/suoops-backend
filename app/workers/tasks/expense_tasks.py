@@ -154,6 +154,10 @@ def send_expense_reminders(self: Task) -> dict[str, Any]:
         pending_email: list[tuple[User, str]] = []
         whatsapp_candidates: list[User] = []
         for user in users:
+            from app.services.merchant_retention import pilot_protected
+
+            if pilot_protected(db, user.id):
+                continue
             name = (user.name or "there").split()[0]
             plain = (
                 f"Hi {name},\n\nSales are not the same as profit. Record this week's "
@@ -187,6 +191,10 @@ def send_expense_reminders(self: Task) -> dict[str, Any]:
 
         client = get_whatsapp_client()
         for user in whatsapp_candidates:
+            from app.services.merchant_retention import pilot_protected
+
+            if pilot_protected(db, user.id):
+                continue
             if not user.phone or not is_window_open(user.phone):
                 failed += 1
                 continue

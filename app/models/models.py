@@ -43,6 +43,7 @@ else:
         oauth_models,  # noqa: F401
         payment_models,  # noqa: F401
         referral_models,  # noqa: F401
+        retention_models,  # noqa: F401
         tax_models,  # noqa: F401
     )
 

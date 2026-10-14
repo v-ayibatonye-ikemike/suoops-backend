@@ -1,8 +1,8 @@
 """Coverage tests for app/workers/tasks/engagement_tasks.py.
 
 Exercises lifecycle engagement email logic: the main scheduled task plus the
-individual helper functions (_send_activation, _send_monetization, _send_tip,
-_send_zero_invoice_nudge, _send_phone_nudge, _send_wa_template, _process_user).
+individual helper functions (_send_activation, _send_monetization,
+_send_zero_invoice_nudge, _send_wa_template, _process_user).
 
 All email/WhatsApp I/O is mocked. Real Jinja templates on disk are rendered.
 """
@@ -304,111 +304,6 @@ def test_send_monetization_no_duplicate_whatsapp_low(db_session, monkeypatch):
     db_session.commit()
     assert stats["monetization_sent"] == 1
     assert stats["whatsapp_sent"] == 0
-
-
-# ─────────────────────────────────────────────────────────────────────
-# _send_tip
-# ─────────────────────────────────────────────────────────────────────
-
-
-def test_send_tip_sends_first(db_session, monkeypatch):
-    u = _make_user(db_session)
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
-    stats = _new_stats()
-    et._send_tip(db_session, u, "Jane", stats)
-    db_session.commit()
-    assert stats["tips_sent"] == 1
-    assert et._was_sent(db_session, u.id, f"{et.EMAIL_TIP_PREFIX}0") is True
-
-
-def test_send_tip_recent_skips(db_session, monkeypatch):
-    u = _make_user(db_session)
-    # Recent tip within 4 days
-    db_session.add(
-        models.UserEmailLog(
-            user_id=u.id,
-            email_type=f"{et.EMAIL_TIP_PREFIX}0",
-            sent_at=_now() - dt.timedelta(days=1),
-        )
-    )
-    db_session.commit()
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
-    stats = _new_stats()
-    et._send_tip(db_session, u, "Jane", stats)
-    assert stats["skipped"] == 1
-
-
-def test_send_tip_all_sent_skips(db_session, monkeypatch):
-    u = _make_user(db_session)
-    # Mark all tips sent, last one old enough (>4 days)
-    for i in range(len(et.TIPS)):
-        db_session.add(
-            models.UserEmailLog(
-                user_id=u.id,
-                email_type=f"{et.EMAIL_TIP_PREFIX}{i}",
-                sent_at=_now() - dt.timedelta(days=10),
-            )
-        )
-    db_session.commit()
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
-    stats = _new_stats()
-    et._send_tip(db_session, u, "Jane", stats)
-    assert stats["skipped"] == 1
-
-
-def test_send_tip_email_fails(db_session, monkeypatch):
-    u = _make_user(db_session)
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: False)
-    stats = _new_stats()
-    et._send_tip(db_session, u, "Jane", stats)
-    assert stats["failed"] == 1
-
-
-# ─────────────────────────────────────────────────────────────────────
-# _send_phone_nudge
-# ─────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("day", [5, 10])
-def test_send_phone_nudge_sends(db_session, monkeypatch, day):
-    u = _make_user(db_session)
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
-    stats = _new_stats()
-    et._send_phone_nudge(db_session, u, "Jane", day, stats)
-    db_session.commit()
-    assert stats["phone_nudge_sent"] == 1
-
-
-def test_send_phone_nudge_unknown_day(db_session):
-    u = _make_user(db_session)
-    stats = _new_stats()
-    et._send_phone_nudge(db_session, u, "Jane", 3, stats)
-    assert stats == _new_stats()
-
-
-def test_send_phone_nudge_no_email(db_session):
-    u = _make_user(db_session, email=None)
-    stats = _new_stats()
-    et._send_phone_nudge(db_session, u, "Jane", 5, stats)
-    assert stats == _new_stats()
-
-
-def test_send_phone_nudge_already_sent(db_session, monkeypatch):
-    u = _make_user(db_session)
-    et._record_sent(db_session, u.id, et.EMAIL_PHONE_NUDGE_DAY5)
-    db_session.commit()
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: True)
-    stats = _new_stats()
-    et._send_phone_nudge(db_session, u, "Jane", 5, stats)
-    assert stats == _new_stats()
-
-
-def test_send_phone_nudge_email_fails(db_session, monkeypatch):
-    u = _make_user(db_session)
-    monkeypatch.setattr(et, "_send_smtp_email", lambda *a, **k: False)
-    stats = _new_stats()
-    et._send_phone_nudge(db_session, u, "Jane", 5, stats)
-    assert stats["failed"] == 1
 
 
 # ─────────────────────────────────────────────────────────────────────

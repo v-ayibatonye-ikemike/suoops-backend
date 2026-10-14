@@ -99,6 +99,12 @@ def send_aggregate_unpaid_alerts() -> dict[str, Any]:
                     continue
 
                 # Dedup: skip if we sent this type recently
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    stats["skipped"] += 1
+                    continue
+
                 recent = (
                     db.query(UserEmailLog.id)
                     .filter(
@@ -351,6 +357,11 @@ def send_weekly_free_summary() -> dict[str, Any]:
             )
 
             for user in free_users_with_invoices:
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    stats["skipped"] += 1
+                    continue
                 try:
                     has_phone = _is_valid_phone(user.phone)
                     name = (user.name or "").split()[0] or "there"
@@ -491,6 +502,11 @@ def send_payment_upsells() -> dict[str, Any]:
                     continue
 
                 # Only target free users
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    stats["skipped"] += 1
+                    continue
                 if user.plan != SubscriptionPlan.FREE:
                     stats["skipped"] += 1
                     continue
@@ -672,6 +688,11 @@ def send_storefront_completion_nudges() -> dict[str, Any]:
                 return {"success": True, **stats}
 
             for user in candidates:
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    stats["skipped"] += 1
+                    continue
                 nudge = _storefront_nudge_for(db, user)
                 if not nudge:
                     continue

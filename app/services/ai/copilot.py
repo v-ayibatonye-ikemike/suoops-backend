@@ -18,6 +18,7 @@ from app.models import models
 from app.models.ai_models import AICopilotBriefing, AIProposedAction
 from app.models.inventory_models import Product
 from app.services.analytics_service import calculate_cash_position, calculate_customer_insights
+from app.services.merchant_retention import snapshot as retention_snapshot
 
 from .gateway import AIGateway, AIGatewayError
 from .types import AIMessage, AIRequest
@@ -216,7 +217,7 @@ class CommerceCopilotService:
                     AIProposedAction.data_owner_id == data_owner_id,
                 )
                 .one_or_none()
-            )
+            ),
         )
         if not action:
             raise LookupError("Proposed action not found")
@@ -284,6 +285,17 @@ class CommerceCopilotService:
             .limit(10)
             .all()
         )
+        low_stock_count = (
+            self._db.query(func.count(Product.id))
+            .filter(
+                Product.user_id == user_id,
+                Product.is_active.is_(True),
+                Product.track_stock.is_(True),
+                Product.quantity_in_stock <= Product.reorder_level,
+            )
+            .scalar()
+            or 0
+        )
         since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)
         top_products = (
             self._db.query(
@@ -306,7 +318,13 @@ class CommerceCopilotService:
             .all()
         )
         user = self._db.query(models.User).filter(models.User.id == user_id).one()
+        lifecycle = retention_snapshot(self._db, user, dt.datetime.now(dt.timezone.utc))
         return {
+            "lifecycle": {
+                "state": lifecycle["state"],
+                "health_score": lifecycle["health_score"],
+                "recommendation": lifecycle["recommendation"],
+            },
             "cash": cash,
             "overdue": {
                 "count": cash["overdue_count"],
@@ -319,7 +337,7 @@ class CommerceCopilotService:
                 "vip": int(customer_summary.get("vip", 0)),
             },
             "inventory": {
-                "low_stock_count": len(low_stock),
+                "low_stock_count": low_stock_count,
                 "low_stock_names": [row.name for row in low_stock],
             },
             "top_products": [
@@ -335,8 +353,25 @@ class CommerceCopilotService:
     def _recommend_actions(self, facts: dict) -> list[CopilotAction]:
         today = dt.date.today().isoformat()
         actions: list[CopilotAction] = []
+        recommendation = facts.get("lifecycle", {}).get("recommendation")
+        if recommendation:
+            action_type = "retention_" + recommendation["trigger"]
+            if recommendation["action_url"] == "/dashboard/collections" and facts["overdue"]["count"]:
+                action_type = "review_overdue_invoices"
+            elif recommendation["action_url"] == "/dashboard/inventory":
+                action_type = "review_low_stock"
+            actions.append(
+                CopilotAction(
+                    action_type=action_type,
+                    title=recommendation["title"],
+                    reason=recommendation["reason"],
+                    action_url=recommendation["action_url"],
+                    payload={},
+                    dedupe_key=recommendation["dedupe_key"],
+                )
+            )
         overdue = facts["overdue"]
-        if overdue["count"]:
+        if overdue["count"] and not any(action.action_url == "/dashboard/collections" for action in actions):
             actions.append(
                 CopilotAction(
                     action_type="review_overdue_invoices",
@@ -348,7 +383,7 @@ class CommerceCopilotService:
                 )
             )
         inventory = facts["inventory"]
-        if inventory["low_stock_count"]:
+        if inventory["low_stock_count"] and not any(action.action_url == "/dashboard/inventory" for action in actions):
             actions.append(
                 CopilotAction(
                     action_type="review_low_stock",
@@ -473,7 +508,7 @@ class CommerceCopilotService:
                     AICopilotBriefing.briefing_date == dt.date.today(),
                 )
                 .one_or_none()
-            )
+            ),
         )
         if not briefing:
             briefing = AICopilotBriefing(data_owner_id=data_owner_id, briefing_date=dt.date.today())
@@ -502,7 +537,7 @@ class CommerceCopilotService:
                     AIProposedAction.dedupe_key == proposed.dedupe_key,
                 )
                 .one_or_none()
-            )
+            ),
         )
         if existing:
             return existing if existing.status == "proposed" else None
@@ -532,7 +567,7 @@ class CommerceCopilotService:
                         AIProposedAction.dedupe_key == proposed.dedupe_key,
                     )
                     .one()
-                )
+                ),
             )
         self._db.refresh(action)
         return action

@@ -620,6 +620,11 @@ def winback_churned_businesses() -> dict[str, Any]:
 
             for row in churned_users:
                 user = row[0]
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id, now):
+                    stats["skipped"] += 1
+                    continue
                 total_invoices = row.cnt
                 total_revenue = float(row.total_revenue or 0)
                 paid_count = row.paid_cnt
@@ -804,6 +809,11 @@ def nudge_zero_invoice_users() -> dict[str, Any]:
             logger.info("Found %d zero-invoice users for activation nudge", len(candidates))
 
             for user in candidates:
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id, now):
+                    stats["skipped"] += 1
+                    continue
                 created = user.created_at
                 if created.tzinfo is None:
                     created = created.replace(tzinfo=dt.timezone.utc)

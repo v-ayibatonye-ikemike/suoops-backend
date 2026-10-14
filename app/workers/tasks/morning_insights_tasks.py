@@ -485,6 +485,10 @@ def send_morning_insights() -> dict[str, Any]:
             template_lang = getattr(settings, "WHATSAPP_TEMPLATE_LANGUAGE", "en")
 
             for user in users:
+                from app.services.merchant_retention import pilot_protected
+
+                if pilot_protected(db, user.id):
+                    continue
                 try:
                     # Skip if already sent today
                     if _was_sent_today(db, user.id):

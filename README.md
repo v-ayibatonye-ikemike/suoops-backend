@@ -142,6 +142,84 @@ filters use the existing due-date-first semantics, falling back to creation
 date when no due date exists; this is explained in both the assistant and list.
 Invalid or reversed dates return HTTP 422 instead of silently removing a filter.
 
+### Merchant retention pilot
+
+The merchant lifecycle reuses Business Intelligence's health-score calculation,
+Commerce Copilot, Collections, inventory advice, and Ask SuoOps. It is not a
+second invoice/reminder sender. The daily `retention.refresh_merchants` task
+maintains New, Activated, Engaged, Healthy, At Risk, Dormant, and Reactivated
+states from non-cancelled invoices, recorded payments, expenses and explicit
+stock work (including purchases, excluding automatic reversals). Logins and
+unconverted storefront carts do not count as meaningful activity.
+
+Rules prepare first-invoice help after 24 hours, first-payment help after three
+days, collections review, inactivity nudges at 14/21/30 days, and declining-sales
+recommendations. Decline requires at least six invoices in the preceding
+28-day baseline and a greater-than-50% drop in the latest 14-day run rate.
+Healthy merchants receive no retention outreach. Returning merchants stop
+win-back and get seven days of reactivated nurture. Amounts remain separate by
+currency; no invented amounts, bank-settlement claims, or automatic customer sends.
+Optional AI narrative enhancement remains inside the existing governed Copilot.
+Outbound template facts are deterministic, not model-written financial claims.
+
+Rollout (nothing sends merely by deploying):
+
+1. Apply Alembic migration `20261014_merchant_retention` before starting updated
+   web/worker processes.
+2. Merchants explicitly opt in under **Settings > AI controls > WhatsApp business
+   nudges**, or send `START NUDGES` from their verified number. Consent is bound
+   to that number, not inferred from phone verification. `STOP`, `STOP NUDGES`
+   and `UNSUBSCRIBE` revoke it. `SUMMARY` opens the existing grounded Copilot
+   briefing, including collections and stock.
+3. A super admin uses **Business Intelligence > Merchant retention pilot** to
+   preview recommendations and select exactly 50 opted-in, phone-verified,
+   at-risk/dormant sellers. Internal/test accounts, team-member accounts and
+   flagged businesses are excluded. Enrollment randomly freezes 25 control /
+   25 treatment assignments; it creates a **paused** pilot.
+4. Obtain Meta approval for a business-nudge template with three body parameters:
+   business name, verified recommendation, and dashboard action URL. Suggested
+   fixed text: `Hi {{1}}. {{2}} Review: {{3}}. Reply SUMMARY for your business
+   briefing or STOP to stop business nudges.` Use the appropriate Meta category
+   for re-engagement; do not send free-form messages outside the conversation window.
+5. Configure `WHATSAPP_TEMPLATE_RETENTION` and explicitly set
+   `RETENTION_OUTREACH_ENABLED=true` on the API and worker. Then review the
+   cohort/template and enable the pilot in the admin panel. The 30-day window
+   begins only on first enable; pause/resume never resets it. The default flag
+   is false. The worker's flag and the admin pause control both gate sends.
+
+At most one nudge per merchant per seven days, within the shared WhatsApp budget.
+Database reservations and unique episode keys prevent overlapping workers from
+sending the same action again. Reservations persist before the provider call;
+ambiguous failures are surfaced as unknown and **not retried automatically**.
+Only a real provider message ID counts as accepted; delivery webhooks establish
+delivery separately. Re-check provider logs before manually resolving an unknown
+outcome. Never reset the dedupe key merely to force a retry.
+
+Both pilot arms are excluded from overlapping activation, win-back, aggregate
+unpaid, growth, expense-habit, feedback and morning-tip campaigns while enrolled
+or within the experiment window, including while paused. Explicit opt-outs also
+suppress those merchant campaigns. Normal transaction notifications and existing
+customer collections behavior are unchanged. Legacy non-pilot campaigns remain
+available; the unreachable old phone-verification and rotating-tip email helpers
+have been removed rather than duplicated.
+
+The panel reports activation, matured 30/60/90-day retention, mean time to first
+invoice/payment, GMV and recorded commission per active merchant, conversion,
+and fixed-arm experiment outcomes. Retention means meaningful activity in days
+N through N+6 after signup, excluding immature cohorts. GMV is based on recorded
+paid invoices, including merchant-marked payments, not verified bank settlement.
+Only persisted commission fees are counted; missing historical fees are explicit.
+Naira GMV is not mixed with other currencies.
+
+Compare intention-to-treat reactivation across the original 25 businesses per
+arm; deleted accounts do not shrink that denominator. The additional requested
+rate is dormant businesses active **after delivery** divided by dormant
+businesses delivered a nudge. Zero denominators return null, not a misleading
+0%. WhatsApp response rate is inbound activity within seven days of a delivered
+nudge (exact reply context when provided), an attribution window rather than
+causal proof. The 30-day cutoff is fixed; do not treat this small pilot's observed
+lift as statistically established improvement.
+
 ### Storefront delivery quotes
 
 Physical-order checkout waits for delivery quotes, including the debounce before

@@ -62,6 +62,7 @@ from .pdf_tasks import (
     generate_invoice_pdf_async,
     generate_receipt_pdf_async,
 )
+from .retention_tasks import refresh_merchants
 from .social_marketing_tasks import (
     run_daily_promotion,
 )
@@ -76,6 +77,7 @@ from .welcome_tasks import (
 )
 
 __all__ = [
+    "refresh_merchants",
     # PDF tasks
     "generate_invoice_pdf_async",
     "generate_receipt_pdf_async",

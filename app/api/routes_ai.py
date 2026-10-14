@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.dependencies import AdminUserDep, CurrentUserDep, DataOwnerDep, DbDep
 from app.api.rate_limit import limiter
 from app.api.routes_inventory.dependencies import InventoryAccessDep, InventoryAdminDep
+from app.api.routes_retention import merchant_router
 from app.core.audit import log_audit_event
 from app.core.config import settings
 from app.models.schemas import (
@@ -53,6 +54,7 @@ from app.services.ai.usage import usage_summary
 from app.services.ai.web_assistant import WebAssistantService
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+router.include_router(merchant_router)
 
 
 @router.get("/web-assistant/context", response_model=WebAssistantOut)

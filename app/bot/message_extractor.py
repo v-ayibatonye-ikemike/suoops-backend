@@ -75,6 +75,8 @@ def extract_message(payload: dict[str, Any]) -> dict[str, Any] | None:
         normalized_sender = sender if sender.startswith("+") else f"+{sender}"
 
         extracted: dict[str, Any] = {"from": normalized_sender, "type": msg_type}
+        if message.get("timestamp"):
+            extracted["timestamp"] = message["timestamp"]
 
         # WhatsApp message id (needed for read receipts / typing indicator
         # and for resolving inline replies via context.id).
