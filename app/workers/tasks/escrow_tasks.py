@@ -47,11 +47,15 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                 StorefrontOrderEscrow.held_for_review.is_(False),
                 # Skip sellers whose payouts are frozen (post bank-change cooldown).
                 (User.payout_frozen_until.is_(None)) | (User.payout_frozen_until <= now),
-                # Delivery-aware: a booked courier order must be DELIVERED (or the
+                # Delivery-aware: a selected courier order must be DELIVERED (or the
                 # buyer confirmed) before payout — never pay for goods still in
                 # transit just because the payment-time window elapsed.
                 or_(
-                    StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+                    and_(
+                        StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+                        StorefrontOrderEscrow.delivery_courier_id.is_(None),
+                        StorefrontOrderEscrow.delivery_courier.is_(None),
+                    ),
                     StorefrontOrderEscrow.courier_delivered_at.isnot(None),
                     StorefrontOrderEscrow.confirmed_at.isnot(None),
                 ),
@@ -120,7 +124,11 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
             .filter(
                 StorefrontOrderEscrow.status == "held",
                 StorefrontOrderEscrow.held_for_review.is_(False),
-                StorefrontOrderEscrow.shipbubble_order_id.isnot(None),
+                or_(
+                    StorefrontOrderEscrow.shipbubble_order_id.isnot(None),
+                    StorefrontOrderEscrow.delivery_courier_id.isnot(None),
+                    StorefrontOrderEscrow.delivery_courier.isnot(None),
+                ),
                 StorefrontOrderEscrow.courier_delivered_at.is_(None),
                 StorefrontOrderEscrow.confirmed_at.is_(None),
                 StorefrontOrderEscrow.release_due_at.isnot(None),
@@ -131,7 +139,9 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
         )
         for e in stuck:
             e.held_for_review = True
-            e.review_reason = "courier not delivered within SLA"
+            e.review_reason = (
+                "courier not delivered within SLA" if e.shipbubble_order_id else "courier booking not confirmed"
+            )
         if stuck:
             db.commit()
             logger.warning("Flagged %d undelivered courier orders for review", len(stuck))

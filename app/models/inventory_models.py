@@ -37,6 +37,17 @@ def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def storefront_product_conditions() -> list:
+    """Shared public-listing eligibility for storefront queries and recommendations."""
+    return [
+        Product.is_active.is_(True),
+        Product.description.isnot(None),
+        Product.description != "",
+        Product.image_url.isnot(None),
+        Product.image_url != "",
+    ]
+
+
 class StockMovementType(str, enum.Enum):
     """Types of inventory stock movements."""
 

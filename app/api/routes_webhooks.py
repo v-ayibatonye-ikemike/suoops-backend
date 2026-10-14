@@ -939,6 +939,15 @@ def _apply_shipbubble_update(
     # out_for_delivery → delivered (+ cancelled/returned). Store the latest so the
     # buyer and seller can see live progress, and nudge the buyer on key moves.
     code = _sb.normalize_status(order_status)
+    progress = {
+        "booked": 0, "pickup_enroute": 1, "picked_up": 2, "in_transit": 3, "out_for_delivery": 4, "delivered": 5,
+    }
+    if escrow.delivery_status in {"returned", "cancelled"} and code != escrow.delivery_status:
+        return
+    if escrow.delivery_status == "delivered" and code not in {"delivered", "returned"}:
+        return
+    if code in progress and progress.get(escrow.delivery_status, -1) > progress[code]:
+        return
     if code and code != escrow.delivery_status:
         escrow.delivery_status = code
         escrow.delivery_status_at = now
@@ -955,7 +964,7 @@ def _apply_shipbubble_update(
                 logger.exception("Failed to post %s notice for escrow %s", code, escrow.id)
 
     # First movement (picked up / in transit) → record the dispatch timestamp.
-    if code in {"picked_up", "in_transit"} and not escrow.seller_dispatched_at:
+    if code in {"picked_up", "in_transit", "out_for_delivery", "delivered"} and not escrow.seller_dispatched_at:
         escrow.seller_dispatched_at = now
     # Delivered → start the post-delivery inspection window: the payout can now
     # auto-release only after the buyer has had time to inspect/dispute.

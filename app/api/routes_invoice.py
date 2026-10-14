@@ -660,8 +660,15 @@ def _fulfilment(escrow) -> tuple[str | None, str | None]:
         if getattr(escrow, "seller_marked_delivered_at", None):
             return "rendered", "Seller marked the service as rendered"
         return "in_progress", "Paid — service in progress"
-    if getattr(escrow, "seller_marked_delivered_at", None) or getattr(escrow, "courier_delivered_at", None):
+    if getattr(escrow, "courier_delivered_at", None):
+        return "delivered", "Courier confirmed delivery"
+    if getattr(escrow, "seller_marked_delivered_at", None):
         return "delivered", "Seller marked the order delivered"
+    delivery_status = getattr(escrow, "effective_delivery_status", None) or getattr(escrow, "delivery_status", None)
+    if delivery_status and (delivery_status.startswith("booking_") or delivery_status in {"booked", "pickup_enroute"}):
+        from app.services.shipping.shipbubble import status_label
+
+        return delivery_status, status_label(delivery_status)
     if getattr(escrow, "seller_dispatched_at", None):
         return "sent", "Sent out — on the way to the buyer"
     return "preparing", "Paid — the seller is preparing your order"

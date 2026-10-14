@@ -119,6 +119,115 @@ def test_currency_totals_are_never_added_as_naira(db_session):
     assert "NGN 185,000.00 + USD 185,000.00" in action.reason
 
 
+def test_recordkeeping_copy_is_grounded_and_does_not_promise_tax_compliance(db_session):
+    user = merchant(db_session)
+    invoice(db_session, user, status="paid", paid_at=NOW - dt.timedelta(days=35))
+    facts = retention_facts(db_session, user, NOW)
+    action = recommendation(facts, refresh_lifecycle(db_session, facts, NOW), NOW)
+    assert action.title == "Keep each sale recorded"
+    assert "0 invoices in the last 30 days" in action.reason
+    assert "Have you also recorded" in action.reason
+    assert "tax review" in action.reason
+    assert "only when received" in action.reason
+    assert "2027" not in action.reason and "compliant" not in action.reason
+    assert action.action_url == "/dashboard?assistant=invoice"
+
+
+@pytest.fixture
+def storefront_merchant(db_session, monkeypatch):
+    from app.models.inventory_models import Product
+
+    monkeypatch.setattr(settings, "SHIPBUBBLE_ENABLED", True)
+    monkeypatch.setattr(settings, "SHIPBUBBLE_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "SHIPBUBBLE_CHECKOUT_ENABLED", True)
+    user = merchant(db_session)
+    user.storefront_enabled, user.store_status, user.storefront_slug = True, "active", "retention-store"
+    user.storefront_city, user.storefront_state = "Ikeja", "Lagos"
+    user.paystack_subaccount_active, user.paystack_subaccount_code = True, "ACCT_TEST"
+    invoice(db_session, user, status="paid", paid_at=NOW - dt.timedelta(days=35))
+    product = Product(
+        user_id=user.id, sku="RET-PHYSICAL", name="Bag", description="Everyday bag",
+        image_url="https://example.test/bag.jpg", selling_price=Decimal("1000"), quantity_in_stock=20,
+    )
+    db_session.add(product)
+    db_session.flush()
+    return user, product
+
+
+def test_storefront_nudge_explains_payment_booking_confirmation_and_dropoff(db_session, storefront_merchant):
+    user, _ = storefront_merchant
+    facts = retention_facts(db_session, user, NOW)
+    assert facts.storefront_delivery_ready
+    action = recommendation(facts, refresh_lifecycle(db_session, facts, NOW), NOW)
+    assert action.title == "Share your storefront"
+    assert action.action_url == "/dashboard/settings#storefront"
+    for phrase in [
+        "pays for the order and delivery", "Book courier pickup", "package photo",
+        "wait for confirmation", "drop-off", "availability",
+    ]:
+        assert phrase in action.reason
+    invoice(db_session, user)
+    facts = retention_facts(db_session, user, NOW)
+    assert recommendation(facts, refresh_lifecycle(db_session, facts, NOW), NOW).action_url == "/dashboard/collections"
+    without_debt = replace(facts, outstanding_count=0, low_stock_count=1)
+    stock_action = recommendation(without_debt, refresh_lifecycle(db_session, without_debt, NOW), NOW)
+    assert stock_action.action_url == "/dashboard/inventory"
+
+
+def test_storefront_discovery_does_not_require_store_setup_or_courier_use(db_session, storefront_merchant):
+    from app.models.models import StorefrontOrderEscrow
+
+    user, product = storefront_merchant
+    user.storefront_enabled = False
+    user.paystack_subaccount_active = False
+    product.image_url = None
+    db_session.flush()
+    assert db_session.query(StorefrontOrderEscrow).count() == 0
+    facts = retention_facts(db_session, user, NOW)
+    assert facts.has_physical_products and not facts.storefront_delivery_ready
+    action = recommendation(facts, refresh_lifecycle(db_session, facts, NOW), NOW)
+    assert action.title == "Discover your SuoOps storefront"
+    assert "complete any missing storefront and online-payment setup first" in action.reason
+    assert "Where courier delivery is available" in action.reason
+    assert "wait for confirmation" in action.reason
+    assert action.action_url == "/dashboard/settings#storefront"
+
+
+def test_unavailable_courier_integration_only_allows_conditional_discovery_copy(
+    db_session, storefront_merchant, monkeypatch,
+):
+    user, _ = storefront_merchant
+    monkeypatch.setattr(settings, "SHIPBUBBLE_ENABLED", False)
+    facts = retention_facts(db_session, user, NOW)
+    action = recommendation(facts, refresh_lifecycle(db_session, facts, NOW), NOW)
+    assert action.title == "Discover your SuoOps storefront"
+    assert "Where courier delivery is available" in action.reason
+    assert "Your storefront has physical goods available. Share its link" not in action.reason
+
+
+@pytest.mark.parametrize(
+    ("target", "attribute", "value"),
+    [
+        ("user", "storefront_enabled", False), ("user", "store_status", "paused"),
+        ("user", "paystack_subaccount_active", False), ("user", "paystack_subaccount_code", None),
+        ("user", "storefront_state", None), ("user", "phone_verified", False),
+        ("product", "fulfilment_type", "service"), ("product", "fulfilment_type", "digital"),
+        ("product", "image_url", None), ("product", "description", ""),
+        ("product", "is_active", False), ("product", "quantity_in_stock", 0),
+        ("settings", "SHIPBUBBLE_ENABLED", False), ("settings", "SHIPBUBBLE_API_KEY", None),
+        ("settings", "SHIPBUBBLE_CHECKOUT_ENABLED", False),
+    ],
+)
+def test_storefront_delivery_message_is_gated(db_session, storefront_merchant, monkeypatch, target, attribute, value):
+    user, product = storefront_merchant
+    if target == "settings":
+        monkeypatch.setattr(settings, attribute, value)
+    else:
+        setattr(user if target == "user" else product, attribute, value)
+    db_session.flush()
+    assert not retention_facts(db_session, user, NOW).storefront_delivery_ready
+
+
 @pytest.mark.parametrize(("hours", "expected"), [(23, None), (24, "activation"), (167, "activation"), (168, None)])
 def test_activation_requires_full_24_hours_and_stops_after_first_week(db_session, hours, expected):
     user = merchant(db_session, age=0)

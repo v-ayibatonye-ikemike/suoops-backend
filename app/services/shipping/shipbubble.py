@@ -10,10 +10,10 @@ Flow (per Shipbubble docs):
   2. fetch_rates()       → POST /shipping/fetch_rates       → request_token + couriers[]
   3. create_shipment()   → POST /shipping/labels            → order_id + tracking_url
 
-Everything here is best-effort and fail-soft: if the flag is off, the key is
-missing, or the API errors, callers get ``None``/``[]`` and the manual dispatch
-flow continues unaffected. Nothing activates until ``SHIPBUBBLE_ENABLED`` is set
-and an API key + funded wallet exist.
+Quotes and address lookups are best-effort. Paid shipment bookings instead raise
+explicit rejected/unknown outcomes so a timeout cannot cause a duplicate charge.
+Nothing activates until ``SHIPBUBBLE_ENABLED`` is set and an API key + funded
+wallet exist.
 """
 
 from __future__ import annotations
@@ -53,7 +53,11 @@ def enabled() -> bool:
 # ── Delivery status (buyer-facing) ──────────────────────────────────────────
 # Normalized lifecycle codes in display order, mapped to friendly labels.
 DELIVERY_STATUS_LABELS: dict[str, str] = {
-    "booked": "Booked — awaiting courier pickup",
+    "booking_pending": "Courier booking requested — not yet confirmed",
+    "booking_in_progress": "Contacting courier — booking not yet confirmed",
+    "booking_failed": "Courier booking failed — no booking confirmed",
+    "booking_unknown": "Courier booking unconfirmed — contact support before retrying",
+    "booked": "Courier booking confirmed — awaiting handover",
     "pickup_enroute": "Rider on the way to pick up",
     "picked_up": "Picked up by courier",
     "in_transit": "In transit",
@@ -66,9 +70,10 @@ DELIVERY_STATUS_LABELS: dict[str, str] = {
 # Raw Shipbubble status strings → our normalized code. Keys are lowercased with
 # spaces/hyphens collapsed to underscores.
 _RAW_STATUS_MAP: dict[str, str] = {
-    "pending": "pickup_enroute",
-    "confirmed": "pickup_enroute",
-    "accepted": "pickup_enroute",
+    "pending": "booked",
+    "confirmed": "booked",
+    "accepted": "booked",
+    "pickup_enroute": "pickup_enroute",
     "picked_up": "picked_up",
     "pickup": "picked_up",
     "collected": "picked_up",
@@ -259,23 +264,54 @@ def fetch_rates(
     }
 
 
-def create_shipment(*, request_token: str, courier_id: str, service_code: str) -> dict[str, Any] | None:
-    """Book the chosen courier. Returns ``{"order_id", "tracking_url", "courier",
-    "delivery_eta"}`` or None. The shipping fee is drawn from the Shipbubble wallet."""
-    data = _post(
-        "/shipping/labels",
-        {
-            "request_token": request_token,
-            "service_code": service_code,
-            "courier_id": courier_id,
-        },
-    )
-    if not data:
-        return None
+class BookingRejected(RuntimeError):
+    """The courier did not accept the booking; a merchant may retry."""
+
+
+class BookingOutcomeUnknown(RuntimeError):
+    """A booking may have been accepted; reconcile before making another request."""
+
+
+def create_shipment(*, request_token: str, courier_id: str, service_code: str) -> dict[str, Any]:
+    """Book once. Never turn an ambiguous provider response into a retryable failure."""
+    if not enabled():
+        raise BookingRejected("Courier booking is not configured")
+    try:
+        with _client() as client:
+            response = client.post(
+                "/shipping/labels",
+                json={"request_token": request_token, "service_code": service_code, "courier_id": courier_id},
+            )
+    except httpx.HTTPError as exc:
+        raise BookingOutcomeUnknown("Courier connection failed; acceptance is unknown") from exc
+    if response.status_code in {400, 401, 403, 404, 422}:
+        raise BookingRejected(f"Courier rejected the booking (HTTP {response.status_code})")
+    if not response.is_success:
+        raise BookingOutcomeUnknown(f"Courier returned HTTP {response.status_code}; acceptance is unknown")
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise BookingOutcomeUnknown("Courier returned an unreadable booking response") from exc
+    if not isinstance(body, dict):
+        raise BookingOutcomeUnknown("Courier returned an invalid booking response")
+    if body.get("status") in {"error", "failed"}:
+        raise BookingRejected("Courier rejected the booking")
+    data = body.get("data")
+    if body.get("status") != "success" or not isinstance(data, dict) or not data.get("order_id"):
+        raise BookingOutcomeUnknown("Courier did not return a confirmed booking ID")
+    order_id = data["order_id"]
+    if (
+        not isinstance(order_id, (str, int))
+        or isinstance(order_id, bool)
+        or not str(order_id).strip()
+        or len(str(order_id)) > 60
+    ):
+        raise BookingOutcomeUnknown("Courier returned an invalid booking ID")
+    courier = data.get("courier")
     return {
-        "order_id": data.get("order_id"),
+        "order_id": str(order_id),
         "tracking_url": data.get("tracking_url"),
-        "courier": (data.get("courier") or {}).get("name"),
+        "courier": courier.get("name") if isinstance(courier, dict) else None,
         "status": data.get("status"),
     }
 

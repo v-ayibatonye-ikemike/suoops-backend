@@ -10,7 +10,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.inventory_models import Product, StockMovement, StockMovementType
+from app.models.inventory_models import Product, StockMovement, StockMovementType, storefront_product_conditions
 from app.models.models import Invoice, User
 from app.models.retention_models import (
     MerchantLifecycle,
@@ -20,6 +20,7 @@ from app.models.retention_models import (
 )
 from app.models.team_models import TeamMember
 from app.services.business_health import business_health_score
+from app.services.shipping import shipbubble
 
 logger = logging.getLogger(__name__)
 UTC = dt.timezone.utc
@@ -92,6 +93,8 @@ class RetentionFacts:
     days_inactive: int
     declining: bool
     health_score: int
+    storefront_delivery_ready: bool = False
+    has_physical_products: bool = False
 
 
 def retention_facts(db: Session, user: User, now: dt.datetime) -> RetentionFacts:
@@ -170,6 +173,25 @@ def retention_facts(db: Session, user: User, now: dt.datetime) -> RetentionFacts
         last = utc(stock_activity)
     days = max(0, (now - (last or utc(user.created_at))).days)
     collection = row.paid / row.invoices * 100 if row.invoices else 0
+    storefront_delivery_ready = bool(
+        settings.SHIPBUBBLE_CHECKOUT_ENABLED
+        and shipbubble.enabled()
+        and user.storefront_enabled
+        and user.store_status == "active"
+        and user.storefront_slug
+        and user.paystack_subaccount_active
+        and user.paystack_subaccount_code
+        and user.phone_verified
+        and user.storefront_city
+        and user.storefront_state
+        and db.query(Product.id).filter(
+            Product.user_id == user.id,
+            *storefront_product_conditions(),
+            Product.fulfilment_type == "physical",
+            Product.selling_price > 0,
+            or_(Product.track_stock.is_(False), Product.quantity_in_stock > 0),
+        ).first()
+    )
     return RetentionFacts(
         user.id,
         user.business_name or user.name,
@@ -188,6 +210,12 @@ def retention_facts(db: Session, user: User, now: dt.datetime) -> RetentionFacts
         days,
         row.previous >= 6 and row.recent < row.previous / 4,
         business_health_score(days if last else None, row.invoices, collection, row.month, row.invoices),
+        storefront_delivery_ready,
+        bool(db.query(Product.id).filter(
+            Product.user_id == user.id,
+            Product.is_active.is_(True),
+            Product.fulfilment_type == "physical",
+        ).first()),
     )
 
 
@@ -255,7 +283,10 @@ def recommendation(
         return RetentionRecommendation(
             "activation",
             "Create your first invoice",
-            "No invoice is recorded yet. Ask SuoOps can guide you through your first invoice for review.",
+            "No invoice is recorded yet. Sold something through WhatsApp, Instagram or your shop? "
+            "Record the sale in SuoOps and confirm payment only when received. "
+            "Keep invoices and expense records ready for tax review, rather than reconstructing them later. "
+            "Ask SuoOps can guide you through your first invoice for review.",
             "/dashboard?assistant=invoice",
             "activation",
         )
@@ -292,11 +323,33 @@ def recommendation(
         title = "Review restock suggestions"
         reason = f"{facts.low_stock_count} tracked products are at or below their reorder level. Review your stock."
         url = "/dashboard/inventory"
+    elif facts.invoices and facts.has_physical_products and facts.days_inactive >= 14:
+        if facts.storefront_delivery_ready:
+            title = "Share your storefront"
+            reason = (
+                "Your storefront has physical goods available. Share its link: the buyer chooses an available "
+                "courier and pays for the order and delivery at checkout. For pickup delivery, pack the order, "
+                "tap Book courier pickup, add a package photo and save. SuoOps requests the booking; "
+                "wait for confirmation, then the courier handles pickup and delivery. For drop-off delivery, "
+                "take the parcel to the designated station instead. "
+                "Delivery options depend on the address and courier availability."
+            )
+        else:
+            title = "Discover your SuoOps storefront"
+            reason = (
+                "You have physical products in SuoOps. A storefront lets customers browse and order from one link. "
+                "Review your listings and complete any missing storefront and online-payment setup first. "
+                "Where courier delivery is available at checkout, buyers can choose and pay for it. "
+                "For pickup, you pack the order, add a package photo and request the booking; wait for confirmation. "
+                "Drop-off options require taking the parcel to the courier station instead."
+            )
+        url = "/dashboard/settings#storefront"
     elif facts.invoices:
-        title = "Create your next invoice"
+        title = "Keep each sale recorded"
         reason = (
-            f"You created {facts.recent_14} invoices in the last 14 days, "
-            f"compared with {facts.previous_28} in the preceding 28 days. Review your next sale."
+            f"You recorded {facts.recent_30} invoices in the last 30 days. "
+            "Have you also recorded sales made outside SuoOps? Invoice each sale, confirm payment only "
+            "when received, and keep expense records ready for tax review. Start with your next sale."
         )
         url = "/dashboard?assistant=invoice"
     else:

@@ -162,6 +162,28 @@ currency; no invented amounts, bank-settlement claims, or automatic customer sen
 Optional AI narrative enhancement remains inside the existing governed Copilot.
 Outbound template facts are deterministic, not model-written financial claims.
 
+The first-invoice and record-keeping nudges encourage recording each sale,
+confirming payment only when received, and keeping expense records for tax
+review. They do not infer unrecorded sales or promise tax compliance/NRS-validated
+invoices. The NTA commenced on 1 January 2026; this is distinct from phased
+e-invoicing implementation (see the [government transition guidance](https://fmino.gov.ng/federal-government-issues-transition-guidelines-for-tax-acts-2025/)
+and [NRS rollout summary](https://kpmg.com/us/en/taxnewsflash/news/2026/02/nigeria-phased-rollout-e-invoicing-electronic-fiscal-system.html)).
+No blanket January 2027 deadline is included in outbound copy.
+
+Collections and low-stock actions take priority. Otherwise, inactive invoicing
+merchants with active physical products can discover the storefront even if
+they have never set up a store, activated online payments or used a courier.
+This introduction guides them to complete missing setup and describes courier
+delivery conditionally. The order-ready "share your storefront" variant requires
+an active store, configured online payments and courier checkout, contact/location
+details, and a complete, purchasable physical listing. Neither variant requires
+previous courier orders or awareness of the feature. The message
+explains buyer-paid delivery, the seller's package photo and booking request,
+waiting for confirmation, and the difference between pickup and drop-off.
+Options remain subject to address and courier availability; no live quote is
+requested merely to prepare a nudge. These messages reuse the same pilot,
+approved-template requirement, consent, cooldowns and disabled-by-default gate.
+
 Rollout (nothing sends merely by deploying):
 
 1. Apply Alembic migration `20261014_merchant_retention` before starting updated
@@ -229,6 +251,36 @@ error and can retry or explicitly choose self-pickup rather than silently orderi
 without delivery. Service/digital-only orders do not request courier quotes.
 Rapid repeated clicks submit only one order, and product QR links respect stores
 that have disabled online payments.
+
+### Courier booking confirmation
+
+Selecting a courier at checkout records the buyer's choice and delivery fee;
+it does not summon a rider. For paid pickup orders the seller packs the goods,
+opens **Book courier pickup**, attaches the package photo and submits
+**Request courier booking**. Drop-off orders use **Book drop-off delivery**;
+after confirmation, the seller takes the parcel to the designated station.
+
+Booking requests persist as `booking_pending`, are claimed as
+`booking_in_progress` before the provider call, and become `booked` only with a
+provider order ID. The seller panel briefly polls pending requests. Booking is
+not dispatch: courier movement webhooks establish that the parcel is on its
+way. Late earlier-progress webhooks cannot move delivery status backwards.
+Manual dispatch and service/digital orders keep their existing flows.
+
+An explicit provider rejection becomes `booking_failed` and permits a
+merchant-initiated retry using the saved package photo. Timeouts, malformed
+responses and ambiguous server failures become `booking_unknown`; neither
+repeated clicks nor repeated background callbacks can book again. Interrupted
+pending/in-progress requests and legacy sent-out courier orders without a
+provider ID require operator reconciliation, not a blind retry. Check the
+Shipbubble booking records before resolving them; if a booking exists, restore
+its ID/tracking instead of creating another one.
+
+Selected courier orders cannot auto-pay out merely because their original
+payment window elapsed, including when booking is pending, failed or unknown.
+They require courier delivery plus the inspection window, or buyer confirmation.
+Overdue undelivered/unconfirmed bookings enter the existing admin-review flow.
+No schema migration or delivery/outreach flag enablement is part of this change.
 
 ### Dependency security checks
 

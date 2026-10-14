@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import models
 from app.models.inventory_models import Product, ProductCategory
+from app.models.inventory_models import storefront_product_conditions as _listable_product_conditions
 from app.models.schemas.buyer_ai import BuyerShoppingRequest, BuyerShoppingResponse
 from app.services.ai.buyer import BuyerShoppingAssistantService
 
@@ -58,21 +59,6 @@ def _unique_slug(db: Session, base: str, user_id: int) -> str:
             return candidate
         n += 1
         candidate = f"{base}-{n}"[:60]
-
-
-def _listable_product_conditions() -> list:
-    """A product is publicly listable only when it's active AND has a description
-    AND a photo — the exact rule the store page uses to display items. The
-    directory + 'live in search' gate reuse this, so a store counted as live
-    always has at least one item a shopper can actually see and buy.
-    """
-    return [
-        Product.is_active.is_(True),
-        Product.description.isnot(None),
-        Product.description != "",
-        Product.image_url.isnot(None),
-        Product.image_url != "",
-    ]
 
 
 def _storefront_price(product: Product) -> Decimal:
@@ -586,15 +572,22 @@ def category_qr(
 # ── Business-facing storefront order (escrow) status + delivery proof ──
 
 
-def _delivery_status_label(code: str | None) -> str | None:
+def _delivery_status_label(code: str | None, service_type: str | None = None) -> str | None:
     """Friendly, buyer-facing label for a normalized courier status code."""
     from app.services.shipping.shipbubble import status_label
 
+    if code == "booked":
+        return (
+            "Booking confirmed — awaiting drop-off at the courier station"
+            if service_type == "dropoff"
+            else "Booking confirmed — awaiting courier pickup"
+        )
     return status_label(code)
 
 
 def _escrow_summary(escrow: models.StorefrontOrderEscrow, buyer: models.Customer | None) -> dict:
     """Business-safe escrow summary. NEVER includes the buyer-only delivery code."""
+    delivery_status = escrow.effective_delivery_status
     return {
         "status": escrow.status,
         "held": escrow.status == "held",
@@ -609,8 +602,9 @@ def _escrow_summary(escrow: models.StorefrontOrderEscrow, buyer: models.Customer
         "dispatch_carrier": escrow.dispatch_carrier,
         "dispatch_eta": escrow.dispatch_eta.isoformat() if escrow.dispatch_eta else None,
         "dispatch_tracking_url": escrow.shipbubble_tracking_url,
-        "delivery_status": escrow.delivery_status,
-        "delivery_status_label": _delivery_status_label(escrow.delivery_status),
+        "delivery_status": delivery_status,
+        "delivery_status_label": _delivery_status_label(delivery_status, escrow.delivery_service_type),
+        "delivery_status_at": escrow.delivery_status_at.isoformat() if escrow.delivery_status_at else None,
         "delivery_courier": escrow.delivery_courier,
         "requires_delivery": bool(getattr(escrow, "requires_delivery", True)),
         "delivery_service_type": escrow.delivery_service_type,
@@ -731,58 +725,78 @@ async def mark_order_delivered(
 
 
 def _book_courier_pickup(escrow_id: int, invoice_id: str) -> None:
-    """Book the Shipbubble courier pickup for a dispatched order, out of band.
-
-    Runs as a background task so the seller's “mark sent” request returns
-    immediately instead of blocking on Shipbubble's API (which can take several
-    seconds). Best-effort: on failure the order stays sent, just without an
-    auto-booked courier.
-    """
+    """Claim a persisted request before contacting the courier; never retry an unknown outcome."""
     import datetime as dt
 
     from app.db.session import SessionLocal
     from app.services.escrow_service import add_business_days
     from app.services.shipping import shipbubble
 
-    try:
-        with SessionLocal() as db:
-            escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
-            if not escrow or escrow.shipbubble_order_id:
-                return
+    with SessionLocal() as db:
+        claimed = db.query(models.StorefrontOrderEscrow).filter(
+            models.StorefrontOrderEscrow.id == escrow_id,
+            models.StorefrontOrderEscrow.status == "held",
+            models.StorefrontOrderEscrow.held_for_review.is_(False),
+            models.StorefrontOrderEscrow.confirmed_at.is_(None),
+            models.StorefrontOrderEscrow.delivery_status == "booking_pending",
+            models.StorefrontOrderEscrow.shipbubble_order_id.is_(None),
+        ).update(
+            {"delivery_status": "booking_in_progress", "delivery_status_at": dt.datetime.now(dt.timezone.utc)},
+            synchronize_session=False,
+        )
+        db.commit()
+        if not claimed:
+            logger.info("Courier booking request %s already claimed or no longer eligible", invoice_id)
+            return
+        escrow = db.query(models.StorefrontOrderEscrow).filter_by(id=escrow_id).with_for_update().one()
+        try:
+            if escrow.status != "held" or escrow.held_for_review or escrow.confirmed_at:
+                raise shipbubble.BookingRejected("Order is no longer eligible for booking")
+            if not settings.SHIPBUBBLE_CHECKOUT_ENABLED:
+                raise shipbubble.BookingRejected("Courier checkout is disabled")
             if not (escrow.delivery_request_token and escrow.delivery_courier_id and escrow.delivery_service_code):
-                return
+                raise shipbubble.BookingRejected("Courier booking details are incomplete")
             booking = shipbubble.create_shipment(
                 request_token=escrow.delivery_request_token,
                 courier_id=escrow.delivery_courier_id,
                 service_code=escrow.delivery_service_code,
             )
             if not (booking and booking.get("order_id")):
-                return
+                raise shipbubble.BookingOutcomeUnknown("Courier did not return a booking ID")
+        except shipbubble.BookingRejected as exc:
+            logger.warning("Courier rejected order %s: %s", invoice_id, exc)
+            escrow.delivery_status = "booking_failed"
+        except shipbubble.BookingOutcomeUnknown as exc:
+            logger.error("Courier booking outcome unknown for order %s: %s", invoice_id, exc)
+            escrow.delivery_status = "booking_unknown"
+        else:
             escrow.shipbubble_order_id = str(booking["order_id"])[:60]
             escrow.shipbubble_tracking_url = booking.get("tracking_url") or None
             if booking.get("courier") and not escrow.dispatch_carrier:
                 escrow.dispatch_carrier = str(booking["courier"])[:80]
-            # Show the buyer the courier is booked and a pickup is pending until
-            # the first webhook status arrives.
-            if not escrow.delivery_status:
-                escrow.delivery_status = "booked"
-                escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc)
-            # Delivery-aware payout: don't auto-release until the courier reports
-            # delivery. Cap the hold at the delivery SLA so a lost parcel gets
-            # flagged for review instead of hanging forever.
+            escrow.delivery_status = "booked"
             escrow.delivery_booked_at = dt.datetime.now(dt.timezone.utc)
             escrow.release_due_at = add_business_days(
                 dt.datetime.now(dt.timezone.utc),
                 settings.ESCROW_MAX_DELIVERY_DAYS,
             )
-            db.commit()
             logger.info(
                 "Booked Shipbubble shipment %s for order %s (background)",
                 booking["order_id"],
                 invoice_id,
             )
-    except Exception:  # noqa: BLE001
-        logger.exception("Background Shipbubble booking failed for order %s", invoice_id)
+        escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc)
+        db.commit()
+        if escrow.delivery_status == "booked":
+            handover = (
+                "The seller must take the parcel to the designated drop-off station."
+                if escrow.delivery_service_type == "dropoff"
+                else "Awaiting collection from the seller by the courier."
+            )
+            _store_system_message(db, escrow, f"Courier booking confirmed. {handover}")
+        else:
+            _store_system_message(db, escrow, "Courier booking is not confirmed. The order is not marked as sent.")
+        db.commit()
 
 
 @router.post("/storefront/orders/{invoice_id}/mark-sent")
@@ -800,13 +814,9 @@ async def mark_order_sent(
     eta: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> dict:
-    """Business: mark a storefront order SENT OUT (dispatched), with an optional
-    courier/waybill tracking code, courier name, expected delivery date, and a
-    photo of the packaged item.
+    """Request a courier booking, or record dispatch for a manually shipped order.
 
-    This is seller protection: timestamped proof you shipped a quality item,
-    before the buyer confirms delivery. It also tells the buyer who's bringing
-    their order and when to expect it. It does NOT release funds.
+    A package photo is required. Booking does not imply collection or release funds.
 
     Scoped to the account owner (data_owner_id) so invited team members can act
     on shared orders; current_user_id is still logged as the actual actor.
@@ -825,6 +835,28 @@ async def mark_order_sent(
         current_user_id,
         bool(file is not None and file.filename),
     )
+    db.refresh(escrow, with_for_update=True)
+    courier_order = bool(escrow.delivery_courier_id or escrow.delivery_courier or escrow.shipbubble_order_id)
+    if courier_order:
+        from app.services.shipping import shipbubble
+
+        if not escrow.delivery_status and escrow.effective_delivery_status == "booking_unknown":
+            escrow.delivery_status = "booking_unknown"
+            escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc)
+            db.commit()
+            logger.warning("Legacy courier booking for %s requires reconciliation before retrying", invoice_id)
+        if escrow.shipbubble_order_id or escrow.delivery_status in {
+            "booking_pending", "booking_in_progress", "booking_unknown",
+        }:
+            return {"escrow": _escrow_summary(escrow, buyer)}
+        if escrow.status != "held" or escrow.held_for_review or escrow.confirmed_at:
+            raise HTTPException(status_code=409, detail="This order is not eligible for courier booking.")
+        if not settings.SHIPBUBBLE_CHECKOUT_ENABLED or not shipbubble.enabled():
+            raise HTTPException(status_code=503, detail="Courier booking is unavailable. Contact support.")
+        if not (escrow.delivery_request_token and escrow.delivery_courier_id and escrow.delivery_service_code):
+            raise HTTPException(
+                status_code=409, detail="Courier details are incomplete. Contact support before booking."
+            )
 
     # A photo of the packaged item is REQUIRED — it's the proof of quality and
     # shipment (and the buyer sees it), so a "sent out" mark is never empty.
@@ -837,7 +869,8 @@ async def mark_order_sent(
         proof_url = await _save_proof_photo(escrow, file, prefix="dispatch-proof")
         logger.info("mark-sent photo stored for %s in %.2fs", invoice_id, time.monotonic() - _t0)
 
-    escrow.seller_dispatched_at = dt.datetime.now(dt.timezone.utc)
+    if not courier_order:
+        escrow.seller_dispatched_at = dt.datetime.now(dt.timezone.utc)
     if tracking is not None:
         escrow.dispatch_tracking = tracking.strip()[:120] or None
     if note is not None:
@@ -855,8 +888,15 @@ async def mark_order_sent(
         else:
             escrow.dispatch_eta = None
     escrow.dispatch_proof_url = proof_url
+    if courier_order:
+        escrow.delivery_status = "booking_pending"
+        escrow.delivery_status_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
     db.refresh(escrow)
+
+    if courier_order:
+        background_tasks.add_task(_book_courier_pickup, escrow.id, invoice_id)
+        return {"escrow": _escrow_summary(escrow, buyer)}
 
     # Tell the buyer their order is on the way (system notice in the thread).
     try:
@@ -870,18 +910,6 @@ async def mark_order_sent(
         _store_system_message(db, escrow, " ".join(parts))
     except Exception:  # noqa: BLE001
         logger.exception("Failed to post dispatch notice for order %s", invoice_id)
-
-    # Book the courier pickup out of band so this request returns immediately —
-    # the Shipbubble API call can take several seconds and must not block the
-    # seller's “mark sent” action.
-    if (
-        settings.SHIPBUBBLE_CHECKOUT_ENABLED
-        and escrow.delivery_request_token
-        and escrow.delivery_courier_id
-        and escrow.delivery_service_code
-        and not escrow.shipbubble_order_id
-    ):
-        background_tasks.add_task(_book_courier_pickup, escrow.id, invoice_id)
 
     logger.info("Seller %s marked order %s sent out", current_user_id, invoice_id)
     return {"escrow": _escrow_summary(escrow, buyer)}
@@ -2028,6 +2056,7 @@ def _buyer_order_view(escrow: models.StorefrontOrderEscrow) -> dict:
     Lets the buyer see 'sent out' with the courier tracking + packaged-item
     photo, so they know their order is on the way.
     """
+    delivery_status = escrow.effective_delivery_status
     return {
         "status": escrow.status,
         "dispatched_at": (escrow.seller_dispatched_at.isoformat() if escrow.seller_dispatched_at else None),
@@ -2036,8 +2065,8 @@ def _buyer_order_view(escrow: models.StorefrontOrderEscrow) -> dict:
         "dispatch_eta": escrow.dispatch_eta.isoformat() if escrow.dispatch_eta else None,
         "dispatch_tracking_url": escrow.shipbubble_tracking_url,
         "dispatch_proof_url": _presign(escrow.dispatch_proof_url),
-        "delivery_status": escrow.delivery_status,
-        "delivery_status_label": _delivery_status_label(escrow.delivery_status),
+        "delivery_status": delivery_status,
+        "delivery_status_label": _delivery_status_label(delivery_status, escrow.delivery_service_type),
         "delivered_at": (escrow.seller_marked_delivered_at.isoformat() if escrow.seller_marked_delivered_at else None),
     }
 

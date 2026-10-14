@@ -781,7 +781,7 @@ class StorefrontOrderEscrow(Base):
     # Delivery fee the buyer paid (kobo) — retained by SuoOps to fund the courier;
     # NOT part of gross/payout (the seller is never paid the shipping fee). The
     # request_token + courier + service_code are captured at checkout so the
-    # shipment can be booked at dispatch; the order id + tracking url come back
+    # shipment can be booked when packed; the order id + tracking url come back
     # from the booking (and correlate incoming courier webhooks).
     delivery_fee_kobo: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     delivery_courier: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -809,6 +809,17 @@ class StorefrontOrderEscrow(Base):
     # address, no courier, no dispatch/delivery proof) — buyer protection is by
     # confirmation + the fast auto-release window instead of a delivery cycle.
     requires_delivery: Mapped[bool] = mapped_column(default=True, server_default="true", nullable=False)
+
+    @property
+    def effective_delivery_status(self) -> str | None:
+        if self.delivery_status:
+            return self.delivery_status
+        if self.shipbubble_order_id:
+            return "booked"
+        # Older dispatch requests set a timestamp even when booking was unconfirmed.
+        if (self.delivery_courier_id or self.delivery_courier) and self.seller_dispatched_at:
+            return "booking_unknown"
+        return None
 
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), onupdate=utcnow, nullable=True)
