@@ -156,6 +156,8 @@ def test_retry_payout_resends_on_correct_rail_and_finalizes(monkeypatch):
         transfer_reference="ESCROWREL-STALE",  # burned on a different (failed) rail
         charge_reference="INVPAY-RETRY-1",
     )
+    esc.transfer_provider = "paystack"
+    db.commit()
 
     import app.services.escrow_service as escrow_mod
     import app.services.payouts as payouts
@@ -173,8 +175,14 @@ def test_retry_payout_resends_on_correct_rail_and_finalizes(monkeypatch):
         def transfer_exists(self, reference):
             return True
 
+    class _PS:
+        name = "paystack"
+
+        def transfer_status(self, reference):
+            return "failed"
+
     monkeypatch.setattr(escrow_mod, "_collector_for_charge", lambda db, ref: "flutterwave")
-    monkeypatch.setattr(payouts, "get_payout_provider_named", lambda name: _FW())
+    monkeypatch.setattr(payouts, "get_payout_provider_named", lambda name: _PS() if name == "paystack" else _FW())
     # OTP step-up is exercised separately; bypass it here to focus on the
     # retry/reconcile behavior.
     import app.api.routes_admin as routes_admin

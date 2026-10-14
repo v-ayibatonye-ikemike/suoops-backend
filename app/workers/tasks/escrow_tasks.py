@@ -47,8 +47,8 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                 StorefrontOrderEscrow.held_for_review.is_(False),
                 # Skip sellers whose payouts are frozen (post bank-change cooldown).
                 (User.payout_frozen_until.is_(None)) | (User.payout_frozen_until <= now),
-                # Delivery-aware: a selected courier order must be DELIVERED (or the
-                # buyer confirmed) before payout — never pay for goods still in
+                # Delivery-aware: a selected courier order must be DELIVERED (or
+                # explicitly cleared) before payout — never pay for goods still in
                 # transit just because the payment-time window elapsed.
                 or_(
                     and_(
@@ -58,6 +58,7 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                     ),
                     StorefrontOrderEscrow.courier_delivered_at.isnot(None),
                     StorefrontOrderEscrow.confirmed_at.isnot(None),
+                    StorefrontOrderEscrow.release_approved_at.isnot(None),
                 ),
                 or_(
                     # Cleared (protection window elapsed OR buyer confirmed early)
@@ -71,6 +72,7 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                                 StorefrontOrderEscrow.release_due_at <= now,
                             ),
                             StorefrontOrderEscrow.confirmed_at.isnot(None),
+                            StorefrontOrderEscrow.release_approved_at.isnot(None),
                         ),
                         or_(
                             StorefrontOrderEscrow.settle_at.is_(None),  # legacy rows
@@ -96,8 +98,10 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
             for escrow in due:
                 try:
                     rail = payout_rail_for(db, escrow)
-                except Exception:  # noqa: BLE001 — fall back to default rail
-                    rail = "paystack"
+                except Exception:
+                    failed += 1
+                    logger.exception("Could not determine payout rail for escrow %s", escrow.id)
+                    continue
                 groups.setdefault((escrow.seller_id, rail), []).append(escrow)
             for (seller_id, rail), group in groups.items():
                 try:
@@ -131,6 +135,7 @@ def release_due_escrow_orders(self: Task) -> dict[str, Any]:
                 ),
                 StorefrontOrderEscrow.courier_delivered_at.is_(None),
                 StorefrontOrderEscrow.confirmed_at.is_(None),
+                StorefrontOrderEscrow.release_approved_at.is_(None),
                 StorefrontOrderEscrow.release_due_at.isnot(None),
                 StorefrontOrderEscrow.release_due_at <= now,
             )
@@ -166,18 +171,22 @@ def cancel_stale_pending_orders(self: Task) -> dict[str, Any]:
     order/admin views — so we cancel ones older than the configured TTL.
     """
     from app.core.config import settings
-    from app.models.models import StorefrontOrderEscrow
+    from app.models.models import Invoice, StorefrontOrderEscrow
 
     canceled = 0
     with session_scope() as db:
         cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=settings.ESCROW_PENDING_ORDER_TTL_HOURS)
         rows = (
             db.query(StorefrontOrderEscrow)
+            .join(Invoice, StorefrontOrderEscrow.invoice_id == Invoice.id)
             .filter(
                 StorefrontOrderEscrow.status == "pending",
                 StorefrontOrderEscrow.created_at < cutoff,
+                Invoice.status != "paid",
             )
             .limit(500)
+            .populate_existing()
+            .with_for_update(of=StorefrontOrderEscrow)
             .all()
         )
         for e in rows:

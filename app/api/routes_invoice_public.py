@@ -147,10 +147,14 @@ async def initialize_invoice_payment(request: Request, invoice_id: str, db: Sess
         db.query(_models.StorefrontOrderEscrow)
         .filter(
             _models.StorefrontOrderEscrow.invoice_id == invoice.id,
-            _models.StorefrontOrderEscrow.status == "pending",
         )
         .first()
     )
+    if held_escrow is not None and held_escrow.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="This checkout is no longer payable. Check your order status or create a new order.",
+        )
     held = held_escrow is not None
     # Re-derive the buyer's full charge (goods + service fee + delivery) from the
     # held escrow so a retry charges exactly what the first attempt did. The

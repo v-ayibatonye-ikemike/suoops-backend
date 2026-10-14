@@ -704,7 +704,7 @@ class StorefrontOrderEscrow(Base):
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoice.id", ondelete="CASCADE"), unique=True, index=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)  # the business
 
-    # held | released | refunded | disputed | canceled
+    # pending | held | released | refunded | refund_pending | disputed | canceled
     status: Mapped[str] = mapped_column(String(20), default="held", server_default="held", nullable=False, index=True)
 
     # ── Release window ──
@@ -733,6 +733,7 @@ class StorefrontOrderEscrow(Base):
 
     # ── Lifecycle timestamps ──
     confirmed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # buyer "received"
+    release_approved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     released_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     refunded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     disputed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -741,11 +742,10 @@ class StorefrontOrderEscrow(Base):
     # ── Paystack payout / refund tracking ──
     transfer_recipient_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     transfer_reference: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    transfer_not_submitted: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     # Which payout rail the transfer_reference was sent on. A reference is only
-    # valid on its own provider, so if the payout rail changes (e.g. an early
-    # Paystack attempt that failed on balance, then routed to Flutterwave), the
-    # old reference is void and a fresh transfer must be sent — never reconciled
-    # against the wrong provider.
+    # valid on its own provider. Reconcile there even if the collecting rail
+    # changes; only a confirmed failure permits a fresh transfer.
     transfer_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     refund_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # The original Paystack charge reference (INVPAY-…) — needed to refund the buyer.

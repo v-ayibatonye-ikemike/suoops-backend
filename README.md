@@ -49,6 +49,32 @@ tests/            # pytest suite
 
 User sends WhatsApp → webhook → NLP parse → InvoiceService → Payment link → PDF → WhatsApp send.
 
+### Storefront escrow safety
+
+Apply migration `20261014_escrow_safety` before starting the updated API or worker.
+Reviewed release approval is stored separately from buyer confirmation and still
+waits for settlement. Payout retries retain their original reference and verify
+it on the sending provider; only a confirmed failure permits a new transfer.
+Pre-transfer validation failures are recorded as not submitted and may safely
+retry after bank details or funding are fixed. Transport uncertainty is not
+treated as a rejection.
+The worker rechecks delivery/protection under the payout lock, including returned
+or cancelled shipments. An in-flight payout cannot also be refunded.
+
+Refund submission is reserved before contacting the collecting provider.
+`refund_pending` means the outcome needs provider reconciliation, not that the
+buyer has received money. It blocks another refund, seller payout and account
+deletion and appears in the admin review queue. Do not clear this state or retry
+until the provider's actual outcome has been verified. Historical `refunded`
+means the provider accepted the refund request; bank arrival is not guaranteed
+by that status.
+
+Expired unpaid checkouts cannot start new payments. A late verified payment is
+held for review rather than lost behind an expired checkout. Buyer code-based
+order support remains available when a store is offline, while new purchases
+remain disabled. Seller evidence can be submitted during a dispute without
+releasing funds. Release codes are not reused across a seller's order history.
+
 ### Inventory cost reporting
 
 Sale stock movements snapshot the product's acquisition cost, not its selling

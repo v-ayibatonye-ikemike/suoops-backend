@@ -63,14 +63,14 @@ class AccountDeletionService:
             self.db.query(StorefrontOrderEscrow.id)
             .filter(
                 StorefrontOrderEscrow.seller_id == user_id,
-                StorefrontOrderEscrow.status.in_(["held", "disputed"]),
+                StorefrontOrderEscrow.status.in_(["held", "disputed", "refund_pending"]),
             )
             .first()
         )
         if active_escrow is not None:
             raise AccountDeletionBlockedError(
                 "This account has orders with money still in escrow (held or under "
-                "dispute). Those must be released or refunded before the account "
+                "dispute, or with an unresolved refund). Those must be released or refunded before the account "
                 "can be deleted."
             )
 

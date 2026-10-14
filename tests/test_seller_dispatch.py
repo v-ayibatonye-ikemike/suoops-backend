@@ -315,7 +315,7 @@ def test_courier_webhooks_establish_dispatch_and_cannot_regress(db_session, cour
     assert escrow.courier_delivered_at is not None
     _apply_shipbubble_update(db_session, "SHIP-1", "picked_up", {}, {})
     assert escrow.delivery_status == "delivered"
-    assert escrow.seller_dispatched_at == dispatched_at
+    assert escrow.seller_dispatched_at.replace(tzinfo=dt.timezone.utc) == dispatched_at.replace(tzinfo=dt.timezone.utc)
 
 
 @pytest.mark.parametrize("status", [None, "booking_pending", "booking_failed", "booking_unknown", "booked"])

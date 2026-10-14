@@ -19,7 +19,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 class PayoutError(Exception):
-    """A payout (transfer) could not be completed — caller should retry later."""
+    """A payout could not be completed; its reference must be reconciled."""
+
+
+class PayoutNotSubmitted(PayoutError):
+    """Validation failed before any transfer request was sent; retry is safe."""
 
 
 @dataclasses.dataclass

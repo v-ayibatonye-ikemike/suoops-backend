@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.services.paystack_http import paystack_client
 
-from .base import PayoutError, PayoutProvider, PayoutResult
+from .base import PayoutError, PayoutNotSubmitted, PayoutProvider, PayoutResult
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.models import models
@@ -126,12 +126,16 @@ class PaystackPayoutProvider(PayoutProvider):
         reference: str,
         reason: str,
     ) -> PayoutResult:
-        recipient = self._ensure_recipient(db, seller)
+        try:
+            recipient = self._ensure_recipient(db, seller)
+            headers = _headers()
+        except PayoutError as exc:
+            raise PayoutNotSubmitted(str(exc)) from exc
         try:
             with paystack_client(timeout=20) as client:
                 resp = client.post(
                     f"{_PAYSTACK_BASE}/transfer",
-                    headers=_headers(),
+                    headers=headers,
                     json={
                         "source": "balance",
                         "amount": int(amount_kobo),

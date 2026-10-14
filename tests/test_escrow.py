@@ -503,8 +503,7 @@ def test_release_waits_for_settlement(monkeypatch):
 
 
 def test_release_resends_when_rail_changed(monkeypatch):
-    """A reference from a different (failed) rail must NOT be reconciled as
-    'in flight' — release starts a fresh transfer on the CURRENT rail."""
+    """A confirmed failure on the original rail permits a fresh collecting-rail payout."""
     import app.services.escrow_service as escrow_mod
     import app.services.payouts as payouts
     from app.db.session import SessionLocal
@@ -526,8 +525,14 @@ def test_release_resends_when_rail_changed(monkeypatch):
         def transfer_exists(self, reference):
             return True
 
+    class _PS:
+        name = "paystack"
+
+        def transfer_status(self, reference):
+            return "failed"
+
     monkeypatch.setattr(escrow_mod, "_collector_for_charge", lambda db, ref: "flutterwave")
-    monkeypatch.setattr(payouts, "get_payout_provider_named", lambda name: _FW())
+    monkeypatch.setattr(payouts, "get_payout_provider_named", lambda name: _PS() if name == "paystack" else _FW())
 
     s = SessionLocal()
     try:
@@ -556,7 +561,7 @@ def test_release_resends_when_rail_changed(monkeypatch):
             charge_reference="INVPAY-RAIL-CHG",
         )
 
-        # Must NOT read the 'unknown' status as in-flight — it sends fresh + releases.
+        # The old rail has confirmed failure, so a fresh payout is now safe.
         assert es.release_escrow(s, escrow) is True
         assert escrow.status == "released"
         assert len(sent) == 1

@@ -593,6 +593,11 @@ def _escrow_summary(escrow: models.StorefrontOrderEscrow, buyer: models.Customer
         "held": escrow.status == "held",
         "release_due_at": escrow.release_due_at.isoformat() if escrow.release_due_at else None,
         "confirmed_at": escrow.confirmed_at.isoformat() if escrow.confirmed_at else None,
+        "settle_at": escrow.settle_at.isoformat() if escrow.settle_at else None,
+        "release_approved_at": escrow.release_approved_at.isoformat() if escrow.release_approved_at else None,
+        "payout_pending": (
+            bool(escrow.transfer_reference) and not escrow.transfer_not_submitted and escrow.status == "held"
+        ),
         "delivered_at": (escrow.seller_marked_delivered_at.isoformat() if escrow.seller_marked_delivered_at else None),
         "delivery_proof_note": escrow.delivery_proof_note,
         "delivery_proof_url": _presign(escrow.delivery_proof_url),
@@ -707,6 +712,8 @@ async def mark_order_delivered(
     if not row:
         raise HTTPException(status_code=404, detail="Order not found.")
     escrow, buyer = row
+    if escrow.status not in {"held", "disputed"}:
+        raise HTTPException(status_code=409, detail="Delivery evidence can only be added to paid, open orders.")
 
     import datetime as dt
 
@@ -1659,16 +1666,14 @@ async def create_store_order(
     return resp
 
 
-def _lookup_store(db: Session, slug: str):
-    owner = (
-        db.query(models.User)
-        .filter(
-            models.User.storefront_slug == slug.lower(),
+def _lookup_store(db: Session, slug: str, *, require_live: bool = True):
+    query = db.query(models.User).filter(models.User.storefront_slug == slug.lower())
+    if require_live:
+        query = query.filter(
             models.User.storefront_enabled.is_(True),
             models.User.store_status == "active",
         )
-        .first()
-    )
+    owner = query.first()
     if not owner:
         raise HTTPException(status_code=404, detail="Storefront not found")
     return owner
@@ -1850,7 +1855,7 @@ def confirm_delivery(
         register_code_failure,
     )
 
-    owner = _lookup_store(db, slug)
+    owner = _lookup_store(db, slug, require_live=False)
     if is_code_locked(owner.id):
         raise HTTPException(
             status_code=429,
@@ -1858,15 +1863,7 @@ def confirm_delivery(
         )
     code = payload.code.strip()
 
-    escrow = (
-        db.query(models.StorefrontOrderEscrow)
-        .filter(
-            models.StorefrontOrderEscrow.seller_id == owner.id,
-            models.StorefrontOrderEscrow.confirmation_code == code,
-        )
-        .order_by(models.StorefrontOrderEscrow.id.desc())
-        .first()
-    )
+    escrow = _escrow_by_code(db, owner.id, code, lock=True)
 
     if not escrow:
         register_code_failure(owner.id)
@@ -1877,7 +1874,7 @@ def confirm_delivery(
     if escrow.status == "released":
         return {"ok": True, "message": "This order was already completed — thank you!"}
     if escrow.status == "refunded":
-        return {"ok": True, "message": "You've already been refunded for this order."}
+        return {"ok": True, "message": "A refund has already been initiated for this order."}
     if escrow.status != "held":
         raise HTTPException(
             status_code=409,
@@ -1890,7 +1887,8 @@ def confirm_delivery(
             detail="This order is under review. Our team will be in touch.",
         )
 
-    escrow.confirmed_at = dt.datetime.now(dt.timezone.utc)
+    if escrow.confirmed_at is None:
+        escrow.confirmed_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
 
     # Confirmation ENDS buyer protection, but the payout follows our T+1
@@ -1931,7 +1929,7 @@ def report_order_problem(
         register_code_failure,
     )
 
-    owner = _lookup_store(db, slug)
+    owner = _lookup_store(db, slug, require_live=False)
     # Brute-force guard: a wrong release code counts against the store's shared
     # failure budget (same lockout as delivery confirmation).
     if is_code_locked(owner.id):
@@ -1939,7 +1937,7 @@ def report_order_problem(
             status_code=429,
             detail="Too many attempts on this store. Please try again later.",
         )
-    escrow = _escrow_by_code(db, owner.id, payload.code.strip())
+    escrow = _escrow_by_code(db, owner.id, payload.code.strip(), lock=True)
     if not escrow:
         register_code_failure(owner.id)
         logger.warning("Invalid report-problem code on store %s", slug)
@@ -1950,7 +1948,7 @@ def report_order_problem(
     clear_code_failures(owner.id)
 
     if escrow.status == "refunded":
-        return {"ok": True, "message": "You've already been refunded for this order."}
+        return {"ok": True, "message": "A refund has already been initiated for this order."}
     if escrow.status == "released":
         raise HTTPException(
             status_code=409,
@@ -1960,6 +1958,13 @@ def report_order_problem(
         return {"ok": True, "message": "We've already got your report — our team is on it."}
     if escrow.status != "held":
         raise HTTPException(status_code=409, detail="This order can't be reported right now.")
+    if escrow.transfer_reference and not escrow.transfer_not_submitted:
+        raise HTTPException(
+            status_code=409,
+            detail="Seller payout has already started. Contact support@suoops.com so we can investigate your payment.",
+        )
+    if len(payload.reason.strip()) < 3:
+        raise HTTPException(status_code=422, detail="Please describe the problem with your order.")
 
     escrow.status = "disputed"
     escrow.disputed_at = dt.datetime.now(dt.timezone.utc)
@@ -2022,16 +2027,18 @@ class SellerMessageIn(BaseModel):
     body: str = Field(min_length=1, max_length=_MSG_MAX)
 
 
-def _escrow_by_code(db: Session, owner_id: int, code: str):
-    return (
+def _escrow_by_code(db: Session, owner_id: int, code: str, *, lock: bool = False):
+    query = (
         db.query(models.StorefrontOrderEscrow)
         .filter(
             models.StorefrontOrderEscrow.seller_id == owner_id,
             models.StorefrontOrderEscrow.confirmation_code == code,
         )
         .order_by(models.StorefrontOrderEscrow.id.desc())
-        .first()
     )
+    if lock:
+        query = query.populate_existing().with_for_update()
+    return query.first()
 
 
 def _messaging_open(escrow: models.StorefrontOrderEscrow) -> bool:
@@ -2219,7 +2226,7 @@ def buyer_send_message(
         register_code_failure,
     )
 
-    owner = _lookup_store(db, slug)
+    owner = _lookup_store(db, slug, require_live=False)
     if is_code_locked(owner.id):
         raise HTTPException(
             status_code=429,
@@ -2263,7 +2270,7 @@ def buyer_list_messages(
         register_code_failure,
     )
 
-    owner = _lookup_store(db, slug)
+    owner = _lookup_store(db, slug, require_live=False)
     if is_code_locked(owner.id):
         raise HTTPException(
             status_code=429,

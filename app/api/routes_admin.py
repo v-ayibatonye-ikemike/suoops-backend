@@ -5521,7 +5521,9 @@ def _derive_payout_state(e: "models.StorefrontOrderEscrow") -> str:
         return "paid"
     if e.status == "refunded":
         return "refunded"
-    if e.transfer_reference:
+    if e.status == "refund_pending":
+        return "refund_pending"
+    if e.transfer_reference and not e.transfer_not_submitted:
         return "processing"  # a payout was initiated and is in flight
     if e.status == "held":
         return "scheduled"  # cleared/holding — auto-pays after window + T+1 settlement
@@ -5531,9 +5533,16 @@ def _derive_payout_state(e: "models.StorefrontOrderEscrow") -> str:
 def _payout_eta(e: "models.StorefrontOrderEscrow") -> "dt.datetime | None":
     """Earliest a held order will auto-pay: the later of its dispute-window end and
     the T+1 settlement time (payouts never run before funds have settled)."""
-    if e.status != "held":
+    if e.status != "held" or e.held_for_review:
         return None
-    times = [t for t in (getattr(e, "release_due_at", None), getattr(e, "settle_at", None)) if t]
+    cleared = bool(e.confirmed_at or e.release_approved_at)
+    if not cleared and (e.delivery_courier or e.delivery_courier_id or e.shipbubble_order_id):
+        if not e.courier_delivered_at or e.delivery_status in {"returned", "cancelled"}:
+            return None
+    times = [
+        t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+        for t in (None if cleared else e.release_due_at, e.settle_at) if t
+    ]
     return max(times) if times else None
 
 
@@ -5601,7 +5610,7 @@ def list_flagged_messages(
 def list_disputes(
     db: Session = Depends(get_db),
     admin_user=Depends(get_current_admin),
-    status_filter: str = Query("disputed", pattern="^(disputed|held|refunded|released|review|all)$"),
+    status_filter: str = Query("disputed", pattern="^(disputed|held|refund_pending|refunded|released|review|all)$"),
     search: str | None = Query(None, max_length=120),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -5784,7 +5793,7 @@ def disputes_by_business(
         )
         .join(models.User, E.seller_id == models.User.id)
         # Only real orders that need eyes: held (incl. review) or disputed.
-        .filter(E.status.in_(["held", "disputed"]))
+        .filter(E.status.in_(["held", "disputed", "refund_pending"]))
         .group_by(
             E.seller_id,
             models.User.name,
@@ -5946,12 +5955,16 @@ def resolve_dispute(
     _require_super_admin(admin_user)
     from app.services.escrow_service import EscrowError, refund_escrow, release_escrow
 
-    escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
+    escrow = (
+        db.query(models.StorefrontOrderEscrow)
+        .filter(models.StorefrontOrderEscrow.id == escrow_id)
+        .populate_existing().with_for_update().first()
+    )
     if not escrow:
         raise HTTPException(status_code=404, detail="Dispute not found")
 
-    if escrow.status in ("refunded", "released"):
-        raise HTTPException(status_code=409, detail=f"This order is already {escrow.status}.")
+    if escrow.status not in ("held", "disputed"):
+        raise HTTPException(status_code=409, detail=f"This order is {escrow.status}; it cannot be resolved again.")
 
     amount_naira = round((escrow.gross_kobo or 0) / 100, 2)
 
@@ -5966,14 +5979,7 @@ def resolve_dispute(
         stepup_amount = max(amount_naira, refund_total_24h(admin_user.id) + amount_naira)
     _require_money_stepup(admin_user, stepup_amount, payload.otp)
 
-    # An admin decision clears any anti-fraud review hold so the action can go
-    # through (release_escrow refuses to pay a held_for_review order otherwise).
-    if escrow.held_for_review:
-        escrow.held_for_review = False
-        db.commit()
-
     if payload.action == "refund":
-        # refund_escrow only refunds held/disputed rows; nudge to disputed first.
         try:
             refund_escrow(db, escrow, reason=payload.reason or "admin dispute resolution")
         except EscrowError as exc:
@@ -6008,14 +6014,15 @@ def resolve_dispute(
     else:  # release
         # Releasing requires a 'held' row; a disputed row is flipped back first.
         was_disputed = escrow.status == "disputed"
-        if escrow.status == "disputed":
-            escrow.status = "held"
-            db.commit()
+        escrow.status = "held"
+        escrow.held_for_review = False
+        escrow.release_approved_at = dt.datetime.now(dt.timezone.utc)
+        db.flush()
         try:
             released_now = release_escrow(db, escrow, reason=payload.reason or "admin dispute resolution")
+            db.commit()
         except EscrowError as exc:
-            # Restore disputed state so it stays in the queue for a retry.
-            escrow.status = "disputed"
+            # Keep the reviewed decision and any transfer intent recoverable.
             db.commit()
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         # A Flutterwave payout is often accepted as 'queued' and confirmed
@@ -6054,7 +6061,10 @@ def resolve_dispute(
         result_status,
         payload.suspend_seller,
     )
-    message = None
+    message = (
+        "Refund accepted by the payment provider. Arrival depends on the buyer's bank."
+        if result_status == "refunded" else None
+    )
     if result_status == "release_pending":
         message = (
             "Cleared for the seller. Payouts settle on our T+1 cadence, so this "
@@ -6090,16 +6100,16 @@ def dispute_payout_status(
         return {"state": "paid", "reference": escrow.transfer_reference}
     if escrow.status == "refunded":
         return {"state": "refunded", "reference": escrow.refund_reference}
+    if escrow.status == "refund_pending":
+        return {"state": "refund_pending", "reference": escrow.refund_reference}
     if not escrow.transfer_reference:
         return {"state": "none", "reference": None}
+    if escrow.transfer_not_submitted:
+        return {"state": "failed", "reference": escrow.transfer_reference, "message": "Transfer was not submitted."}
 
-    from app.services.escrow_service import _collector_for_charge
-    from app.services.payouts import get_payout_provider, get_payout_provider_named
+    from app.services.escrow_service import _transfer_provider
 
-    if escrow.charge_reference:
-        provider = get_payout_provider_named(_collector_for_charge(db, escrow.charge_reference))
-    else:
-        provider = get_payout_provider()
+    provider = _transfer_provider(db, escrow)
 
     try:
         raw = (provider.transfer_status(escrow.transfer_reference) or "unknown").lower()
@@ -6143,17 +6153,9 @@ def retry_dispute_payout(
     db: Session = Depends(get_db),
     admin_user=Depends(get_current_admin),
 ) -> dict:
-    """Force a fresh seller payout on the CURRENT rail for a stuck hold.
-
-    Use when a release is stuck (e.g. an earlier attempt went out on the wrong
-    rail and failed, leaving a reference the current provider reports as
-    'unknown'). Safe: if the current rail already shows the transfer as paid or
-    in flight, it finalizes/waits instead of sending a second payout; otherwise
-    it clears the void reference and sends a fresh transfer on the correct rail.
-    """
+    """Reconcile a payout before retrying; only confirmed failures may be resent."""
     _require_super_admin(admin_user)
-    from app.services.escrow_service import EscrowError, _collector_for_charge, release_escrow
-    from app.services.payouts import get_payout_provider, get_payout_provider_named
+    from app.services.escrow_service import EscrowError, payout_rail_for, release_escrow
 
     escrow = db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id == escrow_id).first()
     if not escrow:
@@ -6172,31 +6174,7 @@ def retry_dispute_payout(
         payload.otp if payload else None,
     )
 
-    if escrow.charge_reference:
-        provider = get_payout_provider_named(_collector_for_charge(db, escrow.charge_reference))
-    else:
-        provider = get_payout_provider()
-
-    # Never send a second payout if the current rail already has this transfer.
-    if escrow.transfer_reference and escrow.transfer_provider == provider.name:
-        try:
-            cur = (provider.transfer_status(escrow.transfer_reference) or "unknown").lower()
-        except Exception:  # noqa: BLE001
-            cur = "unknown"
-        if cur == "successful":
-            release_escrow(db, escrow, reason="admin retry (already paid)")
-            return {"state": "paid", "escrow_status": escrow.status}
-        if cur == "pending":
-            return {
-                "state": "pending",
-                "escrow_status": escrow.status,
-                "message": "A payout is already in flight on this rail — it will confirm shortly.",
-            }
-
-    # Clear the void reference (from a failed/other-rail attempt) and resend fresh.
-    escrow.transfer_reference = None
-    escrow.transfer_provider = None
-    db.commit()
+    rail = payout_rail_for(db, escrow)
     try:
         released = release_escrow(db, escrow, reason="admin retry payout")
     except EscrowError as exc:
@@ -6206,16 +6184,16 @@ def retry_dispute_payout(
         "admin.disputes.retry_payout",
         user_id=admin_user.id,
         escrow_id=escrow_id,
-        provider=provider.name,
+        provider=rail,
     )
     state = "paid" if released else "release_pending"
     message = None
     if state == "release_pending":
         message = (
-            f"Cleared via {provider.name}. Payouts settle on our T+1 cadence, so "
-            "this pays out on the next daily settlement run and then moves to Released."
+            "No additional payout was confirmed. Existing transfers are reconciled "
+            "before retrying; delivery, review and settlement requirements still apply."
         )
-    return {"state": state, "escrow_status": escrow.status, "provider": provider.name, "message": message}
+    return {"state": state, "escrow_status": escrow.status, "provider": rail, "message": message}
 
 
 class BulkRetryResult(BaseModel):
@@ -6240,10 +6218,8 @@ def retry_held_payouts_for_business(
 ) -> BulkRetryResult:
     """Reconcile + (re)send payouts for ALL of a seller's held orders in one go.
 
-    A safe bulk version of the per-order retry-payout: for each held order it
-    reconciles the CURRENT rail first (successful → finalize, pending → leave in
-    flight) and only clears a void reference and resends when the rail reports
-    failed/unknown — so an in-flight transfer is never double-paid. One step-up
+    Reconciles each transfer on its recorded rail and only retries confirmed
+    failures. Unknown outcomes retain their references. One step-up
     OTP authorizes the whole batch. Storefront orders pay out on their collecting
     rail (Flutterwave); the reconciliation uses each order's own rail.
     """
@@ -6253,10 +6229,8 @@ def retry_held_payouts_for_business(
     from app.services.escrow_service import (
         EscrowError,
         payout_rail_for,
-        release_escrow,
         release_seller_batch,
     )
-    from app.services.payouts import get_payout_provider_named
 
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -6276,34 +6250,11 @@ def retry_held_payouts_for_business(
     # One step-up OTP authorizes the whole batch (defends a hijacked session).
     _require_money_stepup(admin_user, total_amount, payload.otp if payload else None)
 
-    # Pass 1 — reconcile each order's CURRENT rail first (never double-pay an
-    # in-flight/paid transfer), and queue the rest for a CONSOLIDATED transfer.
     released = in_flight = failed = 0
     to_batch: dict[str, list] = defaultdict(list)
     for escrow in payable:
-        try:
-            rail = payout_rail_for(db, escrow)
-            if escrow.transfer_reference and escrow.transfer_provider == rail:
-                provider = get_payout_provider_named(rail)
-                try:
-                    cur = (provider.transfer_status(escrow.transfer_reference) or "unknown").lower()
-                except Exception:  # noqa: BLE001
-                    cur = "unknown"
-                if cur == "successful":
-                    release_escrow(db, escrow, reason="admin bulk retry (already paid)")
-                    released += 1
-                    continue
-                if cur == "pending":
-                    in_flight += 1
-                    continue
-            # Clear a void/failed reference and queue for one consolidated transfer.
-            escrow.transfer_reference = None
-            escrow.transfer_provider = None
-            to_batch[rail].append(escrow)
-        except Exception:  # noqa: BLE001 — keep going; one bad order won't stop the batch
-            db.rollback()
-            failed += 1
-    db.commit()  # persist the cleared references before batching
+        rail = payout_rail_for(db, escrow)
+        to_batch[rail].append(escrow)
 
     # Pass 2 — ONE consolidated transfer per (seller, rail): the seller sees a
     # single credit and we pay one fee, instead of one transfer per order.
@@ -6311,10 +6262,16 @@ def retry_held_payouts_for_business(
     errors: list[str] = []
     for rail, group in to_batch.items():
         try:
+            previous_refs = {e.id: e.transfer_reference for e in group}
             rel = release_seller_batch(db, group, provider_name=rail, reason="admin bulk retry (consolidated)")
             released += rel
-            retried += len(group) - rel  # queued/settling — confirms next run
-            transfers += 1
+            in_flight += sum(
+                e.status == "held" and bool(e.transfer_reference) and e.transfer_reference == previous_refs[e.id]
+                for e in group
+            )
+            new_refs = {e.transfer_reference for e in group if e.transfer_reference != previous_refs[e.id]}
+            transfers += len(new_refs - {None})
+            retried += sum(e.status == "held" and e.transfer_reference != previous_refs[e.id] for e in group)
         except EscrowError as exc:
             db.rollback()
             failed += len(group)

@@ -1,10 +1,4 @@
-"""Storefront order escrow — trust rules, hold windows, and seller payout setup.
-
-This module holds the pure/decision logic + the seller Paystack Transfer
-Recipient onboarding. It does NOT move money — the actual hold/release/refund
-flow (payment webhook, auto-release worker, refunds) lands in later steps and
-uses these helpers.
-"""
+"""Storefront escrow lifecycle, buyer protection, refunds and seller payouts."""
 
 from __future__ import annotations
 
@@ -18,12 +12,59 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import models
+from app.services.payouts.base import PayoutProvider
 
 logger = logging.getLogger(__name__)
 
 
 class EscrowError(Exception):
     """Raised when an escrow payout/recipient operation can't be completed."""
+
+
+def payout_window_cleared(escrow: models.StorefrontOrderEscrow, now: dt.datetime) -> bool:
+    """Recheck delivery and protection gates under the payout row lock."""
+    if getattr(escrow, "confirmed_at", None) or getattr(escrow, "release_approved_at", None):
+        return True
+    courier = any(getattr(escrow, field, None) for field in (
+        "shipbubble_order_id", "delivery_courier_id", "delivery_courier",
+    ))
+    if courier and (
+        not getattr(escrow, "courier_delivered_at", None)
+        or getattr(escrow, "delivery_status", None) in {"returned", "cancelled"}
+    ):
+        return False
+    due = getattr(escrow, "release_due_at", None)
+    if due is not None:
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=dt.timezone.utc)
+        return due <= now
+    return True  # Legacy/manual holds may not have a protection deadline.
+
+
+def _transfer_provider(db: Session, escrow: models.StorefrontOrderEscrow) -> PayoutProvider:
+    """An existing reference must be reconciled on its recorded sending rail."""
+    from app.services.payouts import get_payout_provider, get_payout_provider_named
+
+    if getattr(escrow, "transfer_provider", None):
+        return get_payout_provider_named(escrow.transfer_provider)
+    if escrow.charge_reference:
+        return get_payout_provider_named(_collector_for_charge(db, escrow.charge_reference))
+    return get_payout_provider()
+
+
+def _record_unsubmitted_transfer(db: Session, ids: list[int], reference: str) -> None:
+    updated = (
+        db.query(models.StorefrontOrderEscrow)
+        .filter(
+            models.StorefrontOrderEscrow.id.in_(ids),
+            models.StorefrontOrderEscrow.transfer_reference == reference,
+            models.StorefrontOrderEscrow.status == "held",
+        )
+        .update({models.StorefrontOrderEscrow.transfer_not_submitted: True}, synchronize_session="fetch")
+    )
+    db.commit()
+    if updated != len(ids):
+        logger.warning("Unsubmitted transfer %s no longer owns all %d escrow intents", reference, len(ids))
 
 
 # ── Trust rules ────────────────────────────────────────────────────────
@@ -89,7 +130,7 @@ def is_trusted_seller(db: Session, user: models.User) -> bool:
         db.query(func.count(models.StorefrontOrderEscrow.id))
         .filter(
             models.StorefrontOrderEscrow.seller_id == user.id,
-            models.StorefrontOrderEscrow.status.in_(["disputed", "refunded"]),
+            models.StorefrontOrderEscrow.status.in_(["disputed", "refunded", "refund_pending"]),
         )
         .scalar()
     ) or 0
@@ -180,7 +221,7 @@ def seller_velocity_hold_reason(db: Session, seller: models.User, order_naira) -
         db.query(func.count(models.StorefrontOrderEscrow.id))
         .filter(
             models.StorefrontOrderEscrow.seller_id == seller.id,
-            models.StorefrontOrderEscrow.status.in_(["disputed", "refunded"]),
+            models.StorefrontOrderEscrow.status.in_(["disputed", "refunded", "refund_pending"]),
             models.StorefrontOrderEscrow.created_at >= window_start,
         )
         .scalar()
@@ -266,11 +307,8 @@ def _norm_state(value: str | None) -> str | None:
 
 
 def _unique_confirmation_code(db: Session, seller_id: int) -> str:
-    """A 6-digit buyer release code that doesn't collide with any of this
-    seller's currently-live orders (pending/held/disputed), so entering a code
-    can never match the wrong order. Falls back after a few tries — collision
-    odds are tiny and a stale/terminal order sharing a code is harmless."""
-    live = ("pending", "held", "disputed")
+    """Never reuse an old buyer's code for another order at the same store."""
+    db.query(models.User).filter(models.User.id == seller_id).with_for_update().first()
     for _ in range(8):
         code = f"{secrets.randbelow(900000) + 100000}"
         clash = (
@@ -278,13 +316,12 @@ def _unique_confirmation_code(db: Session, seller_id: int) -> str:
             .filter(
                 models.StorefrontOrderEscrow.seller_id == seller_id,
                 models.StorefrontOrderEscrow.confirmation_code == code,
-                models.StorefrontOrderEscrow.status.in_(live),
             )
             .first()
         )
         if not clash:
             return code
-    return f"{secrets.randbelow(900000) + 100000}"
+    raise EscrowError("Could not allocate a unique order release code. Please retry checkout.")
 
 
 def create_order_escrow(
@@ -384,8 +421,10 @@ def activate_escrow_on_payment(
         db.query(models.StorefrontOrderEscrow)
         .filter(
             models.StorefrontOrderEscrow.invoice_id == invoice.id,
-            models.StorefrontOrderEscrow.status == "pending",
+            models.StorefrontOrderEscrow.status.in_(["pending", "canceled"]),
         )
+        .populate_existing()
+        .with_for_update()
         .first()
     )
     if not escrow:
@@ -397,7 +436,11 @@ def activate_escrow_on_payment(
 
     # Unknown same/different state → treat as cross-state (longer, safer window).
     same = bool(escrow.same_state) if escrow.same_state is not None else False
+    expired_checkout = escrow.status == "canceled"
     escrow.status = "held"
+    if expired_checkout:
+        escrow.held_for_review = True
+        escrow.review_reason = "Late payment on an expired checkout — verify fulfillment or refund"
     if same:
         escrow.release_due_at = release_due_after(paid_at, True)
     else:
@@ -473,6 +516,7 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
         locked = (
             db.query(models.StorefrontOrderEscrow)
             .filter(models.StorefrontOrderEscrow.id == _eid)
+            .populate_existing()
             .with_for_update()
             .first()
         )
@@ -489,13 +533,12 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
         raise EscrowError(f"Escrow {escrow.id} held for review — not auto-releasable")
 
     if escrow.payout_kobo <= 0:
-        # Nothing to pay out (shouldn't happen) — close it cleanly.
-        escrow.status = "released"
-        escrow.released_at = dt.datetime.now(dt.timezone.utc)
-        db.commit()
-        return True
+        raise EscrowError(f"Escrow {escrow.id} has an invalid payout amount — review required")
 
-    seller = db.query(models.User).filter(models.User.id == escrow.seller_id).first()
+    seller = (
+        db.query(models.User).filter(models.User.id == escrow.seller_id)
+        .populate_existing().with_for_update().first()
+    )
     if not seller:
         raise EscrowError(f"Seller {escrow.seller_id} not found for escrow {escrow.id}")
 
@@ -509,6 +552,7 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
 
     from app.services.payouts import (
         PayoutError,
+        PayoutNotSubmitted,
         get_payout_provider,
         get_payout_provider_named,
     )
@@ -528,38 +572,36 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
         logger.info(
             "Escrow %s released via %s — %s kobo to seller %s (ref=%s)",
             escrow.id,
-            provider.name,
+            escrow.transfer_provider or provider.name,
             escrow.payout_kobo,
             seller.id,
             ref,
         )
         return True
 
-    # A reference is only valid on the rail it was sent to. If the payout rail
-    # has since changed (e.g. an early Paystack attempt that failed on balance,
-    # now correctly routed to Flutterwave), the old reference is void on the new
-    # provider — querying it returns 'unknown', which must NOT be read as
-    # "in flight". Detect that and start a fresh transfer on the current rail.
-    rail_changed = bool(
-        escrow.transfer_reference and escrow.transfer_provider and escrow.transfer_provider != provider.name
-    )
-
-    # Reconcile an already-initiated transfer (on the SAME rail) before sending new.
-    if escrow.transfer_reference and not rail_changed:
-        prior = provider.transfer_status(escrow.transfer_reference)
+    if escrow.transfer_reference:
+        previous_provider = (
+            provider if getattr(escrow, "transfer_provider", None) == provider.name
+            else _transfer_provider(db, escrow)
+        )
+        prior = (
+            "failed" if getattr(escrow, "transfer_not_submitted", False)
+            else previous_provider.transfer_status(escrow.transfer_reference)
+        )
         if prior == "successful":
             return _finalize(escrow.transfer_reference)
-        if prior in ("pending", "unknown"):
-            # In flight or indeterminate — do NOT re-send; a later run confirms.
+        if prior != "failed":
             return False
-        # prior == "failed" → the reference is burned; retry with a fresh one below.
+
+    if not payout_window_cleared(escrow, dt.datetime.now(dt.timezone.utc)):
+        return False
 
     # T+1 settlement gate: never START a new payout before the collection has
     # settled. Buyer protection may be over, but the money settles to the seller
     # in the next daily settlement run (funded by settled collections, not float).
     # (An in-flight transfer above is exempt — it's already been sent.)
     settle_at = getattr(escrow, "settle_at", None)
-    if settle_at is not None and not escrow.transfer_reference:
+    if settle_at is not None:
         if settle_at.tzinfo is None:
             settle_at = settle_at.replace(tzinfo=dt.timezone.utc)
         if settle_at > dt.datetime.now(dt.timezone.utc):
@@ -570,7 +612,7 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
     if not escrow.transfer_reference:
         reference = f"ESCROWREL-{escrow.id}"
     else:
-        reference = f"ESCROWREL-{escrow.id}-{int(dt.datetime.now(dt.timezone.utc).timestamp())}"
+        reference = f"ESCROWREL-{escrow.id}-{secrets.token_hex(8)}"
 
     payout_reason = f"Storefront order payout ({reason}) — invoice {escrow.invoice_id}"
 
@@ -579,6 +621,7 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
     if escrow.transfer_reference != reference or escrow.transfer_provider != provider.name:
         escrow.transfer_reference = reference
         escrow.transfer_provider = provider.name
+        escrow.transfer_not_submitted = False
         db.commit()
 
     try:
@@ -589,7 +632,10 @@ def release_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason:
             reference=reference,
             reason=payout_reason,
         )
-    except PayoutError as exc:  # network/transport failure → retry later
+    except PayoutNotSubmitted as exc:
+        _record_unsubmitted_transfer(db, [escrow.id], reference)
+        raise EscrowError(f"Transfer was not submitted: {exc}") from exc
+    except PayoutError as exc:
         raise EscrowError(f"Transfer request failed: {exc}") from exc
 
     status = (result.status or "").lower()
@@ -644,7 +690,7 @@ def release_seller_batch(
     in flight / not yet settle-eligible). Raises EscrowError on a genuine failure
     so the caller can retry later (the rows stay 'held').
     """
-    from app.services.payouts import PayoutError, get_payout_provider_named
+    from app.services.payouts import PayoutError, PayoutNotSubmitted, get_payout_provider_named
 
     if not escrows:
         return 0
@@ -654,8 +700,17 @@ def release_seller_batch(
 
     # Serialize against the per-order worker / admin actions / retries.
     locked = (
-        db.query(models.StorefrontOrderEscrow).filter(models.StorefrontOrderEscrow.id.in_(ids)).with_for_update().all()
+        db.query(models.StorefrontOrderEscrow)
+        .filter(models.StorefrontOrderEscrow.id.in_(ids))
+        .order_by(models.StorefrontOrderEscrow.id)
+        .populate_existing()
+        .with_for_update()
+        .all()
     )
+    if len({e.seller_id for e in locked}) > 1:
+        raise EscrowError("A payout batch must belong to one seller")
+    if any(e.charge_reference and payout_rail_for(db, e) != provider_name for e in locked):
+        raise EscrowError("A payout batch must use each order's collecting provider")
     now = dt.datetime.now(dt.timezone.utc)
 
     # Only genuinely releasable rows: still held, not flagged, something to pay.
@@ -663,7 +718,10 @@ def release_seller_batch(
     if not eligible:
         return 0
 
-    seller = db.query(models.User).filter(models.User.id == eligible[0].seller_id).first()
+    seller = (
+        db.query(models.User).filter(models.User.id == eligible[0].seller_id)
+        .populate_existing().with_for_update().first()
+    )
     if not seller:
         raise EscrowError(f"Seller {eligible[0].seller_id} not found for batch payout")
 
@@ -680,10 +738,10 @@ def release_seller_batch(
         for e in group:
             e.status = "released"
             e.released_at = dt.datetime.now(dt.timezone.utc)
-        db.commit()
+        db.flush()
         logger.info(
             "Escrow batch released via %s — %s kobo to seller %s over %d orders (ref=%s)",
-            provider.name,
+            group[0].transfer_provider or provider.name,
             sum(int(e.payout_kobo) for e in group),
             seller.id,
             len(group),
@@ -695,30 +753,28 @@ def release_seller_batch(
     # ── 1. Reconcile any already-initiated transfers first ────────────────
     # Group stamped rows by their shared reference. A batch sent on a prior run
     # (or a leftover per-order ESCROWREL ref) is confirmed/cleared before we send
-    # anything new, so an in-flight transfer is never double-paid. A rail change
-    # voids the old reference (unknown on the new provider) → treat as fresh.
-    stamped: dict[str, list[models.StorefrontOrderEscrow]] = {}
+    # anything new, so an in-flight transfer is never double-paid.
+    stamped: dict[tuple[str | None, str], list[models.StorefrontOrderEscrow]] = {}
     fresh: list[models.StorefrontOrderEscrow] = []
     for e in eligible:
         ref = e.transfer_reference
-        rail_changed = bool(ref and e.transfer_provider and e.transfer_provider != provider.name)
-        if ref and not rail_changed:
-            stamped.setdefault(ref, []).append(e)
+        if ref:
+            stamped.setdefault((e.transfer_provider, ref), []).append(e)
         else:
-            if rail_changed:
-                e.transfer_reference = None
             fresh.append(e)
 
-    for ref, group in stamped.items():
-        prior = provider.transfer_status(ref)
+    for (_, ref), group in stamped.items():
+        previous_provider = (
+            provider if group[0].transfer_provider == provider.name else _transfer_provider(db, group[0])
+        )
+        prior = (
+            "failed" if all(e.transfer_not_submitted for e in group)
+            else previous_provider.transfer_status(ref)
+        )
         if prior == "successful":
             _finalize(group, ref)
             released += len(group)
-        elif prior in ("pending", "unknown"):
-            continue  # in flight / indeterminate — wait for a later run
-        else:  # failed → burn the reference, retry these in the fresh batch
-            for e in group:
-                e.transfer_reference = None
+        elif prior == "failed":
             fresh.extend(group)
 
     if not fresh:
@@ -728,6 +784,8 @@ def release_seller_batch(
     # ── 2. Settlement gate — only pay orders whose collection has settled ──
     payable: list[models.StorefrontOrderEscrow] = []
     for e in fresh:
+        if not payout_window_cleared(e, now):
+            continue
         settle_at = getattr(e, "settle_at", None)
         if settle_at is not None:
             if settle_at.tzinfo is None:
@@ -751,6 +809,7 @@ def release_seller_batch(
     for e in payable:
         e.transfer_reference = batch_ref
         e.transfer_provider = provider.name
+        e.transfer_not_submitted = False
     db.commit()
 
     try:
@@ -761,20 +820,21 @@ def release_seller_batch(
             reference=batch_ref,
             reason=payout_reason,
         )
-    except PayoutError as exc:  # network/transport failure → retry later
+    except PayoutNotSubmitted as exc:
+        _record_unsubmitted_transfer(db, [e.id for e in payable], batch_ref)
+        raise EscrowError(f"Batch transfer was not submitted: {exc}") from exc
+    except PayoutError as exc:
         raise EscrowError(f"Batch transfer request failed: {exc}") from exc
 
     status = (result.status or "").lower()
     if status == "successful" or provider.transfer_exists(batch_ref):
         _finalize(payable, batch_ref)
+        db.commit()
         return released + len(payable)
     if result.ok or status in ("pending", "queued", "new"):
         db.commit()  # keep the stamped intent; confirm/finalize on the next run
         return released  # accepted/in-flight — do NOT re-send
-    # Genuine failure — burn the batch reference so a later run retries cleanly.
-    for e in payable:
-        e.transfer_reference = None
-    db.commit()
+    # Keep the reference even on rejection; reconcile it before any fresh attempt.
     raise EscrowError(f"Batch transfer failed for seller {seller.id}: {result.message}")
 
 
@@ -808,6 +868,7 @@ def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: 
         locked = (
             db.query(models.StorefrontOrderEscrow)
             .filter(models.StorefrontOrderEscrow.id == _eid)
+            .populate_existing()
             .with_for_update()
             .first()
         )
@@ -818,6 +879,10 @@ def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: 
         return True
     if escrow.status == "released":
         raise EscrowError(f"Escrow {escrow.id} already paid out — cannot refund")
+    if escrow.status == "refund_pending":
+        raise EscrowError("Refund submission is unresolved. Verify it with the collecting provider before retrying.")
+    if escrow.status not in {"held", "disputed"}:
+        raise EscrowError("Only a paid, held or disputed order can be refunded")
 
     if not escrow.charge_reference:
         raise EscrowError(f"Escrow {escrow.id} has no charge reference to refund")
@@ -826,6 +891,21 @@ def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: 
 
     collector = get_collection_provider_named(_collector_for_charge(db, escrow.charge_reference))
 
+    if getattr(escrow, "transfer_reference", None):
+        prior = (
+            "failed" if getattr(escrow, "transfer_not_submitted", False)
+            else _transfer_provider(db, escrow).transfer_status(escrow.transfer_reference)
+        )
+        if prior != "failed":
+            raise EscrowError("Seller payout is paid or unresolved — do not refund until it is reconciled.")
+
+    # Reserve before the external call. A timeout/crash must never allow a second
+    # refund or a seller payout while the first refund may have been accepted.
+    prior_review_reason = escrow.review_reason
+    escrow.status = "refund_pending"
+    escrow.held_for_review = True
+    escrow.review_reason = "Refund submission unresolved — verify with collecting provider"
+    db.commit()
     try:
         data = collector.refund(
             reference=escrow.charge_reference,
@@ -838,11 +918,14 @@ def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: 
             ),
             note=f"Storefront buyer protection ({reason}) — invoice {escrow.invoice_id}",
         )
-    except CollectionError as exc:  # network/timeout / provider error → retry later
-        raise EscrowError(str(exc)) from exc
+    except CollectionError as exc:
+        logger.exception("Refund submission unresolved for escrow %s", escrow.id)
+        raise EscrowError(f"Refund requires provider reconciliation before any retry: {exc}") from exc
 
     refund = data.get("data") or {}
     escrow.status = "refunded"
+    escrow.held_for_review = False
+    escrow.review_reason = prior_review_reason
     escrow.refunded_at = dt.datetime.now(dt.timezone.utc)
     escrow.refund_reference = str(refund.get("id") or escrow.charge_reference)[:100]
     db.commit()
@@ -859,7 +942,7 @@ def refund_escrow(db: Session, escrow: models.StorefrontOrderEscrow, *, reason: 
         + int(getattr(escrow, "delivery_fee_kobo", 0) or 0)
     )
     logger.info(
-        "Escrow %s refunded via %s — %s kobo returned to buyer (charge=%s)",
+        "Escrow %s refund accepted by %s — %s kobo requested for buyer (charge=%s)",
         escrow.id,
         collector.name,
         refunded_kobo,
@@ -878,7 +961,10 @@ def _settle_refunded_delivery_fee(db: Session, escrow: models.StorefrontOrderEsc
     delivered = getattr(escrow, "courier_delivered_at", None) is not None
     order_id = getattr(escrow, "shipbubble_order_id", None)
     if delivered:
-        seller = db.query(models.User).filter(models.User.id == escrow.seller_id).first()
+        seller = (
+            db.query(models.User).filter(models.User.id == escrow.seller_id)
+            .populate_existing().with_for_update().first()
+        )
         if seller is not None:
             seller.wallet_balance_kobo = int(getattr(seller, "wallet_balance_kobo", 0) or 0) - fee
             db.commit()

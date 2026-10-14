@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 
-from .base import PayoutError, PayoutProvider, PayoutResult
+from .base import PayoutError, PayoutNotSubmitted, PayoutProvider, PayoutResult
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.models import models
@@ -205,9 +205,13 @@ class FlutterwavePayoutProvider(PayoutProvider):
         account_number = seller.payout_account_number or seller.account_number
         bank_name = seller.payout_bank_name or seller.bank_name
         if not (account_number and bank_name):
-            raise PayoutError("Seller has no bank details set for payouts")
+            raise PayoutNotSubmitted("Seller has no bank details set for payouts")
 
-        bank_code = self._resolve_bank_code(bank_name)
+        try:
+            bank_code = self._resolve_bank_code(bank_name)
+            headers = self._headers()
+        except PayoutError as exc:
+            raise PayoutNotSubmitted(str(exc)) from exc
         amount_naira = round(amount_kobo / 100, 2)
 
         # Pre-transfer float guard: FW transfers debit the payout balance. Fail
@@ -215,7 +219,7 @@ class FlutterwavePayoutProvider(PayoutProvider):
         # queuing an under-funded transfer. Skipped when the balance is unreadable.
         available = self._available_balance_naira()
         if available is not None and available < amount_naira:
-            raise PayoutError(
+            raise PayoutNotSubmitted(
                 f"Flutterwave payout balance too low: have ₦{available:.2f}, " f"need ₦{amount_naira:.2f}"
             )
 
@@ -223,7 +227,7 @@ class FlutterwavePayoutProvider(PayoutProvider):
             with self._http_client(20) as client:
                 resp = client.post(
                     f"{self._base()}/v3/transfers",
-                    headers=self._headers(),
+                    headers=headers,
                     json={
                         "account_bank": bank_code,
                         "account_number": account_number,

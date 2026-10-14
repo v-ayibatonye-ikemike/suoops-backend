@@ -920,6 +920,7 @@ def _apply_shipbubble_update(
     escrow = (
         db.query(models.StorefrontOrderEscrow)
         .filter(models.StorefrontOrderEscrow.shipbubble_order_id == order_id)
+        .populate_existing().with_for_update()
         .first()
     )
     if not escrow:
@@ -951,6 +952,9 @@ def _apply_shipbubble_update(
     if code and code != escrow.delivery_status:
         escrow.delivery_status = code
         escrow.delivery_status_at = now
+        if code in {"returned", "cancelled"} and escrow.status == "held":
+            escrow.held_for_review = True
+            escrow.review_reason = f"Courier reported {code} — review fulfillment before payout"
         notice = {
             "picked_up": "🚚 Your order has been picked up by the courier — it's on the way.",
             "out_for_delivery": "🛵 Your order is out for delivery — expect it soon.",
@@ -986,3 +990,4 @@ def _apply_shipbubble_update(
             )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to post delivery notice for escrow %s", escrow.id)
+    db.flush()
