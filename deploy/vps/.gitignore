@@ -1,0 +1,7 @@
+.env
+.backup.lock
+backend.env
+restic.env
+*.dump
+*.rdb
+backups/

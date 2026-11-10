@@ -1,0 +1,20 @@
+x-test-backend: &test-backend
+  env_file: !reset []
+  environment:
+    ENV: test
+    AWS_EC2_METADATA_DISABLED: "true"
+  networks: !override [data]
+
+services:
+  api:
+    <<: *test-backend
+  worker:
+    <<: *test-backend
+  beat:
+    <<: *test-backend
+  migrate:
+    <<: *test-backend
+  frontend:
+    networks: !override [data]
+  support:
+    networks: !override [data]

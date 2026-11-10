@@ -1,0 +1,12 @@
+[Unit]
+Description=SuoOps encrypted off-server backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/suoops/suoops-backend/deploy/vps
+ExecStart=/bin/bash /opt/suoops/suoops-backend/deploy/vps/backup.sh
+UMask=0077

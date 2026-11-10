@@ -2,7 +2,6 @@
 
 import logging
 import secrets
-import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -249,8 +248,10 @@ def create_default_admin(db: Session) -> AdminUser | None:
 
 def send_admin_invite_email(to_email: str, name: str, invite_link: str) -> bool:
     """Send admin invitation email."""
+    from app.utils.smtp import email_api_enabled, email_is_configured, send_email_message
+
     try:
-        if not settings.SMTP_HOST:
+        if not settings.SMTP_HOST and not (email_api_enabled() and email_is_configured()):
             logger.warning("SMTP not configured, skipping invite email")
             return False
 
@@ -304,13 +305,10 @@ def send_admin_invite_email(to_email: str, name: str, invite_link: str) -> bool:
 
         msg.attach(MIMEText(html, "html"))
 
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.starttls()  # Always use TLS for security
-            if settings.SMTP_USER and settings.SMTP_PASSWORD:
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
-
-        return True
+        return send_email_message(msg, smtp_config={
+            "host": settings.SMTP_HOST, "port": settings.SMTP_PORT,
+            "user": settings.SMTP_USER, "password": settings.SMTP_PASSWORD,
+        })
     except Exception as e:
         logger.error("Failed to send admin invite email: %s", e)
         return False

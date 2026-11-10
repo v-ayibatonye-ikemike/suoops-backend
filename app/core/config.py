@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,7 @@ class BaseAppSettings(BaseSettings):
 
     # Email Configuration - Using Brevo
     EMAIL_PROVIDER: str = "brevo"  # We use Brevo for email
+    EMAIL_TRANSPORT: Literal["smtp", "brevo_api"] = "smtp"
     FROM_EMAIL: str | None = None
 
     # SMTP Configuration (Generic - works with Brevo, SES, etc.)

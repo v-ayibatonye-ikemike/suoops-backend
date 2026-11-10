@@ -301,10 +301,10 @@ class OTPService:
     def _send_email_otp(self, email: str, otp: str, purpose: str) -> None:
         """Send OTP via email, trying every configured provider (ZeptoMail →
         Brevo) so a single provider's SMTP auth failure doesn't block login."""
-        from app.utils.smtp import get_smtp_configs, send_email_with_fallback
+        from app.utils.smtp import email_is_configured, send_email_with_fallback
 
-        if not get_smtp_configs():
-            logger.error("SMTP not configured. Set SMTP_*_ZEP / SMTP_* / BREVO_SMTP_LOGIN+BREVO_SMTP_KEY.")
+        if not email_is_configured():
+            logger.error("Selected email transport is not configured")
             raise ValueError("Email OTP is not available")
 
         # Render the HTML template (+ plain-text fallback body).

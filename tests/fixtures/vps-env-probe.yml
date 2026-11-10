@@ -1,0 +1,10 @@
+name: suoops-vps-env-test
+services:
+  env-probe:
+    image: caddy:2-alpine
+    network_mode: none
+    env_file:
+      - path: backend.env
+        format: raw
+    entrypoint: ["sh", "-ec"]
+    command: ['test "$$VPS_TEST_LITERAL" = ''dollar$$TOKEN#literal''']

@@ -1,7 +1,6 @@
 """Support routes for contact form, tickets, and admin dashboard."""
 
 import logging
-import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -108,6 +107,18 @@ class AdminDashboardStats(BaseModel):
 
 def _get_smtp_config() -> dict | None:
     """Get SMTP configuration from settings."""
+    from app.utils.smtp import email_api_enabled, email_is_configured
+
+    if email_api_enabled():
+        if not email_is_configured():
+            logger.error("Brevo HTTPS transport is not configured")
+            return None
+        return {
+            "host": settings.SMTP_HOST,
+            "port": settings.SMTP_PORT,
+            "user": settings.SMTP_USER,
+            "password": settings.SMTP_PASSWORD,
+        }
     if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
         return {
             "host": settings.SMTP_HOST,
@@ -126,10 +137,7 @@ def _send_contact_email(contact: ContactRequest, ticket_id: int) -> bool:
             logger.warning("No email provider configured for support contact")
             return False
 
-        smtp_host = smtp_config["host"]
-        smtp_port = smtp_config["port"]
         smtp_user = smtp_config["user"]
-        smtp_password = smtp_config["password"]
         from_email = getattr(settings, "FROM_EMAIL", smtp_user)
         support_email = getattr(settings, "SUPPORT_EMAIL", "support@suoops.com")
 
@@ -162,10 +170,10 @@ This email was sent from the SuoOps Help Center contact form.
 """
         msg.attach(MIMEText(body, "plain"))
 
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+        from app.utils.smtp import send_email_message
+
+        if not send_email_message(msg, smtp_config=smtp_config):
+            return False
 
         logger.info("Support contact email sent for ticket #%d", ticket_id)
         return True
@@ -210,10 +218,10 @@ For additional help, visit: https://support.suoops.com
 """
         msg.attach(MIMEText(body, "plain"))
 
-        with smtplib.SMTP(smtp_config["host"], smtp_config["port"]) as server:
-            server.starttls()
-            server.login(smtp_config["user"], smtp_config["password"])
-            server.send_message(msg)
+        from app.utils.smtp import send_email_message
+
+        if not send_email_message(msg, smtp_config=smtp_config):
+            return
 
         logger.info("Confirmation email sent to %s for ticket #%d", contact.email, ticket_id)
     except Exception as e:
@@ -257,10 +265,10 @@ SuoOps Support Team
 """
         msg.attach(MIMEText(body, "plain"))
 
-        with smtplib.SMTP(smtp_config["host"], smtp_config["port"]) as server:
-            server.starttls()
-            server.login(smtp_config["user"], smtp_config["password"])
-            server.send_message(msg)
+        from app.utils.smtp import send_email_message
+
+        if not send_email_message(msg, smtp_config=smtp_config):
+            return False
 
         logger.info("Response email sent to %s for ticket #%d", ticket.email, ticket.id)
         return True

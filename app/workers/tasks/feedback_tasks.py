@@ -231,7 +231,6 @@ def collect_user_feedback() -> dict[str, Any]:
 
 def _send_feedback_email(email: str, name: str, invoice_count: int, token: str) -> bool:
     """Send a feedback request email with a link to the feedback form."""
-    import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
@@ -266,11 +265,11 @@ Team</p>
         "— The SuoOps Team"
     )
 
-    from app.utils.smtp import get_smtp_config
+    from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
     smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-    if not smtp_user or not smtp_password:
+    if not email_is_configured():
         logger.warning("SMTP not configured, skipping feedback email to %s", email)
         return False
 
@@ -283,11 +282,7 @@ Team</p>
         msg.attach(MIMEText(plain, "plain"))
         msg.attach(MIMEText(html, "html"))
 
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        return True
+        return send_email_message(msg)
     except Exception as e:
         logger.warning("Feedback email failed to %s: %s", email, e)
         return False

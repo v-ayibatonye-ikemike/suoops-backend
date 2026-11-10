@@ -74,6 +74,8 @@ Thumbs.db
 # Environment & Secrets
 # =============================================================================
 .env
+/deploy/vps/caddy.env
+/deploy/vps/monitor.env
 .env.local
 .env.*.local
 *.pem

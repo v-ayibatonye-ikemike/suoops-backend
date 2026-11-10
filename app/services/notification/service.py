@@ -37,19 +37,19 @@ class NotificationService:
         Returns:
             dict with host, port, user, password, from_email — or None if unset.
         """
-        from app.utils.smtp import get_smtp_config
+        from app.utils.smtp import email_api_enabled, email_is_configured, get_smtp_config
 
         host, port, user, password, from_email = get_smtp_config()
-        if not user or not password:
+        if not email_is_configured():
             logger.warning("Email not configured. Set SMTP_HOST/SMTP_USER/SMTP_PASSWORD (or legacy Brevo vars).")
             return None
         return {
             "host": host,
             "port": port,
-            "user": user,
-            "password": password,
+            "user": user or "",
+            "password": password or "",
             "from_email": from_email,
-            "provider": "SMTP",
+            "provider": "BREVO_API" if email_api_enabled() else "SMTP",
         }
 
     # --- Email ---

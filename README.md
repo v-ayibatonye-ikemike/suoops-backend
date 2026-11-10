@@ -17,6 +17,21 @@ poetry run uvicorn app.api.main:app --reload
 
 > Deployments use `requirements.txt` + `.python-version`. The repository intentionally omits `poetry.lock` so the build environment doesn't detect multiple package managers—generate it locally if you need a lockfile, but leave it untracked.
 
+### VPS deployment and test isolation
+
+See the [VPS deployment runbook](deploy/vps/README.md) for private PostgreSQL/Redis,
+Cloudflare ingress, encrypted backups, OAuth token re-encryption and recovery.
+On DigitalOcean, configure `EMAIL_TRANSPORT=brevo_api` and a REST `BREVO_API_KEY`
+to deliver OTPs, notifications and PDF attachments over HTTPS rather than blocked
+SMTP ports. The application default remains `smtp` for existing deployments.
+
+Run tests with `python -m pytest`. The test bootstrap selects `APP_ENV=test` and
+`ENV=test` and clears `SENTRY_DSN` before importing the application; test settings
+also prevent Sentry initialization. Development and production reporting remain
+enabled when configured. Tests default `REDIS_URL` to empty, overriding a local
+`.env` so invoice caching and OTP storage do not contact localhost Redis. An
+explicit process-level `REDIS_URL` remains available for Redis integration tests.
+
 ### Frontend
 ```bash
 cd frontend

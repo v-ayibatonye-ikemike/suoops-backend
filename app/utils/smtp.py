@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import logging
 import smtplib
-from collections.abc import Sequence
+from base64 import b64encode
+from collections.abc import Mapping, Sequence
+from email.message import Message
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import getaddresses, parseaddr
+
+import httpx
 
 from app.core.config import settings
 
@@ -18,6 +23,133 @@ class EmailOutcomeUnknown(RuntimeError):
 
 # Reusable SMTP connection for batch sends (avoids reconnect per email)
 _smtp_connection: smtplib.SMTP | None = None
+
+
+def email_api_enabled() -> bool:
+    return settings.EMAIL_TRANSPORT == "brevo_api"
+
+
+def email_is_configured() -> bool:
+    if email_api_enabled():
+        return bool(settings.BREVO_API_KEY)
+    return bool(get_smtp_configs())
+
+
+def _send_brevo_message(message: Message, timeout: int) -> bool:
+    key = settings.BREVO_API_KEY
+    if not key or not key.startswith("xkeysib-"):
+        logger.error("Brevo HTTPS delivery requires a REST API key")
+        return False
+    from_header = str(message.get("From") or settings.FROM_EMAIL or "noreply@suoops.com")
+    name, address = parseaddr(from_header)
+    sender = {"email": address}
+    if name:
+        sender["name"] = name
+    payload: dict[str, object] = {"sender": sender, "subject": str(message.get("Subject", ""))}
+    for header, field in (("To", "to"), ("Cc", "cc"), ("Bcc", "bcc")):
+        recipients = [
+            {"email": email, **({"name": display} if display else {})}
+            for display, email in getaddresses([str(message.get(header, ""))])
+            if email
+        ]
+        if recipients:
+            payload[field] = recipients
+    if "to" not in payload or not address:
+        logger.error("Email submission requires a sender and recipient")
+        return False
+    reply_to = message.get("Reply-To")
+    if reply_to:
+        reply_name, reply_email = parseaddr(str(reply_to))
+        payload["replyTo"] = {"email": reply_email, **({"name": reply_name} if reply_name else {})}
+    headers = {
+        header: str(message[header])
+        for header in ("List-Unsubscribe", "List-Unsubscribe-Post")
+        if message.get(header)
+    }
+    if headers:
+        payload["headers"] = headers
+    attachments: list[dict[str, str]] = []
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        content = part.get_payload(decode=True)
+        if not isinstance(content, bytes):
+            logger.error("Email MIME part has no encoded content")
+            return False
+        if part.get_content_disposition() == "attachment":
+            attachments.append({"name": part.get_filename() or "attachment", "content": b64encode(content).decode("ascii")})
+        elif part.get_content_type() in {"text/plain", "text/html"}:
+            field = "htmlContent" if part.get_content_type() == "text/html" else "textContent"
+            try:
+                payload[field] = content.decode(part.get_content_charset() or "utf-8")
+            except (UnicodeError, LookupError):
+                logger.error("Email MIME content has an invalid character encoding")
+                return False
+        else:
+            logger.error("Unsupported email MIME content type")
+            return False
+    if attachments:
+        payload["attachment"] = attachments
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                "https://api.brevo.com/v3/smtp/email", headers={"api-key": key}, json=payload,
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        logger.error("Brevo rejected email submission: HTTP %d", error.response.status_code)
+        return False
+    except httpx.RequestError as error:
+        logger.error("Brevo email request failed: %s", type(error).__name__)
+        if headers and not isinstance(error, (httpx.ConnectError, httpx.ConnectTimeout)):
+            raise EmailOutcomeUnknown("Brevo acceptance is unknown; do not retry on another channel") from error
+        return False
+    try:
+        result = response.json()
+    except ValueError as error:
+        logger.error("Brevo returned an invalid email acceptance response")
+        if headers:
+            raise EmailOutcomeUnknown("Brevo acceptance is unknown; do not retry on another channel") from error
+        return False
+    if response.status_code != 201 or not isinstance(result, dict) or not isinstance(result.get("messageId"), str) or not result["messageId"].strip():
+        logger.error("Brevo did not confirm email acceptance")
+        if headers:
+            raise EmailOutcomeUnknown("Brevo acceptance is unknown; do not retry on another channel")
+        return False
+    logger.info("Brevo HTTPS API accepted email submission")
+    return True
+
+
+def send_email_message(
+    message: Message, *, smtp_config: Mapping[str, object] | None = None, timeout: int = 15,
+) -> bool:
+    """Deliver existing MIME content using the explicitly selected transport."""
+    if email_api_enabled():
+        return _send_brevo_message(message, timeout)
+    if smtp_config is None:
+        host, port, user, password, _ = get_smtp_config()
+    else:
+        host, port = smtp_config.get("host"), smtp_config.get("port")
+        user, password = smtp_config.get("user"), smtp_config.get("password")
+    if not isinstance(host, str) or not host or not isinstance(port, int):
+        logger.error("Invalid SMTP host or port")
+        return False
+    if (user is not None and not isinstance(user, str)) or (password is not None and not isinstance(password, str)):
+        logger.error("Invalid SMTP credentials")
+        return False
+    try:
+        with smtplib.SMTP(host, port, timeout=timeout) as server:
+            server.starttls()
+            if user and password:
+                server.login(user, password)
+            refused = server.send_message(message)
+        if refused:
+            logger.error("SMTP refused email recipients")
+            return False
+    except (smtplib.SMTPException, OSError) as error:
+        logger.error("SMTP email submission failed: %s", type(error).__name__)
+        return False
+    return True
 
 
 def get_smtp_configs() -> list[tuple[str, int, str | None, str | None, str]]:
@@ -131,7 +263,7 @@ def send_email_with_fallback(
     is skipped for critical mail (e.g. login OTP) that must send regardless.
     """
     configs = get_smtp_configs() if provider_configs is None else provider_configs
-    if not configs:
+    if not configs and not email_api_enabled():
         logger.warning("SMTP not configured, skipping email to %s", to_email)
         return False
 
@@ -141,6 +273,22 @@ def send_email_with_fallback(
         if is_suppressed(to_email):
             logger.info("Skipping suppressed address %s", to_email)
             return False
+
+    if email_api_enabled():
+        if provider_configs is not None and any(config[0].lower() != "smtp-relay.brevo.com" for config in provider_configs):
+            logger.error("Brevo API cannot deliver an explicit non-Brevo provider configuration")
+            return False
+        msg = MIMEMultipart("alternative")
+        msg["From"] = settings.FROM_EMAIL or "noreply@suoops.com"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        if unsubscribe_url:
+            msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        msg.attach(MIMEText(plain_body, "plain"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html"))
+        return send_email_message(msg, timeout=timeout)
 
     last_error: str | None = None
     for host, port, user, password, from_email in configs:
@@ -200,6 +348,8 @@ def send_smtp_batch(
     Much faster than calling send_smtp_email() in a loop because
     the TLS handshake + login happens once instead of per-email.
     """
+    if email_api_enabled():
+        return [send_email_with_fallback(*email) for email in emails]
     configs = get_smtp_configs()
     if not configs:
         logger.warning("SMTP not configured, skipping batch of %d emails", len(emails))

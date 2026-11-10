@@ -18,6 +18,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+# Select test settings and disable outbound telemetry before application imports.
+os.environ["APP_ENV"] = "test"
+os.environ["ENV"] = "test"
+os.environ["SENTRY_DSN"] = ""
+
 # Keep the suite hermetic: default the OTP store + rate limiter to their in-memory
 # fallbacks so tests never need a live Redis. A local .env can set REDIS_URL, which
 # pydantic would otherwise apply and push the OTP store onto a real Redis (failing

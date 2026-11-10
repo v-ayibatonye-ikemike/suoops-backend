@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly SuoOps off-server backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+Unit=suoops-backup.service
+
+[Install]
+WantedBy=timers.target

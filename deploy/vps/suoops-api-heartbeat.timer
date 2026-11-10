@@ -1,0 +1,12 @@
+[Unit]
+Description=Minute-by-minute SuoOps readiness heartbeat
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=1s
+RandomizedDelaySec=5s
+Unit=suoops-api-heartbeat.service
+
+[Install]
+WantedBy=timers.target

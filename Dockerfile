@@ -22,7 +22,7 @@ COPY . .
 # caches (otherwise: "Fontconfig error: No writable cache directories").
 RUN groupadd -r appuser \
     && useradd -r -g appuser -m -d /home/appuser appuser \
-    && mkdir -p /home/appuser/.cache/fontconfig \
+    && mkdir -p /home/appuser/.cache/fontconfig /app/storage \
     && chown -R appuser:appuser /app /home/appuser
 ENV HOME=/home/appuser \
     XDG_CACHE_HOME=/home/appuser/.cache

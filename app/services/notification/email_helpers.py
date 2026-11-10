@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from asyncio import to_thread
 from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -11,6 +12,7 @@ import aiosmtplib
 import httpx
 
 from app.core.config import settings
+from app.utils.smtp import email_api_enabled, send_email_message
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.models import models
@@ -90,6 +92,8 @@ Powered by SuoOps
             except Exception as e:  # pragma: no cover
                 logger.error("Failed to download PDF for email attachment: %s", e)
 
+        if email_api_enabled():
+            return await to_thread(send_email_message, msg)
         await aiosmtplib.send(
             msg,
             hostname=smtp_host,
@@ -170,6 +174,8 @@ Powered by SuoOps
             except Exception as e:  # pragma: no cover
                 logger.error("Failed to download PDF for receipt: %s", e)
 
+        if email_api_enabled():
+            return await to_thread(send_email_message, msg)
         await aiosmtplib.send(
             msg,
             hostname=smtp_host,
@@ -204,6 +210,8 @@ async def send_simple_email(service: NotificationService, to_email: str, subject
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
 
+        if email_api_enabled():
+            return await to_thread(send_email_message, msg)
         await aiosmtplib.send(
             msg,
             hostname=smtp_host,

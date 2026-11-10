@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _OAUTH_SALT = b"suoops_oauth_token_encryption_v1"
 
 
-def _get_fernet_key() -> bytes:
+def derive_token_encryption_key(jwt_secret: str) -> bytes:
     """
     Derive Fernet encryption key from JWT_SECRET.
 
@@ -38,10 +38,10 @@ def _get_fernet_key() -> bytes:
     Raises:
         ValueError: If JWT_SECRET is not configured
     """
-    if not settings.JWT_SECRET or settings.JWT_SECRET == "change_me":
+    if not jwt_secret or jwt_secret == "change_me":
         raise ValueError("JWT_SECRET must be configured for token encryption")
 
-    key_material = settings.JWT_SECRET.encode("utf-8")
+    key_material = jwt_secret.encode("utf-8")
 
     # Derive 32-byte key using PBKDF2
     derived_key = hashlib.pbkdf2_hmac(
@@ -54,6 +54,10 @@ def _get_fernet_key() -> bytes:
 
     # Fernet requires base64-encoded key
     return base64.urlsafe_b64encode(derived_key)
+
+
+def _get_fernet_key() -> bytes:
+    return derive_token_encryption_key(settings.JWT_SECRET)
 
 
 def encrypt_token(token: str) -> str:

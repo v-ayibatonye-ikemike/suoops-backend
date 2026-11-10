@@ -9,6 +9,9 @@ def init_monitoring() -> None:
     global _initialized
     if _initialized:
         return
+    if settings.ENV.lower() in {"test", "testing"}:
+        logging.getLogger(__name__).info("Sentry disabled for test environment")
+        return
     dsn = getattr(settings, "SENTRY_DSN", None)
     if dsn:
         try:

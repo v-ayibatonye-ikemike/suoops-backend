@@ -1,0 +1,226 @@
+name: suoops-vps
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-backend: &backend
+  image: suoops-backend:${RELEASE_TAG:-local}
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  env_file:
+    - path: backend.env
+      required: true
+      format: raw
+  environment: &backend-environment
+    ENV: prod
+    PORT: "8000"
+    DATABASE_URL: postgresql://${POSTGRES_USER:-suoops}:${POSTGRES_PASSWORD:?Run init-secrets.sh}@db:5432/${POSTGRES_DB:-suoops}
+    REDIS_URL: redis://:${REDIS_PASSWORD:?Run init-secrets.sh}@redis:6379/0
+    FRONTEND_URL: https://${FRONTEND_DOMAIN:?Set FRONTEND_DOMAIN}
+    BACKEND_URL: https://${API_DOMAIN:?Set API_DOMAIN}
+    CORS_ALLOW_ORIGINS: '["https://${FRONTEND_DOMAIN}","https://${WWW_DOMAIN:?Set WWW_DOMAIN}","https://${SUPPORT_DOMAIN:?Set SUPPORT_DOMAIN}"]'
+    CORS_ALLOW_ORIGIN_REGEX: ""
+    CSRF_COOKIE_DOMAIN: .${FRONTEND_DOMAIN}
+    TRUSTED_PROXY_HOPS: "1"
+    MALLOC_ARENA_MAX: "2"
+    LOG_FORMAT: json
+    LOG_LEVEL: INFO
+  volumes:
+    - app-storage:/app/storage
+  networks:
+    - data
+    - edge
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  logging: *logging
+  init: true
+
+services:
+  caddy:
+    image: suoops-caddy:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Caddy.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: caddy.env
+        required: true
+        format: raw
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+      FRONTEND_DOMAIN: ${FRONTEND_DOMAIN}
+      WWW_DOMAIN: ${WWW_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      SUPPORT_DOMAIN: ${SUPPORT_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    logging: *logging
+    mem_limit: 256m
+
+  frontend:
+    image: suoops-frontend:${RELEASE_TAG:-local}
+    build:
+      context: ../../../suoops-frontend
+      dockerfile: Dockerfile
+      secrets:
+        - npmrc
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set frontend API URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_FRONTEND_URL: ${NEXT_PUBLIC_FRONTEND_URL}
+        NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN:-}
+        NEXT_PUBLIC_HIOBUY_ENABLED: ${NEXT_PUBLIC_HIOBUY_ENABLED:-false}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_GADS_SIGNUP_LABEL: ${NEXT_PUBLIC_GADS_SIGNUP_LABEL:-}
+        NEXT_PUBLIC_GADS_PURCHASE_LABEL: ${NEXT_PUBLIC_GADS_PURCHASE_LABEL:-}
+        NEXT_PUBLIC_GADS_INVOICE_LABEL: ${NEXT_PUBLIC_GADS_INVOICE_LABEL:-}
+    restart: unless-stopped
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *logging
+    mem_limit: 768m
+    init: true
+
+  support:
+    image: suoops-support:${RELEASE_TAG:-local}
+    build:
+      context: ../../../suoops-frontend/support-suoops
+      dockerfile: ../Dockerfile
+      args:
+        NODE_VERSION: "24"
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set support API URL}
+    restart: unless-stopped
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *logging
+    mem_limit: 512m
+    init: true
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    # No published API port: trust Caddy's sanitized headers for HTTPS redirects.
+    # Application middleware independently validates the rightmost client-IP hop.
+    command: ["sh", "-c", "FORWARDED_ALLOW_IPS='*' exec gunicorn app.api.main:app -k uvicorn.workers.UvicornWorker -w 1 --timeout 60 --max-requests 800 --max-requests-jitter 200 --bind 0.0.0.0:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 1536m
+
+  worker:
+    <<: *backend
+    restart: unless-stopped
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info", "--concurrency=2", "--max-tasks-per-child=200", "--hostname=worker@%h"]
+    stop_grace_period: 6m
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping --destination worker@$$HOSTNAME --timeout 5"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    mem_limit: 1536m
+
+  beat:
+    <<: *backend
+    restart: unless-stopped
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info"]
+    mem_limit: 384m
+
+  migrate:
+    <<: *backend
+    profiles: ["tools"]
+    command: ["bash", "release.sh"]
+    restart: "no"
+    mem_limit: 512m
+
+  db:
+    image: postgres:${POSTGRES_VERSION:-18}-bookworm
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-suoops}
+      POSTGRES_USER: ${POSTGRES_USER:-suoops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run init-secrets.sh}
+      PGDATA: /var/lib/postgresql/${POSTGRES_VERSION:-18}/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+    mem_limit: 2g
+
+  redis:
+    image: redis:8.2.10-bookworm
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run init-secrets.sh}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - |
+        umask 077
+        printf 'requirepass %s\nappendonly yes\nappendfsync everysec\nmaxmemory 256mb\nmaxmemory-policy noeviction\n' "$$REDIS_PASSWORD" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf
+    volumes:
+      - redis-data:/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(redis-cli ping)\" = PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    mem_limit: 512m
+
+networks:
+  edge:
+  data:
+    internal: true
+
+volumes:
+  postgres-data:
+  redis-data:
+  app-storage:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  npmrc:
+    file: ../../../suoops-frontend/.npmrc

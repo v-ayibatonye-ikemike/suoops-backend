@@ -315,11 +315,11 @@ class TeamService:
         """Send team invitation email via SMTP."""
         try:
             # Provider-agnostic SMTP config (SMTP_* first, Brevo vars as fallback).
-            from app.utils.smtp import get_smtp_config
+            from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
             smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-            if not all([smtp_user, smtp_password]):
+            if not email_is_configured():
                 logger.warning("SMTP not configured. Team invitation email not sent.")
                 return
 
@@ -378,10 +378,8 @@ Professional Invoicing & Expense Management
 
             # Send email via SMTP
             logger.info("Sending team invitation email to %s", invitation.email)
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.send_message(msg)
+            if not send_email_message(msg, timeout=10):
+                return
 
             logger.info("Successfully sent team invitation email to %s", invitation.email)
 

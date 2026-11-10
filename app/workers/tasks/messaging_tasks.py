@@ -404,7 +404,6 @@ def _build_owner_escalation_message(tiers: dict[str, list[Any]], today: date) ->
 def _send_owner_overdue_email(to_email: str, name: str | None, tiers: dict[str, list[Any]], today: date) -> bool:
     """Send the overdue invoice report via email when WhatsApp is unavailable."""
     import os
-    import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
@@ -454,11 +453,11 @@ def _send_owner_overdue_email(to_email: str, name: str | None, tiers: dict[str, 
 
     subject = f"⚠️ {total} Overdue Invoice(s) — Action Needed"
 
-    from app.utils.smtp import get_smtp_config
+    from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
     smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-    if not smtp_user or not smtp_password:
+    if not email_is_configured():
         logger.warning("SMTP not configured, cannot send overdue email to %s", to_email)
         return False
 
@@ -470,10 +469,8 @@ def _send_owner_overdue_email(to_email: str, name: str | None, tiers: dict[str, 
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+        if not send_email_message(msg):
+            return False
         logger.info("Overdue email sent to %s", to_email)
         return True
     except Exception as e:
@@ -492,7 +489,6 @@ def _send_mark_paid_email(
 ) -> bool:
     """Send mark-as-paid nudge via email when WhatsApp is unavailable."""
     import os
-    import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
@@ -542,11 +538,11 @@ def _send_mark_paid_email(
 
     subject = f"📋 {pending_count} Invoices Still Pending — Were They Paid?"
 
-    from app.utils.smtp import get_smtp_config
+    from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
     smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-    if not smtp_user or not smtp_password:
+    if not email_is_configured():
         logger.warning("SMTP not configured, cannot send mark-paid email to %s", to_email)
         return False
 
@@ -558,10 +554,8 @@ def _send_mark_paid_email(
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+        if not send_email_message(msg):
+            return False
         logger.info("Mark-paid email sent to %s", to_email)
         return True
     except Exception as e:
@@ -913,7 +907,6 @@ def _notify_owner_escalation(inv: Any, issuer: Any, customer: Any, business_name
         # Email fallback
         if not delivered and issuer.email:
             import os
-            import smtplib
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
 
@@ -951,11 +944,11 @@ def _notify_owner_escalation(inv: Any, issuer: Any, customer: Any, business_name
                 "Review at https://suoops.com/dashboard"
             )
 
-            from app.utils.smtp import get_smtp_config
+            from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
             smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-            if smtp_user and smtp_password:
+            if email_is_configured():
                 email_msg = MIMEMultipart("alternative")
                 email_msg["From"] = from_email
                 email_msg["To"] = issuer.email
@@ -963,11 +956,8 @@ def _notify_owner_escalation(inv: Any, issuer: Any, customer: Any, business_name
                 email_msg.attach(MIMEText(plain_body, "plain"))
                 email_msg.attach(MIMEText(html_body, "html"))
                 try:
-                    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-                        server.starttls()
-                        server.login(smtp_user, smtp_password)
-                        server.send_message(email_msg)
-                    logger.info("Escalation email sent to %s for invoice %s", issuer.email, inv.invoice_id)
+                    if send_email_message(email_msg):
+                        logger.info("Escalation email sent to %s for invoice %s", issuer.email, inv.invoice_id)
                 except Exception as e:
                     logger.warning("Escalation email failed for %s: %s", issuer.email, e)
     except Exception as e:
@@ -1698,7 +1688,6 @@ def _send_daily_summary_email(
 ) -> bool:
     """Send the daily business summary via email when WhatsApp is unavailable."""
     import os
-    import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
@@ -1756,11 +1745,11 @@ def _send_daily_summary_email(
 
     subject = "📊 Your Daily Business Summary — SuoOps"
 
-    from app.utils.smtp import get_smtp_config
+    from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
     smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-    if not smtp_user or not smtp_password:
+    if not email_is_configured():
         logger.warning("SMTP not configured, cannot send daily summary email to %s", to_email)
         return False
 
@@ -1772,10 +1761,8 @@ def _send_daily_summary_email(
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
+        if not send_email_message(msg):
+            return False
         logger.info("Daily summary email sent to %s", to_email)
         return True
     except Exception as e:

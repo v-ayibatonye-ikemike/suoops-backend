@@ -12,7 +12,6 @@ of signup — no waiting until the next morning.
 from __future__ import annotations
 
 import logging
-import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -193,11 +192,11 @@ def broadcast_welcome() -> dict:
 
 def _send_email(to_email: str, subject: str, html_body: str, plain_body: str) -> bool:
     """Send an email via Brevo SMTP. Returns True on success."""
-    from app.utils.smtp import get_smtp_config
+    from app.utils.smtp import email_is_configured, get_smtp_config, send_email_message
 
     smtp_host, smtp_port, smtp_user, smtp_password, from_email = get_smtp_config()
 
-    if not smtp_user or not smtp_password:
+    if not email_is_configured():
         logger.warning("SMTP not configured, skipping email to %s", to_email)
         return False
 
@@ -209,11 +208,7 @@ def _send_email(to_email: str, subject: str, html_body: str, plain_body: str) ->
     msg.attach(MIMEText(html_body, "html"))
 
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        return True
+        return send_email_message(msg)
     except Exception as e:
         logger.warning("Instant welcome SMTP failed to %s: %s", to_email, e)
         return False

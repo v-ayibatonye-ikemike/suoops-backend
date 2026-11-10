@@ -1,6 +1,10 @@
 # SuoOps Backup and Recovery Procedures
 
 ## Overview
+For the single-VPS deployment, use the [VPS backup, restore and cutover procedures](../deploy/vps/README.md).
+The Render-specific procedures below describe the legacy deployment and must not
+be used as evidence of current Railway or VPS backup coverage.
+
 SuoOps uses Render Postgres with automated daily backups. This document outlines backup procedures, disaster recovery process, and testing schedules.
 
 ## Current Backup Configuration

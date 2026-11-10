@@ -1,0 +1,12 @@
+[Unit]
+Description=SuoOps public API readiness and independent host heartbeat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/suoops/suoops-backend/deploy/vps
+ExecStart=/bin/bash /opt/suoops/suoops-backend/deploy/vps/heartbeat.sh api
+TimeoutStartSec=120
+UMask=0077
